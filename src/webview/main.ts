@@ -191,6 +191,28 @@ function restoreViewState(): void {
 /** What the grips were last placed against, so they are only re-measured when it moves. */
 let columnGeometry = '';
 
+/**
+ * Whether the Date column has room for the time as well as the day.
+ *
+ * A date column wide enough for `2022-01-25` and no wider is the right default - the day is what
+ * a history is read by, and four thousand rows of `00:00` beside it is noise. But two commits an
+ * hour apart on the same day are indistinguishable without it, which is exactly the moment anybody
+ * widens the column. So the format follows the width rather than a setting: drag it out and the
+ * time appears, drag it back and it goes.
+ */
+let dateWide = false;
+
+/** A date with the time, in digits, for measuring against the column. */
+const DATE_WITH_TIME = '2222-22-22 22:22';
+
+/**
+ * Measures text in the row's own font.
+ *
+ * Its own canvas rather than the graph's: nothing else sets a font on that one, and borrowing it
+ * to ask a question about text would leave the answer to the next drawing pass' assumptions.
+ */
+const ruler = document.createElement('canvas').getContext('2d');
+
 let rowHeight = 24;
 
 /**
@@ -562,7 +584,12 @@ function renderRows(indent: number, first: number, last: number): void {
 
     const date = document.createElement('span');
     date.className = 'date';
-    date.textContent = row.date.slice(0, 10);
+    // `%aI` is `2022-01-25T14:33:12+08:00`, so both forms are a slice of what already arrived.
+    date.textContent = dateWide
+      ? `${row.date.slice(0, 10)} ${row.date.slice(11, 16)}`
+      : row.date.slice(0, 10);
+    // The whole thing, offset included, for the one question the column cannot answer at any width.
+    date.title = row.date;
     el.append(date);
 
     const sha = document.createElement('span');
@@ -1982,8 +2009,38 @@ function applyColumns(): void {
  * carries a left padding that follows the graph's width. Reading the boxes back is the one way to
  * be right about all three at once.
  */
+/**
+ * Decide whether the time fits, and repaint if the answer changed.
+ *
+ * Measured rather than compared against a pixel count, because the answer is about a font: the same
+ * column is wide enough in one theme's font and not in another's.
+ */
+function measureDateWidth(): void {
+  const cell = columnsEl.querySelector<HTMLElement>(".col[data-sort='date']");
+
+  if (cell === null || ruler === null) {
+    return;
+  }
+
+  // The row's date, not the heading: they are different sizes, and it is the row that has to fit.
+  const sample = rowsEl.querySelector<HTMLElement>('.row .date') ?? cell;
+  const style = getComputedStyle(sample);
+
+  ruler.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+
+  // A few pixels of room, or the text sits flush against the edge and is ellipsised for it.
+  const fits = ruler.measureText(DATE_WITH_TIME).width + 6 <= cell.getBoundingClientRect().width;
+
+  if (fits !== dateWide) {
+    dateWide = fits;
+    schedule();
+  }
+}
+
 function placeGrips(): void {
   const bar = columnsEl.getBoundingClientRect();
+
+  measureDateWidth();
   const graphGrip = columnsEl.querySelector<HTMLElement>(".col-grip[data-grip='graph']");
 
   if (graphGrip !== null) {

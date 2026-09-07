@@ -11,6 +11,12 @@
   carries it rather than missing, and says so if a filter is keeping the commit out.
   `weft.inlineBlame` turns it off.
 
+- **The Date column shows the time once it is wide enough for it.** The day is what a history is
+  read by, and four thousand rows carrying a time nobody asked about is noise - but two commits
+  an hour apart on the same day are indistinguishable without it, which is the moment anybody
+  widens the column. So the format follows the width rather than a setting. The whole timestamp,
+  offset included, is on hover at any width.
+
 - **Toggle File Blame** puts every line’s author and date in a column down the left, and takes
   it away again. Off unless asked for, and asked for per file: it moves the code right and
   gives the eye a second column to read, which is worth it while you are reading a file’s

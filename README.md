@@ -148,6 +148,10 @@ Working:
   what the rows on screen need, not what the widest row in the history needed - the widest row in a
   repository with a hundred branches is almost never the one you are reading, and paying its width
   everywhere means a column that is mostly blank and lanes squeezed for no reason
+- The Date column shows the day, and the time as well once it is dragged wide enough to hold it -
+  the format follows the width rather than a setting, because widening that column is already the
+  gesture for "these two are on the same day and I need to tell them apart". The whole timestamp
+  with its offset is on hover at any width
 - Drag the line between two column headings to resize a column, double-click it to put the width
   back, and right-click the headings to switch Author, Date or Commit off. Description stays: it is
   the `1fr` the others leave their space to, and the column people came to read. All of it is
