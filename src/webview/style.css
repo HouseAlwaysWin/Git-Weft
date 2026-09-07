@@ -512,6 +512,7 @@ body.vscode-high-contrast.author-tint .row .author {
   border-color: var(--vscode-focusBorder, #0078d4);
 }
 
+#commit-order,
 #search-mode,
 #date-range {
   background: var(--vscode-input-background, transparent);
@@ -524,6 +525,7 @@ body.vscode-high-contrast.author-tint .row .author {
   outline: none;
 }
 
+#commit-order:focus,
 #search-mode:focus,
 #date-range:focus {
   border-color: var(--vscode-focusBorder, #0078d4);
@@ -956,6 +958,7 @@ body.vscode-high-contrast.author-tint .row .author {
   display: none;
 }
 
+/* Inside the dropdown, where it narrows the list of things to tick. */
 #branch-filter {
   margin: 2px 6px 6px;
   padding: 3px 6px;
@@ -964,6 +967,143 @@ body.vscode-high-contrast.author-tint .row .author {
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
   font: inherit;
+}
+
+/*
+ * The quick switch, and its own list.
+ *
+ * Deliberately not the dropdown next to it. That one is a list of tick boxes deciding which
+ * branches the graph draws, and its rows are two targets - a box and a name - which is right for
+ * choosing what to look at and wrong for saying where to go. Here a row is one thing, and clicking
+ * it checks out.
+ */
+#branch-jump-box {
+  position: relative;
+  display: inline-flex;
+}
+
+/*
+ * The three answers worth one click, beside the box rather than only in Source Control.
+ *
+ * Which branches the graph draws is a question asked while looking at the graph, and the sidebar
+ * that also answers it is a section in another panel that may well be collapsed.
+ */
+#ref-presets {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.ref-preset {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.ref-preset:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+  color: var(--weft-fg);
+}
+
+.ref-preset svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ref-preset svg .filled {
+  fill: currentColor;
+  stroke: none;
+}
+
+#branch-jump {
+  width: 14ch;
+  padding: 1px 6px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  /* Room to read a long branch name while typing one, given back the moment it is not in use. */
+  transition: width 120ms ease;
+}
+
+#branch-jump:focus {
+  width: 26ch;
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+#jump-list {
+  position: absolute;
+  z-index: 21;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 300px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px 0;
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, var(--weft-bg));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+}
+
+#jump-list[hidden] {
+  display: none;
+}
+
+#jump-empty {
+  padding: 6px 14px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* A heading, not a control: there is nothing to tick here, so there is nothing to click on it. */
+.jump-group {
+  padding: 4px 10px 2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+  text-transform: uppercase;
+}
+
+.jump-name {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 3px 10px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.jump-name:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* Where Return would go. The same colour a list selection uses, because that is what it is. */
+.jump-name.picked {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground, inherit);
+}
+
+/* Where HEAD is. Listed so the box can show you where you are, not clickable because it is. */
+.jump-name:disabled {
+  cursor: default;
+  font-weight: 600;
+  color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--weft-fg));
 }
 
 #branch-rows {

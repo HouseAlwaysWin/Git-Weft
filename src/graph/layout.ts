@@ -54,6 +54,17 @@ export interface GraphDelta {
   readonly paths: PathDelta[];
   /** Running pixel width of the whole graph so far. */
   readonly width: number;
+  /**
+   * What each row in this page needs on its own, in pixels - one entry per commit, in the same
+   * order as `dots`.
+   *
+   * `width` is the widest row in the whole history, and in a repository with a hundred branches
+   * that row is almost never one anybody is looking at. A column sized by it is mostly blank, and
+   * the lanes that *are* on screen get squeezed to fit a box they would have filled comfortably.
+   * Per row, the view can size itself to what is in front of the reader and give the rest back to
+   * the subjects.
+   */
+  readonly widths: number[];
 }
 
 export interface LayoutOptions {
@@ -223,6 +234,7 @@ export function appendCommits(
   const unsolved = state.unsolved;
   const dots: GraphDot[] = [];
   const links: GraphLink[] = [];
+  const widths: number[] = [];
   const closed: Lane[] = [];
   const ended: Lane[] = [];
 
@@ -326,13 +338,22 @@ export function appendCommits(
       }
     }
 
-    state.maxWidth = Math.max(state.maxWidth, Math.max(offsetX, maxOffsetOld));
+    /*
+     * Every lane drawn on this row sits at or left of `offsetX`, and `maxOffsetOld` covers the
+     * one that was rightmost before any of them died - which a dying lane still draws back to. So
+     * this bounds the row, and the running maximum of it bounds the history.
+     */
+    const need = Math.max(offsetX, maxOffsetOld);
+
+    widths.push(need + HALF_WIDTH + 2);
+    state.maxWidth = Math.max(state.maxWidth, need);
   }
 
   return {
     firstRow,
     dots,
     links,
+    widths,
     paths: drain([...unsolved, ...closed]),
     width: state.width,
   };
@@ -358,6 +379,7 @@ export function finishLayout(state: LayoutState): GraphDelta {
     firstRow: state.rowIndex,
     dots: [],
     links: [],
+    widths: [],
     paths: drain(state.unsolved),
     width: state.width,
   };

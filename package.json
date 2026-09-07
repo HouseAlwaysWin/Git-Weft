@@ -3,7 +3,7 @@
   "displayName": "Git Weft",
   "icon": "media/icon.png",
   "description": "A fast Git commit graph for VS Code, with the operations you would reach for while looking at it.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "HouseAlwaysWin",
   "license": "MIT",
   "engines": {
@@ -48,7 +48,7 @@
         "command": "weft.showAllRefs",
         "title": "Show All Branches & Tags",
         "category": "Git Weft",
-        "icon": "$(clear-all)"
+        "icon": "$(pass)"
       },
       {
         "command": "weft.stash",
@@ -61,6 +61,18 @@
         "title": "Filter Branches & Tags…",
         "category": "Git Weft",
         "icon": "$(filter)"
+      },
+      {
+        "command": "weft.untickAllRefs",
+        "title": "Untick All Branches & Tags",
+        "category": "Git Weft",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "weft.showCurrentRefOnly",
+        "title": "Show Only the Current Branch",
+        "category": "Git Weft",
+        "icon": "$(target)"
       },
       {
         "command": "weft.filterAuthors",
@@ -79,6 +91,18 @@
         "title": "Show All Authors",
         "category": "Git Weft",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "weft.sortAuthorsByName",
+        "title": "Sort Authors by Name",
+        "category": "Git Weft",
+        "icon": "$(symbol-text)"
+      },
+      {
+        "command": "weft.sortAuthorsByCommits",
+        "title": "Sort Authors by Commits",
+        "category": "Git Weft",
+        "icon": "$(list-ordered)"
       },
       {
         "command": "weft.deleteRef",
@@ -352,6 +376,16 @@
           "group": "navigation@2"
         },
         {
+          "command": "weft.untickAllRefs",
+          "when": "view == weft.refs",
+          "group": "navigation@2"
+        },
+        {
+          "command": "weft.showCurrentRefOnly",
+          "when": "view == weft.refs",
+          "group": "navigation@2"
+        },
+        {
           "command": "weft.openGraph",
           "when": "view == weft.refs",
           "group": "navigation@3"
@@ -370,6 +404,16 @@
           "command": "weft.showAllAuthors",
           "when": "view == weft.authors",
           "group": "navigation@2"
+        },
+        {
+          "command": "weft.sortAuthorsByName",
+          "when": "view == weft.authors && !weft.authorsByName",
+          "group": "navigation@3"
+        },
+        {
+          "command": "weft.sortAuthorsByCommits",
+          "when": "view == weft.authors && weft.authorsByName",
+          "group": "navigation@3"
         },
         {
           "command": "weft.filesAsList",

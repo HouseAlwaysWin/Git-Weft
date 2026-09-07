@@ -19,7 +19,14 @@ import type { Search } from './git/search.ts';
 import { filterArgs } from './git/search.ts';
 import type { DateRange } from './git/dates.ts';
 import { dateArgs } from './git/dates.ts';
-import type { CommitOrder, HostMessage, RefEntry, Row, WebviewMessage } from './protocol.ts';
+import type {
+  CommitOrder,
+  HostMessage,
+  RefEntry,
+  RefsPreset,
+  Row,
+  WebviewMessage,
+} from './protocol.ts';
 import { BODY_MARKUP } from './webview/markup.ts';
 
 /**
@@ -35,11 +42,21 @@ export interface FilterSource {
    * other with a list of ref names that do not exist in it, and empties it.
    */
   refs(root: string): string[] | null;
+  /**
+   * Whether those refs are narrowing anything a fresh graph would not.
+   *
+   * Separate from `refs` returning a list, because the default is itself a list: a graph opens on
+   * the branch you are on. Treating that as a filter would light "clear filters" on every graph
+   * that has never been filtered.
+   */
+  refsNarrowed(root: string): boolean;
   authorArgs(root: string): string[];
   /** Every ref with whether it is drawn, for the header's branch menu. */
   listRefs(): RefEntry[];
   /** Switch them on or off. The same call the sidebar's own ticks make, so the two cannot drift. */
   setRefsVisible(refNames: readonly string[], visible: boolean): void;
+  /** Everything, nothing, or the branch HEAD is on - the sidebar's three buttons, from the graph. */
+  setRefsPreset(preset: RefsPreset): void;
   /**
    * Drop everything the sidebar is narrowing by, without announcing it. The caller reloads once,
    * rather than each view asking for a reload of its own on the way past.
@@ -99,6 +116,7 @@ export function setPanelLogger(logger: Logger): void {
 /** What each remedy reads as on a button. Short enough to sit next to the message. */
 const REMEDY_LABELS: Record<Remedy, string> = {
   [Remedy.StashAndRetry]: 'Stash and Retry',
+  [Remedy.Retry]: 'Try Again',
   [Remedy.ResolveConflicts]: 'Show Conflicts',
   [Remedy.AbortOperation]: 'Abort',
   [Remedy.Fetch]: 'Fetch',
@@ -183,6 +201,8 @@ export class WeftPanel {
   private fetchTimer: NodeJS.Timeout | null = null;
   /** Walk only the mainline. A filter like any other: it decides which commits are on screen. */
   private firstParent = false;
+  /** Walk only what the ticked refs have that no other ref does. */
+  private onlyHere = false;
   /** Not a filter: ordering hides nothing, so `clearFilters` leaves it alone the way it leaves sort. */
   private order: CommitOrder = 'date';
   private readonly filters: FilterSource;
@@ -383,7 +403,14 @@ export class WeftPanel {
 
   /** Run an action against something the sidebar picked rather than something the graph did. */
   runTargetAction(id: string, target: Target): void {
-    void this.runAction(id, target);
+    /*
+     * Announced, unlike an action the graph itself asked for. A refusal is posted to the webview,
+     * which is the right place for something the user right-clicked *in* - but somebody who
+     * right-clicked in the sidebar may not have the graph in front of them at all, and an action
+     * that declines into a panel nobody is looking at is indistinguishable from one that did
+     * nothing.
+     */
+    void this.runAction(id, target, false, true);
   }
 
   /**
@@ -406,6 +433,7 @@ export class WeftPanel {
         this.search = message.search;
         this.dates = message.dates;
         this.firstParent = message.firstParent;
+        this.onlyHere = message.onlyHere;
         this.order = message.order;
         await this.reload();
         break;
@@ -425,6 +453,10 @@ export class WeftPanel {
         break;
       case 'firstParent':
         this.firstParent = message.on;
+        await this.reload();
+        break;
+      case 'onlyHere':
+        this.onlyHere = message.on;
         await this.reload();
         break;
       case 'order':
@@ -449,6 +481,14 @@ export class WeftPanel {
         break;
       case 'runAction':
         await this.runAction(message.id, message.target);
+        break;
+      case 'refsPreset':
+        /*
+         * Straight through, like the ticks beside it: the sidebar fires its own filter event, which
+         * is already wired to reload every open graph. Nothing to post back and nothing to wait
+         * for - the reload that follows carries the new list with it.
+         */
+        this.filters.setRefsPreset(message.preset);
         break;
       case 'setRefsVisible':
         /*
@@ -487,7 +527,12 @@ export class WeftPanel {
    * has to still be true when it acts, and the watcher must not reload the graph from underneath a
    * half-finished operation.
    */
-  private async runAction(id: string, target: Target, retrying = false): Promise<boolean> {
+  private async runAction(
+    id: string,
+    target: Target,
+    retrying = false,
+    announce = false,
+  ): Promise<boolean> {
     const action = findAction(id);
 
     if (action === undefined) {
@@ -500,7 +545,13 @@ export class WeftPanel {
         const unavailable = action.unavailable(target, state);
 
         if (unavailable !== null) {
-          this.post({ type: 'error', message: `${action.label(target)}: ${unavailable.toLowerCase()}` });
+          const refusal = `${action.label(target)}: ${unavailable.toLowerCase()}`;
+          this.post({ type: 'error', message: refusal });
+
+          if (announce) {
+            void vscode.window.showWarningMessage(`Weft: ${refusal}`);
+          }
+
           return null;
         }
 
@@ -531,7 +582,7 @@ export class WeftPanel {
     } catch (err) {
       // One retry, never two: an offer to stash and retry that fails the same way must not become
       // a loop of dialogs the user has to fight their way out of.
-      await this.reportError(err, retrying ? null : () => this.runAction(id, target, true));
+      await this.reportError(err, retrying ? null : () => this.runAction(id, target, true, announce));
       return false;
     }
   }
@@ -547,7 +598,8 @@ export class WeftPanel {
     // keep that advice instead of losing it in a wall of text. A remedy with no button is advice
     // thrown away twice.
     const offered = mapped.remedies.filter(
-      (remedy) => remedy !== Remedy.StashAndRetry || retry !== null,
+      (remedy) =>
+        (remedy !== Remedy.StashAndRetry && remedy !== Remedy.Retry) || retry !== null,
     );
 
     const choice = await vscode.window.showWarningMessage(
@@ -582,6 +634,12 @@ export class WeftPanel {
         await this.runAction('weft.fetch', { kind: 'repo' });
         return;
 
+      case Remedy.Retry:
+        // The same action, unchanged. Offered only where the failure was somebody else's timing
+        // rather than the repository's state, so there is nothing to put right in between.
+        await retry?.();
+        return;
+
       case Remedy.StashAndRetry:
         // Only retry if the stash actually happened - otherwise the retry hits the same wall.
         if (await this.runAction('weft.stashPush', { kind: 'repo' })) {
@@ -601,7 +659,8 @@ export class WeftPanel {
       this.search !== null ||
       this.dates !== null ||
       this.firstParent ||
-      this.filters.refs(this.repo.root) !== null ||
+      this.onlyHere ||
+      this.filters.refsNarrowed(this.repo.root) ||
       this.filters.authorArgs(this.repo.root).length > 0
     );
   }
@@ -616,6 +675,7 @@ export class WeftPanel {
     this.search = null;
     this.dates = null;
     this.firstParent = false;
+    this.onlyHere = false;
     this.filters.clear();
 
     // Put the boxes back before the walk rather than after it, so nothing on screen is claiming a
@@ -747,6 +807,24 @@ export class WeftPanel {
    * for the whole graph to move one row's worth of text.
    */
   private async refreshWorking(): Promise<void> {
+    /*
+     * Not while this repository is being written to.
+     *
+     * Reading looks harmless and on Windows is not. git opens a file without granting the right to
+     * delete it, and moves a ref by renaming a lock over the old one - so a `git status` that
+     * happens to have .git/HEAD open at the wrong instant turns a checkout into "unable to write
+     * symref for HEAD: Permission denied", with the working tree already swapped over and the
+     * branch left behind.
+     *
+     * Weft's own watcher and its auto-fetch already stand back for a write in flight; this path
+     * did not, and it is the one the git extension fires *during* a checkout, when the churn it
+     * watches for is our own. Nothing is lost by waiting: every write ends in a reload, which
+     * re-reads the working tree anyway.
+     */
+    if (WeftPanel.lock.isBusy(this.repo.root)) {
+      return;
+    }
+
     const tree = await readWorkingTree(this.git, this.repo).catch(() => null);
 
     if (tree !== null) {
@@ -856,6 +934,7 @@ export class WeftPanel {
           batchSize: 500,
           maxCommits: config.get<number>('maxCommits', 250_000),
           firstParentOnly: this.firstParent,
+          onlyHere: this.onlyHere,
           order: this.order,
           filters: filterArgs(this.search, this.filters.authorArgs(this.repo.root), dates),
           refs: this.filters.refs(this.repo.root),

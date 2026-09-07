@@ -67,6 +67,37 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    */
   private readonly hiddenByRepo = new Map<string, Set<string>>();
 
+  /**
+   * Whether the ticks are still the default rather than a set the user has chosen.
+   *
+   * A repository opens showing the branch you are on and nothing else. Drawing every ref is a walk
+   * of the whole history to answer a question nobody asked - on a clone with fourteen hundred refs
+   * it is seconds of git, and a graph so wide that the branch you came to look at is one lane in a
+   * bundle of hundreds.
+   *
+   * While this holds the ticks are recomputed from HEAD on every reload. The first tick the user
+   * moves makes the set theirs and stops the following; Clear Filters hands it back, and so does a
+   * checkout - see `head`.
+   */
+  private following = true;
+
+  /** Whether each repository was still on the default, alongside `hiddenByRepo`. */
+  private readonly followingByRepo = new Map<string, boolean>();
+
+  /**
+   * The ref HEAD was on when the refs were last read, so a checkout can be told from a refresh.
+   *
+   * Switching branch puts the ticks back to the default, whatever they were - a hand-picked set
+   * included. "Which branches am I looking at" and "which branch am I on" are the same question
+   * often enough that a graph still showing the branch you left is a graph showing the wrong
+   * thing, and the answer to it is a checkout away rather than somewhere in a list of fourteen
+   * hundred.
+   */
+  private head: string | null = null;
+
+  /** Where HEAD was per repository, so coming back to one is not read as a checkout. */
+  private readonly headByRepo = new Map<string, string | null>();
+
   readonly onDidChangeTreeData = this.changed.event;
   readonly onDidChangeFilter = this.filterChanged.event;
 
@@ -81,13 +112,20 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
       return;
     }
 
-    this.repo = repo;
-    // Kept rather than cleared: coming back to a graph should find it as you left it.
+    // Put away under the repository being left, before `repo` moves - filing the outgoing set
+    // under the incoming root hands one repository's ref names to another, which is the thing the
+    // per-repository map exists to prevent.
     if (this.repo !== null) {
       this.hiddenByRepo.set(this.repo.root, this.hidden);
+      this.followingByRepo.set(this.repo.root, this.following);
+      this.headByRepo.set(this.repo.root, this.head);
     }
 
+    this.repo = repo;
+    // Kept rather than cleared: coming back to a graph should find it as you left it.
     this.hidden = this.hiddenByRepo.get(repo?.root ?? '') ?? new Set<string>();
+    this.following = this.followingByRepo.get(repo?.root ?? '') ?? true;
+    this.head = this.headByRepo.get(repo?.root ?? '') ?? null;
     await this.reload();
   }
 
@@ -113,6 +151,35 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     }
 
     return this.refs.filter((ref) => !this.hidden.has(ref.refName)).map((ref) => ref.refName);
+  }
+
+  /**
+   * Whether the ticks are narrowing anything the default would not.
+   *
+   * Not the same question as `visibleRefs` returning a list. The default narrows too - one branch
+   * out of fourteen hundred - and counting that as a filter would light "clear filters" on a graph
+   * nobody has filtered, on every repository, forever.
+   */
+  isNarrowed(root: string): boolean {
+    return this.repo?.root === root && !this.following && this.hidden.size > 0;
+  }
+
+  /**
+   * The ticks a repository opens with: the branch HEAD is on, and nothing else.
+   *
+   * With HEAD detached, or on a branch with no commits yet, no ref is marked - and hiding every
+   * ref leaves git walking nothing at all, which looks exactly like a broken graph. Everything,
+   * then, until there is a branch to follow.
+   */
+  private applyDefault(): void {
+    const head = this.refs.find((ref) => ref.isHead);
+
+    this.hidden =
+      head === undefined
+        ? new Set<string>()
+        : new Set(
+            this.refs.filter((ref) => ref.refName !== head.refName).map((ref) => ref.refName),
+          );
   }
 
   async reload(): Promise<void> {
@@ -158,6 +225,25 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
       this.refs = [];
     }
 
+    /*
+     * A checkout puts the ticks back to the default.
+     *
+     * Only a checkout: this runs on every ref change - a fetch, a commit, a branch deleted - and
+     * re-arming on any of those would undo a hand-picked set for reasons nobody would connect to
+     * what they had just done. HEAD moving to a different ref is the one that means "I am looking
+     * at something else now".
+     */
+    const head = this.refs.find((ref) => ref.isHead)?.refName ?? null;
+
+    if (head !== this.head) {
+      this.head = head;
+      this.following = true;
+    }
+
+    if (this.following) {
+      this.applyDefault();
+    }
+
     this.changed.fire(undefined);
     this.updateMessage();
   }
@@ -195,6 +281,10 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * still being typed.
    */
   showOnlyListed(): void {
+    // A choice, so the default stops applying - otherwise the next reload would put it straight
+    // back to the branch HEAD is on.
+    this.following = false;
+
     const listed = new Set(this.visible().map((ref) => ref.refName));
     const before = this.hidden.size;
 
@@ -268,6 +358,9 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     if (!moved) {
       return;
     }
+
+    // The set is the user's from here. Left following, the next reload would undo this tick.
+    this.following = false;
 
     this.changed.fire(undefined);
     this.updateMessage();
@@ -406,12 +499,17 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
         ? ''
         : `Listing ${this.visible().length} of ${total} refs matching “${this.query}”. `;
 
-    const graph =
-      this.hidden.size > 0
-        ? `${this.hidden.size} hidden — the graph shows the rest.`
-        : this.query.length === 0
-          ? 'Untick a branch or tag to keep it out of the graph.'
-          : `Nothing is unticked, so the graph still walks all ${total}.`;
+    const graph = this.following
+      ? this.hidden.size === 0
+        ? `HEAD is not on a branch, so the graph is walking all ${total}.`
+        : 'Showing the branch you are on. Tick another to draw it as well.'
+      : this.hidden.size >= total
+        ? 'Nothing is ticked, so the graph is empty. Tick a branch to draw it.'
+        : this.hidden.size > 0
+          ? `${this.hidden.size} hidden — the graph shows the rest.`
+          : this.query.length === 0
+            ? 'Untick a branch or tag to keep it out of the graph.'
+            : `Nothing is unticked, so the graph still walks all ${total}.`;
 
     this.view.message = listing + graph;
   }
@@ -423,19 +521,28 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * reloads the history once at the end, not once per view that had something to drop.
    */
   reset(): boolean {
-    const hadHidden = this.hidden.size > 0;
+    const before = this.hidden;
+    const hadQuery = this.query.length > 0;
 
-    if (!hadHidden && this.query.length === 0) {
+    // Back to the default rather than to everything: "clear filters" means "as the repository
+    // opens", and this is how it opens. Show All Branches & Tags is the other button, and it is
+    // the one that means everything.
+    this.following = true;
+    this.query = '';
+    this.applyDefault();
+
+    const moved =
+      before.size !== this.hidden.size || [...before].some((ref) => !this.hidden.has(ref));
+
+    if (!moved && !hadQuery) {
       return false;
     }
 
-    this.hidden.clear();
-    this.query = '';
     this.changed.fire(undefined);
     this.updateMessage();
     this.publishFiltering();
 
-    return hadHidden;
+    return moved;
   }
 
   /**
@@ -467,6 +574,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * means unticking everything else, one box at a time.
    */
   showOnly(refName: string): void {
+    this.following = false;
     this.hidden.clear();
 
     for (const ref of this.refs) {
@@ -481,6 +589,51 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   }
 
   /**
+   * Untick everything.
+   *
+   * The graph then draws nothing, which sounds useless and is where "show me these three" starts:
+   * on a clone with fourteen hundred refs, ticking three is a gesture and unticking one thousand
+   * four hundred and thirty-seven is not.
+   */
+  untickAll(): void {
+    if (this.refs.length === 0 || this.hidden.size === this.refs.length) {
+      return;
+    }
+
+    // A choice, and the furthest one from the default - so it stops the default applying.
+    this.following = false;
+    this.hidden = new Set(this.refs.map((ref) => ref.refName));
+
+    this.changed.fire(undefined);
+    this.updateMessage();
+    this.filterChanged.fire();
+  }
+
+  /**
+   * Back to the branch HEAD is on, and following it again.
+   *
+   * The same place a repository opens at, reachable without going through Clear Filters - which
+   * also drops the search, the dates and the authors, and is a bigger hammer than "put the
+   * branches back". The text filter is left alone: it decides what is listed, not what is drawn.
+   */
+  followHead(): void {
+    const before = this.hidden;
+
+    this.following = true;
+    this.applyDefault();
+
+    const moved =
+      before.size !== this.hidden.size || [...before].some((ref) => !this.hidden.has(ref));
+
+    this.changed.fire(undefined);
+    this.updateMessage();
+
+    if (moved) {
+      this.filterChanged.fire();
+    }
+  }
+
+  /**
    * Put everything back: both the text filter and the unticked refs.
    *
    * Both, because the button says "show all" and there is no reading of that which leaves half the
@@ -489,7 +642,24 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * re-walk of the history.
    */
   showAll(): void {
-    if (this.reset()) {
+    const hadHidden = this.hidden.size > 0;
+    const hadQuery = this.query.length > 0;
+
+    // The opposite of the default, so it has to stop following: left on, the next reload would put
+    // every other ref straight back behind an unticked box.
+    this.following = false;
+    this.hidden.clear();
+    this.query = '';
+
+    if (!hadHidden && !hadQuery) {
+      return;
+    }
+
+    this.changed.fire(undefined);
+    this.updateMessage();
+    this.publishFiltering();
+
+    if (hadHidden) {
       this.filterChanged.fire();
     }
   }

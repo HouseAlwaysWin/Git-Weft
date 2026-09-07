@@ -24,6 +24,8 @@ export const Remedy = {
   ResolveConflicts: 'resolve-conflicts',
   /** Abort whatever operation is in progress. */
   AbortOperation: 'abort-operation',
+  /** Run the same action again, unchanged - for a failure that was somebody else's timing. */
+  Retry: 'retry',
   /** Show the git command log so the raw output is one click away. */
   ShowLog: 'show-log',
   /** Update the remote-tracking refs, so the graph shows what the remote actually has. */
@@ -123,6 +125,23 @@ const RULES: Rule[] = [
     match: /(not a valid object name|unknown revision or path not in the working tree|bad revision)/,
     message: () => 'git does not recognise that revision - it may have been deleted or rewritten.',
     remedies: [],
+  },
+  {
+    /*
+     * Windows, and not our doing: git moves a ref by renaming a lock file over it, and Windows
+     * refuses that rename while any other process still has the old file open. An antivirus
+     * scanner, a file indexer or another git reading the repository at that instant is enough.
+     *
+     * Worth its own rule rather than falling through, because of the state it leaves: git updates
+     * the index and the working tree first and writes HEAD last, so a checkout that fails here has
+     * already swapped every file over while the branch stayed where it was. Read as "nothing
+     * happened" - which is what the words suggest - the next commit is made on the old branch out
+     * of the new branch's contents.
+     */
+    match: /unable to write symref|unable to update HEAD/,
+    message: () =>
+      "git swapped the files over but could not move HEAD, so the branch has not changed and the working tree now holds the other branch's contents. Something else had the repository open at that moment - antivirus and file indexers do this on Windows. Running the same checkout again finishes the switch.",
+    remedies: [Remedy.Retry, Remedy.ShowLog],
   },
   {
     match: /(cannot lock ref|Unable to create .*\.lock|File exists)/,

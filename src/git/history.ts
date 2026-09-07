@@ -50,6 +50,18 @@ export interface HistoryOptions {
    * a graph that lies by leaving something out.
    */
   readonly firstParentOnly?: boolean;
+  /**
+   * Only the commits nothing else can reach.
+   *
+   * "Show me this branch" narrows the tips git walks *from*, which for a branch cut off a trunk
+   * that has had three hundred others merged into it is barely a narrowing at all: everything
+   * merged in is reachable, so it is all in the walk, labels and lanes and all. This is the other
+   * question - what does this branch have that no other ref does - and it is the one people mean
+   * by "what did I do here".
+   *
+   * Needs a ref list to be about: with everything ticked there is nothing left to exclude.
+   */
+  readonly onlyHere?: boolean;
   /** How to order the walk. Omitted is `date`, which is what it always did. */
   readonly order?: CommitOrder;
   /**
@@ -126,6 +138,18 @@ export class HistoryLoader {
       ...LOG_ARGS,
       ...(refs === null ? ['--all'] : refs),
       ...stashes.keys(),
+      /*
+       * `--not` flips the sense of the revisions after it, and `--exclude` applies to the one
+       * `--glob` that follows it - so this reads "and not anything reachable from any ref except
+       * the ones asked for".
+       *
+       * `--glob=refs/*` rather than `--all`, which is the same set plus HEAD - and HEAD is on the
+       * branch being asked about, so leaving it in the negative side excludes the branch from
+       * itself and the answer is always nothing.
+       */
+      ...(options.onlyHere === true && refs !== null && refs.length > 0
+        ? ['--not', ...refs.map((ref) => `--exclude=${ref}`), '--glob=refs/*']
+        : []),
       ...(options.firstParentOnly === true ? ['--first-parent'] : []),
       ...ORDER_ARGS[options.order ?? 'date'],
       `--max-count=${maxCommits}`,

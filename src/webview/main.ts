@@ -41,6 +41,15 @@ const vscode = acquireVsCodeApi();
 const LANE_COLORS = 10;
 const DOT_RADIUS = 3.5;
 
+/**
+ * How much room has to go unwanted before the lanes give it back, in pixels.
+ *
+ * Three lanes. The graph is sized to the rows on screen, and following them exactly would have the
+ * subjects stepping left and right as a single merge scrolled past; three lanes of slack means the
+ * column moves when the shape of the history changes and not when one row does.
+ */
+const LANE_SLACK = 36;
+
 const header = document.getElementById('header') as HTMLElement;
 const titleEl = document.getElementById('title') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
@@ -53,9 +62,15 @@ const branchButton = document.getElementById('branch-button') as HTMLButtonEleme
 const branchCurrent = document.getElementById('branch-current') as HTMLElement;
 const branchList = document.getElementById('branch-list') as HTMLElement;
 const branchFilter = document.getElementById('branch-filter') as HTMLInputElement;
+const branchJump = document.getElementById('branch-jump') as HTMLInputElement;
+const jumpList = document.getElementById('jump-list') as HTMLElement;
+const jumpRows = document.getElementById('jump-rows') as HTMLElement;
+const jumpEmpty = document.getElementById('jump-empty') as HTMLElement;
+const refPresets = document.getElementById('ref-presets') as HTMLElement;
 const branchRows = document.getElementById('branch-rows') as HTMLElement;
 const branchEmpty = document.getElementById('branch-empty') as HTMLElement;
 const firstParentEl = document.getElementById('first-parent') as HTMLButtonElement;
+const onlyHereEl = document.getElementById('only-here') as HTMLButtonElement;
 const commitOrderEl = document.getElementById('commit-order') as HTMLSelectElement;
 const viewport = document.getElementById('viewport') as HTMLElement;
 const spacer = document.getElementById('spacer') as HTMLElement;
@@ -81,6 +96,7 @@ interface ViewState {
   readonly dateSince?: string;
   readonly dateUntil?: string;
   readonly firstParent?: boolean;
+  readonly onlyHere?: boolean;
   readonly order?: CommitOrder;
   /** Which groups of the branch menu are rolled up. Worth keeping: a repository with two hundred
       remote branches is one you collapse once and want to stay collapsed. */
@@ -114,6 +130,7 @@ function saveViewState(): void {
     dateSince: dateSince.value,
     dateUntil: dateUntil.value,
     firstParent,
+    onlyHere,
     order: commitOrder,
     branchGroupsClosed: [...branchGroupsClosed],
     columns: Object.fromEntries(
@@ -159,6 +176,7 @@ function restoreViewState(): void {
 
   applyColumns();
   firstParent = state?.firstParent ?? false;
+  onlyHere = state?.onlyHere ?? false;
   commitOrder = state?.order ?? 'date';
   commitOrderEl.value = commitOrder;
   searchInput.value = state?.query ?? '';
@@ -174,8 +192,26 @@ function restoreViewState(): void {
 let columnGeometry = '';
 
 let rowHeight = 24;
-/** What the layout needs to draw every lane at its natural 12px spacing. */
-let graphWidth = 0;
+
+/**
+ * What each row's lanes need at their natural 12px spacing, indexed by commit row.
+ *
+ * Per row rather than one number for the whole history, because the widest row in a repository
+ * with a hundred branches is almost never the row being read. Sized by that one number, every
+ * screenful gets the width the worst row wanted: most of the column is blank, and the handful of
+ * lanes that are actually on screen are squeezed into a fraction of the room they were given -
+ * room the subjects had to give up for them.
+ */
+let rowWidths: number[] = [];
+
+/**
+ * What the rows on screen need, in pixels. Measured every frame; quick to grow, slow to shrink.
+ *
+ * Growing has to be immediate, because the canvas is only as wide as this: a lane the measurement
+ * has not caught up with is a lane that is cut off. Shrinking waits for LANE_SLACK of room to go
+ * unwanted, so the subjects are not nudged about by one row having one lane fewer.
+ */
+let laneNeed = 0;
 
 /**
  * What the lanes are actually given, which is not always what they asked for.
@@ -238,6 +274,15 @@ let remote: { upstream: Upstream | null; branch: string | null; fetchedAt: numbe
  * it counts towards "something is narrowing this" and the button that drops everything drops it.
  */
 let firstParent = false;
+
+/**
+ * Walk only what the ticked refs have and no other ref does.
+ *
+ * A filter, like `firstParent`, and the answer to the question ticking one branch looks like it is
+ * asking and is not: unticking narrows where git starts, and a branch cut off a trunk that has had
+ * three hundred others merged into it still reaches every one of them.
+ */
+let onlyHere = false;
 
 /*
  * How git is asked to order the walk.
@@ -339,26 +384,72 @@ function rowOffset(): number {
  * to discover a drag handle before they can read a subject.
  */
 function laneWidth(): number {
-  if (graphWidth === 0) {
+  if (laneNeed === 0) {
     return 0;
   }
 
   if (graphColumn !== null) {
-    return Math.min(graphColumn, graphWidth);
+    return Math.min(graphColumn, laneNeed);
   }
 
-  return Math.min(graphWidth, Math.max(120, Math.round(viewport.clientWidth / 3)));
+  return Math.min(laneNeed, Math.max(120, Math.round(viewport.clientWidth / 3)));
 }
 
 /** Lane x, squeezed into the room the lanes were given. Identity while they have all they need. */
 function laneScale(): number {
   const room = laneWidth();
-  return graphWidth <= 0 || room >= graphWidth ? 1 : room / graphWidth;
+  return laneNeed <= 0 || room >= laneNeed ? 1 : room / laneNeed;
+}
+
+/**
+ * Work out how much room the lanes on screen need, from the rows about to be drawn.
+ *
+ * Display rows, mapped back to commit rows: the working-tree row is not part of the layout and has
+ * no lanes of its own. Sorted, the lanes are gone entirely and the rows take the whole width back.
+ */
+function measureLanes(first: number, last: number): void {
+  if (isFlat() || rowWidths.length === 0) {
+    laneNeed = 0;
+    return;
+  }
+
+  const shift = rowOffset();
+  const from = Math.max(0, first - shift);
+  const to = Math.min(rowWidths.length, last - shift);
+  let need = 0;
+
+  for (let i = from; i < to; i++) {
+    const width = rowWidths[i];
+
+    if (width !== undefined && width > need) {
+      need = width;
+    }
+  }
+
+  /*
+   * The working tree hangs off HEAD by a dashed line that starts above the first row, so while any
+   * of it is on screen the lanes need room for HEAD's column too - which on a history whose newest
+   * rows are all branch tips is further right than any of those rows on their own.
+   */
+  if (headDot !== null && shift > 0 && first - shift <= headDot.center.y) {
+    need = Math.max(need, headDot.center.x + 8);
+  }
+
+  if (need > laneNeed || need < laneNeed - LANE_SLACK) {
+    laneNeed = need;
+  }
 }
 
 function render(): void {
+  // Which rows are on screen decides both what gets built and how much room the lanes ask for, so
+  // it is worked out once here rather than separately in each.
+  const first = Math.max(0, Math.floor(viewport.scrollTop / rowHeight) - 1);
+  const last = Math.min(view.length, first + Math.ceil(viewport.clientHeight / rowHeight) + 2);
+
+  measureLanes(first, last);
+
   // The one measurement the stylesheet cannot hold: how wide the lanes are is a property of the
-  // repository. Flat, there are no lanes, so the rows reclaim the space.
+  // rows in front of the reader. Flat, there are no lanes, so the rows reclaim the space.
   const indent = (isFlat() ? 0 : laneWidth()) + 8;
 
   /*
@@ -383,17 +474,12 @@ function render(): void {
     placeGrips();
   }
 
-  renderRows(indent);
+  renderRows(indent, first, last);
   drawGraph();
 }
 
 /** Rebuild only the row elements the viewport can actually show. */
-function renderRows(indent: number): void {
-  const scrollTop = viewport.scrollTop;
-  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - 1);
-  const visible = Math.ceil(viewport.clientHeight / rowHeight) + 2;
-  const last = Math.min(view.length, first + visible);
-
+function renderRows(indent: number, first: number, last: number): void {
   const frag = document.createDocumentFragment();
 
   for (let i = first; i < last; i++) {
@@ -821,14 +907,7 @@ function branchRow(entry: RefEntry): HTMLElement {
     // Checking out the branch you are on does nothing, and offering it suggests otherwise.
     name.disabled = true;
   } else {
-    name.addEventListener('click', () => {
-      closeBranchMenu();
-      vscode.postMessage({
-        type: 'runAction',
-        id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
-        target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
-      });
-    });
+    name.addEventListener('click', () => checkoutRef(entry));
   }
 
   row.append(draw, name);
@@ -955,6 +1034,22 @@ branchButton.addEventListener('click', () => {
   }
 });
 
+/*
+ * Everything, the branch you are on, or nothing.
+ *
+ * Delegated from the row rather than bound per button, because the three of them never change and
+ * one listener is one listener. The host does the work: "nothing" is fourteen hundred ref names
+ * the view would have to send, and "the branch you are on" is HEAD, which is the host's to read.
+ */
+refPresets.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest('.ref-preset') as HTMLElement | null;
+  const preset = button?.dataset['preset'];
+
+  if (preset === 'all' || preset === 'none' || preset === 'current') {
+    vscode.postMessage({ type: 'refsPreset', preset });
+  }
+});
+
 branchFilter.addEventListener('input', renderBranchMenu);
 
 branchFilter.addEventListener('keydown', (event) => {
@@ -964,6 +1059,158 @@ branchFilter.addEventListener('keydown', (event) => {
     event.stopPropagation();
     closeBranchMenu();
     branchButton.focus();
+  }
+});
+
+/*
+ * The quick switch: its own box, its own list, and one thing per row.
+ *
+ * Not the dropdown beside it. That one answers "which branches should the graph draw" - every row
+ * is a tick box and a name, two targets with two different meanings - and borrowing it to answer
+ * "where do I want to be" gave a list where the obvious thing to click was the wrong one.
+ */
+function jumpMenuOpen(): boolean {
+  return !jumpList.hidden;
+}
+
+function closeJumpMenu(): void {
+  jumpList.hidden = true;
+}
+
+/** Which row Return would take, as an index into the branches this can actually switch to. */
+let jumpPick = 0;
+
+function pickableJumps(): HTMLButtonElement[] {
+  // `Array.from` rather than a spread: the DOM lib here is the one without `DOM.Iterable`, so a
+  // NodeList is array-like and not iterable.
+  return Array.from(jumpRows.querySelectorAll<HTMLButtonElement>('.jump-name')).filter(
+    (name) => !name.disabled,
+  );
+}
+
+/** Put the mark on the aimed-at row, and keep it in view while the arrows walk past the fold. */
+function paintJumpPick(): void {
+  const names = pickableJumps();
+
+  if (names.length === 0) {
+    jumpPick = 0;
+    return;
+  }
+
+  jumpPick = ((jumpPick % names.length) + names.length) % names.length;
+
+  names.forEach((name, i) => name.classList.toggle('picked', i === jumpPick));
+  names[jumpPick]?.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * Check one out, from wherever it was clicked.
+ *
+ * A remote branch is a different action from a local one: it has to end on a local branch of that
+ * name, creating and tracking one when there is none, because checking out the remote branch
+ * itself detaches HEAD.
+ */
+function checkoutRef(entry: RefEntry): void {
+  closeJumpMenu();
+  closeBranchMenu();
+  branchJump.value = '';
+
+  vscode.postMessage({
+    type: 'runAction',
+    id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
+    target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
+  });
+}
+
+function renderJumpMenu(): void {
+  const needle = branchJump.value.trim().toLowerCase();
+  const matches = refEntries.filter(
+    (entry) => entry.kind !== 'tag' && entry.label.toLowerCase().includes(needle),
+  );
+
+  jumpRows.replaceChildren();
+  jumpEmpty.hidden = matches.length > 0;
+
+  // Local first: it is the half you check out by name. A remote one is still offered, because
+  // "switch to the branch somebody else pushed" is the other half of the same question.
+  for (const kind of ['local', 'remote'] as const) {
+    const group = matches.filter((entry) => entry.kind === kind);
+
+    if (group.length === 0) {
+      continue;
+    }
+
+    const heading = document.createElement('div');
+    heading.className = 'jump-group';
+    heading.textContent = kind === 'local' ? 'Local' : 'Remote';
+    jumpRows.append(heading);
+
+    for (const entry of group) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'jump-name';
+      row.textContent = entry.label;
+      row.title = entry.refName;
+
+      if (entry.kind === 'local' && entry.label === headBranch) {
+        // Listed, so the box can show where you are. Not clickable, because you are there.
+        row.disabled = true;
+      } else {
+        row.addEventListener('click', () => checkoutRef(entry));
+      }
+
+      jumpRows.append(row);
+    }
+  }
+
+  // After the rows exist, because it measures them.
+  paintJumpPick();
+}
+
+function openJumpMenu(): void {
+  jumpPick = 0;
+  renderJumpMenu();
+  jumpList.hidden = false;
+}
+
+// Reaching for the box is the request to see the list.
+branchJump.addEventListener('focus', () => {
+  if (!jumpMenuOpen()) {
+    openJumpMenu();
+  }
+});
+
+branchJump.addEventListener('input', () => {
+  // Back to the top on every keystroke: after narrowing, the best match is the first one, and an
+  // aim left where it was points at whichever branch has moved into that position.
+  jumpPick = 0;
+  jumpList.hidden = false;
+  renderJumpMenu();
+});
+
+branchJump.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    // Stopped here, or the document handler reads Escape as "drop the selection" and leaves this
+    // open behind it.
+    event.stopPropagation();
+    closeJumpMenu();
+    branchJump.value = '';
+    branchJump.blur();
+    return;
+  }
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    // Or the caret walks the text instead, which is the one thing the arrows are not for here.
+    event.preventDefault();
+    jumpPick += event.key === 'ArrowDown' ? 1 : -1;
+    paintJumpPick();
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    // The same click a mouse would make, so checking out has one path and not two.
+    pickableJumps()[jumpPick]?.click();
   }
 });
 
@@ -1534,13 +1781,13 @@ function drawGraph(): void {
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(dot.center.x, cy, DOT_RADIUS + 4, 0, Math.PI * 2);
+      ctx.arc(x(dot.center.x), cy, DOT_RADIUS + 4, 0, Math.PI * 2);
       ctx.stroke();
       ctx.lineWidth = 1.5;
     }
   }
 
-  drawWorkingTree(y);
+  drawWorkingTree(x, y);
 }
 
 /**
@@ -1550,25 +1797,27 @@ function drawGraph(): void {
  * like a commit would be claiming otherwise. It is skipped when HEAD is not on screen at all - a
  * filter can leave the row with nothing to hang from, and a line to nowhere is worse than none.
  */
-function drawWorkingTree(y: (row: number) => number): void {
+function drawWorkingTree(x: (px: number) => number, y: (row: number) => number): void {
   if (rowOffset() === 0 || headDot === null) {
     return;
   }
 
   const color = palette[headDot.color % LANE_COLORS] ?? '#888';
   const top = y(-0.5);
-  const x = headDot.center.x;
+  // Through the same squeeze as everything else on the canvas. Left raw, this hung the working
+  // tree off a column no lane was in: a dot and a dashed line beside the graph rather than on it.
+  const at = x(headDot.center.x);
 
   ctx.setLineDash([3, 3]);
   ctx.strokeStyle = color;
   ctx.beginPath();
-  ctx.moveTo(x, top);
-  ctx.lineTo(x, y(headDot.center.y));
+  ctx.moveTo(at, top);
+  ctx.lineTo(at, y(headDot.center.y));
   ctx.stroke();
 
   // Hollow, like a merge dot: the shape says "this is not a commit" before any of the text does.
   ctx.beginPath();
-  ctx.arc(x, top, DOT_RADIUS, 0, Math.PI * 2);
+  ctx.arc(at, top, DOT_RADIUS, 0, Math.PI * 2);
   ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--weft-bg').trim();
   ctx.fill();
   ctx.stroke();
@@ -1576,7 +1825,7 @@ function drawWorkingTree(y: (row: number) => number): void {
 }
 
 function applyDelta(delta: GraphDelta): void {
-  graphWidth = Math.max(graphWidth, delta.width);
+  rowWidths.push(...delta.widths);
   dots.push(...delta.dots);
 
   for (const dot of delta.dots) {
@@ -1976,7 +2225,8 @@ function reset(): void {
   upstreamEl.hidden = true;
   dots = [];
   paths.clear();
-  graphWidth = 0;
+  rowWidths = [];
+  laneNeed = 0;
   selected = -1;
   spacer.style.height = '0px';
   rowsEl.replaceChildren();
@@ -2075,10 +2325,14 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       headBranch = message.branch;
       renderBranchButton();
 
-      // Only while it is open: rebuilding a closed menu is work nobody asked for, and rebuilding an
-      // open one is the point - a checkout or a tick lands here as the next list.
+      // Only while they are open: rebuilding a closed menu is work nobody asked for, and rebuilding
+      // an open one is the point - a checkout or a tick lands here as the next list.
       if (branchMenuOpen()) {
         renderBranchMenu();
+      }
+
+      if (jumpMenuOpen()) {
+        renderJumpMenu();
       }
 
       break;
@@ -2121,9 +2375,16 @@ document.addEventListener('mousedown', (event) => {
   if (branchMenuOpen() && !branchList.contains(target) && !branchButton.contains(target)) {
     closeBranchMenu();
   }
+
+  if (jumpMenuOpen() && !jumpList.contains(target) && target !== branchJump) {
+    closeJumpMenu();
+  }
 });
 
-window.addEventListener('blur', closeBranchMenu);
+window.addEventListener('blur', () => {
+  closeBranchMenu();
+  closeJumpMenu();
+});
 window.addEventListener('resize', schedule);
 
 /*
@@ -2409,6 +2670,10 @@ function updateFirstParent(): void {
   firstParentEl.classList.toggle('on', firstParent);
 }
 
+function updateOnlyHere(): void {
+  onlyHereEl.classList.toggle('on', onlyHere);
+}
+
 commitOrderEl.addEventListener('change', () => {
   commitOrder = commitOrderEl.value as CommitOrder;
   saveViewState();
@@ -2420,6 +2685,13 @@ firstParentEl.addEventListener('click', () => {
   updateFirstParent();
   saveViewState();
   vscode.postMessage({ type: 'firstParent', on: firstParent });
+});
+
+onlyHereEl.addEventListener('click', () => {
+  onlyHere = !onlyHere;
+  updateOnlyHere();
+  saveViewState();
+  vscode.postMessage({ type: 'onlyHere', on: onlyHere });
 });
 
 /**
@@ -2444,7 +2716,9 @@ function clearFilterControls(): void {
   sentSearch = 'null';
   sentDates = 'null';
   firstParent = false;
+  onlyHere = false;
   updateFirstParent();
+  updateOnlyHere();
   updateSearchToggles();
   refreshHighlight();
   saveViewState();
@@ -2659,6 +2933,7 @@ restoreViewState();
 updateColumns();
 updateSearchToggles();
 updateFirstParent();
+updateOnlyHere();
 updateCompareMark();
 refreshHighlight();
 
@@ -2672,5 +2947,6 @@ vscode.postMessage({
   search: currentSearch(),
   dates: currentRange(),
   firstParent,
+  onlyHere,
   order: commitOrder,
 });

@@ -32,6 +32,7 @@ import {
   workAtRisk,
 } from '../src/git/repoState.ts';
 import { Remedy, mapGitError } from '../src/git/errors.ts';
+import { listAuthors } from '../src/git/authors.ts';
 import type { ActionUi, Target } from '../src/actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from '../src/actions/registry.ts';
 import { RepoLock } from '../src/git/lock.ts';
@@ -298,11 +299,202 @@ test('the lock serialises writers and survives one of them failing', async () =>
   assert.equal(lock.isBusy('r'), false, 'the queue should drain');
 });
 
+test('a ref that could not be locked says what state it left behind, and offers to retry', () => {
+  const mapped = mapGitError(
+    new GitError(
+      ['checkout', 'other'],
+      128,
+      'error: unable to write symref for HEAD: Permission denied\nfatal: unable to update HEAD\n',
+    ),
+  );
+
+  // The words git chooses read like nothing happened. The files have already moved.
+  assert.match(mapped.message, /working tree now holds the other branch/);
+  assert.deepEqual(mapped.remedies, [Remedy.Retry, Remedy.ShowLog]);
+});
+
 test('an unrecognised failure keeps git own words rather than inventing vaguer ones', () => {
   const mapped = mapGitError(new GitError(['push'], 1, 'fatal: something entirely new happened\n'));
 
   assert.equal(mapped.message, 'something entirely new happened');
   assert.ok(mapped.remedies.includes(Remedy.ShowLog));
+});
+
+/** Commit as somebody in particular, without touching the repository's configured identity. */
+function commitAs(dir: string, name: string, email: string, file: string): void {
+  writeFileSync(join(dir, file), `${file}\n`);
+  sh(dir, 'add', '-A');
+  sh(dir, '-c', `user.name=${name}`, '-c', `user.email=${email}`, 'commit', '-q', '-m', file);
+}
+
+/*
+ * The author list is one row per name, and that is not what `shortlog` hands over.
+ *
+ * Without a .mailmap - which almost no repository has - one person committing from a laptop and a
+ * build box is two of its lines. Two rows for one name tick as one, because the tick is
+ * `--author=<name>`, so leaving them apart showed a number that no click could ever produce.
+ */
+test('one row per name, however many addresses that name has committed from', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'jiaying_wu', 'jia@laptop.invalid', 'one.txt');
+  commitAs(dir, 'jiaying_wu', 'jia@build.invalid', 'two.txt');
+  commitAs(dir, 'jiaying_wu', 'jia@build.invalid', 'three.txt');
+
+  const listed = await listAuthors(git, await open(dir));
+  const jia = listed.filter((author) => author.name === 'jiaying_wu');
+
+  assert.equal(jia.length, 1, 'one row, not one per address');
+  assert.equal(jia[0]?.commits, 3, 'and the count is all of them together');
+  assert.deepEqual(
+    [...(jia[0]?.emails ?? [])].sort(),
+    ['jia@build.invalid', 'jia@laptop.invalid'],
+    'both addresses are kept, so the row can say why the number is what it is',
+  );
+  assert.deepEqual(jia[0]?.names, ['jiaying_wu'], 'one spelling, so one name to filter by');
+});
+
+/*
+ * The same person having configured git on three machines is not three people, and it is the most
+ * common way a contributor list grows duplicates. Every spelling is kept, because a tick has to
+ * name them all: `--author` is case-sensitive, so the row's count and what the graph walks would
+ * otherwise part company.
+ */
+test('spellings that differ only in case or separators are one person, and all are kept', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'sean_lin', 'sean@example.invalid', 'lower.txt');
+  commitAs(dir, 'Sean Lin', 'sean@work.invalid', 'spaced1.txt');
+  commitAs(dir, 'Sean Lin', 'sean@work.invalid', 'spaced2.txt');
+  commitAs(dir, 'SEAN_LIN', 'sean@example.invalid', 'shouty.txt');
+
+  const sean = (await listAuthors(git, await open(dir))).filter(
+    (author) => author.name.toLowerCase().replace('_', ' ') === 'sean lin',
+  );
+
+  assert.equal(sean.length, 1, 'one row, not one per spelling');
+  assert.equal(sean[0]?.commits, 4);
+  assert.equal(sean[0]?.name, 'Sean Lin', 'shown as whichever spelling has the most behind it');
+  assert.deepEqual(
+    [...(sean[0]?.names ?? [])].sort(),
+    ['SEAN_LIN', 'Sean Lin', 'sean_lin'],
+    'all three are kept, or a tick walks a fraction of what the row counted',
+  );
+  assert.deepEqual([...(sean[0]?.emails ?? [])].sort(), ['sean@example.invalid', 'sean@work.invalid']);
+});
+
+/*
+ * Where the folding stops. `Lineric` and `lineric_lin` share a prefix and nothing that can be
+ * proved, and two people folded into one row is a worse answer than one person shown twice - the
+ * count would then be a number no tick could produce. Deciding these is what `.mailmap` is for.
+ */
+test('names differing by more than case and separators are left alone', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'Lineric', 'lin@example.invalid', 'short.txt');
+  commitAs(dir, 'lineric_lin', 'lin@example.invalid', 'long.txt');
+
+  const names = (await listAuthors(git, await open(dir))).map((author) => author.name);
+
+  assert.ok(names.includes('Lineric'));
+  assert.ok(names.includes('lineric_lin'));
+});
+
+/*
+ * And why the address is not a key. One service account is a dozen people's commits; folding on it
+ * would put a dozen names in one row and a number belonging to none of them.
+ */
+test('a shared address does not merge the people using it', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'Deploy Bot', 'admin@example.invalid', 'deployed.txt');
+  commitAs(dir, 'Administrator', 'admin@example.invalid', 'administered.txt');
+
+  const names = (await listAuthors(git, await open(dir))).map((author) => author.name);
+
+  assert.ok(names.includes('Deploy Bot'));
+  assert.ok(names.includes('Administrator'));
+});
+
+test('the author list comes back busiest first, after the folding has moved names about', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'busy', 'a@example.invalid', 'a1.txt');
+  commitAs(dir, 'busy', 'b@example.invalid', 'a2.txt');
+  commitAs(dir, 'busy', 'c@example.invalid', 'a3.txt');
+  commitAs(dir, 'quiet', 'd@example.invalid', 'b1.txt');
+
+  const counts = (await listAuthors(git, await open(dir))).map((author) => author.commits);
+
+  assert.deepEqual(
+    counts,
+    [...counts].sort((a, b) => b - a),
+    'three ones folded into a three has to be sorted again, or it sits where the one sat',
+  );
+});
+
+/** Every commit one walk produced, so a filter can be measured by what it left. */
+async function walk(dir: string, options: Record<string, unknown>): Promise<string[]> {
+  const repo = await open(dir);
+  const loader = new HistoryLoader(git, repo);
+  const subjects: string[] = [];
+
+  await loader.load((page) => {
+    for (const c of page.commits) {
+      subjects.push(c.subject);
+    }
+  }, options);
+
+  return subjects;
+}
+
+/*
+ * "Show me this branch" and "show me what is on this branch" are different questions, and only the
+ * second is the one people mean. Ticking a branch narrows where git *starts*: everything merged
+ * into it is still reachable, so on a branch cut off a busy trunk it narrows almost nothing.
+ */
+test('only-here walks what the named refs have and no other ref does', async () => {
+  const dir = makeRepo();
+
+  // `feature` is one commit ahead of `main`, and reaches main's commit as well.
+  const reachable = await walk(dir, { refs: ['refs/heads/feature'] });
+  const unique = await walk(dir, { refs: ['refs/heads/feature'], onlyHere: true });
+
+  assert.deepEqual(reachable, ['second', 'first'], 'the whole branch is reachable from its tip');
+  assert.deepEqual(unique, ['second'], 'only the commit no other ref can reach');
+});
+
+test('only-here on a branch everything else has already gets nothing', async () => {
+  const dir = makeRepo();
+
+  // Every commit on `main` is also on `feature`, so there is nothing here that is only here.
+  assert.deepEqual(await walk(dir, { refs: ['refs/heads/main'], onlyHere: true }), []);
+});
+
+/*
+ * The negative side is `--glob=refs/*` and not `--all`, which is the same set plus HEAD - and HEAD
+ * is on the branch being asked about, so `--all` there excludes the branch from itself and the
+ * answer is always nothing, whichever branch is asked.
+ */
+test('only-here does not exclude a branch from itself through HEAD', async () => {
+  const dir = makeRepo();
+
+  sh(dir, 'checkout', '-q', 'feature');
+
+  assert.deepEqual(
+    await walk(dir, { refs: ['refs/heads/feature'], onlyHere: true }),
+    ['second'],
+    'being checked out must not make a branch invisible to its own filter',
+  );
+});
+
+test('only-here with every ref in the walk has nothing to exclude, and narrows nothing', async () => {
+  const dir = makeRepo();
+
+  const everything = await walk(dir, {});
+  const asked = await walk(dir, { onlyHere: true });
+
+  assert.deepEqual(asked, everything);
 });
 
 const commit = (sha: string): Target => ({ kind: 'commit', sha, subject: 'x' });
@@ -1443,6 +1635,61 @@ function serverBranches(server: string): string[] {
     .filter((line) => line.length > 0)
     .sort();
 }
+
+/*
+ * Checkout, from the remote side of a branch that also exists locally.
+ *
+ * The pair `origin/uat` and `uat` sit on the same row of the graph, and right-clicking the remote
+ * one is at least as natural as right-clicking the local one. It used to refuse - "local branch
+ * already exists" - which is true, is not a problem, and reads like "you are already on it".
+ */
+test('checking out a remote branch whose local branch exists goes to the local branch', async () => {
+  const { dir } = makeServed();
+  const repo = await open(dir);
+  const state = await readRepoState(git, repo);
+
+  assert.equal(
+    findAction('weft.checkoutRemoteBranch')?.unavailable(remoteRef('origin/doomed'), state),
+    null,
+    'the local branch existing is what makes this possible, not what blocks it',
+  );
+
+  const result = await run(dir, 'weft.checkoutRemoteBranch', remoteRef('origin/doomed'));
+
+  assert.equal(result.ran, true);
+  assert.equal(sh(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'doomed');
+  assert.match(
+    sh(dir, 'status', '--short', '--branch'),
+    /## doomed/,
+    'on the branch, not detached at the remote tip',
+  );
+});
+
+test('checking out a remote branch with no local branch creates one that tracks it', async () => {
+  const { dir } = makeServed();
+  sh(dir, 'branch', '-D', 'doomed');
+
+  const result = await run(dir, 'weft.checkoutRemoteBranch', remoteRef('origin/doomed'));
+
+  assert.equal(result.ran, true);
+  assert.equal(sh(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'doomed');
+  assert.equal(
+    sh(dir, 'config', '--get', 'branch.doomed.remote').trim(),
+    'origin',
+    'and following the remote it came from',
+  );
+});
+
+test('a remote branch is refused only when the branch it leads to is the one already on', async () => {
+  const { dir } = makeServed();
+  const repo = await open(dir);
+  const state = await readRepoState(git, repo);
+
+  assert.equal(
+    findAction('weft.checkoutRemoteBranch')?.unavailable(remoteRef('origin/main'), state),
+    'Already checked out',
+  );
+});
 
 test('deleting a remote branch removes it from the server, not just here', async () => {
   const { dir, server } = makeServed();

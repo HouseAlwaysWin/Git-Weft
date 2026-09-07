@@ -46,6 +46,8 @@ export const BODY_MARKUP = `<header id="header">
     <span id="search-box">
       <button class="toggle" id="first-parent" type="button"
         title="Walk only the first parent of every merge: the mainline, without the commits that were merged into it.">first parent</button>
+      <button class="toggle" id="only-here" type="button"
+        title="Only what the ticked branches have and no other ref does. Ticking one branch narrows where git starts, not what it reaches - a branch cut off a trunk with three hundred others merged into it still reaches all of them. This is the other question: what is on this branch and nowhere else. With every branch ticked there is nothing left to exclude, so it does nothing.">only here</button>
       <select id="commit-order" title="How git orders the walk. All three keep a parent below its children, which the lanes depend on, and all three cost the same - the difference is which shape the history reads best in. Topological keeps a branch&#39;s commits together instead of interleaving them by date.">
         <option value="date">commit date</option>
         <option value="author-date">author date</option>
@@ -97,6 +99,36 @@ export const BODY_MARKUP = `<header id="header">
         <div id="branch-rows"></div>
         <div id="branch-empty" hidden>No branch matches.</div>
       </div>
+    </span>
+    <span id="branch-jump-box">
+      <input id="branch-jump" type="search" placeholder="Switch branch…" spellcheck="false"
+        aria-label="Type a branch name to switch to it" aria-autocomplete="list"
+        aria-controls="jump-rows"
+        title="Type a branch name, arrows to aim, Return to check it out.">
+      <div id="jump-list" hidden>
+        <div id="jump-rows"></div>
+        <div id="jump-empty" hidden>No branch matches.</div>
+      </div>
+    </span>
+    <span id="ref-presets">
+      <button class="ref-preset" data-preset="all" type="button"
+        aria-label="Draw every branch and tag"
+        title="Draw every branch and tag. The same button as in Branches &amp; Tags.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.2"/><path
+          d="M5.5 8.1 7.2 9.9 10.6 6.2"/></svg>
+      </button>
+      <button class="ref-preset" data-preset="current" type="button"
+        aria-label="Draw only the branch you are on"
+        title="Draw only the branch you are on, and follow it across a checkout.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.2"/><circle
+          class="filled" cx="8" cy="8" r="1.7"/></svg>
+      </button>
+      <button class="ref-preset" data-preset="none" type="button"
+        aria-label="Draw nothing"
+        title="Draw nothing, so ticking the two you want is two clicks rather than fourteen hundred.">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.2"/><path
+          d="M4.3 11.7 11.7 4.3"/></svg>
+      </button>
     </span>
     <span id="upstream" hidden></span>
     <span id="status">loading&hellip;</span>

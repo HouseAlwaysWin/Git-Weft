@@ -6,6 +6,7 @@ import type { RepoInfo } from './git/discovery.ts';
 import { discover } from './git/discovery.ts';
 import { WeftPanel, setCommitFiles, setPanelLogger } from './panel.ts';
 import { RevisionContentProvider, SCHEME } from './contentProvider.ts';
+import type { RefsPreset } from './protocol.ts';
 import { RefsProvider } from './refsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
@@ -225,6 +226,7 @@ function start(context: vscode.ExtensionContext): void {
   // Read fresh on every reload, so neither view has to push anything at the panel.
   const filters = {
     refs: (root: string) => refs.visibleRefs(root),
+    refsNarrowed: (root: string) => refs.isNarrowed(root),
     authorArgs: (root: string) => authors.filterArgs(root),
     /*
      * Follow the graph that is being looked at.
@@ -240,6 +242,15 @@ function start(context: vscode.ExtensionContext): void {
     refsMoved: () => void refs.reload(),
     setRefsVisible: (refNames: readonly string[], visible: boolean) =>
       refs.setVisible(refNames, visible),
+    setRefsPreset: (preset: RefsPreset) => {
+      if (preset === 'all') {
+        refs.showAll();
+      } else if (preset === 'none') {
+        refs.untickAll();
+      } else {
+        refs.followHead();
+      }
+    },
     // `reset` rather than `showAll`: neither view asks for a reload, because the panel is about to.
     clear: () => {
       refs.reset();
@@ -543,6 +554,12 @@ function start(context: vscode.ExtensionContext): void {
      * the list and then ticking what is left is the whole gesture - narrow to a team, show the
      * graph that team. `weft.showOnlyListedAuthors` is the second half of it.
      */
+    vscode.commands.registerCommand('weft.untickAllRefs', () => refs.untickAll()),
+    vscode.commands.registerCommand('weft.showCurrentRefOnly', () => refs.followHead()),
+
+    vscode.commands.registerCommand('weft.sortAuthorsByName', () => authors.setOrder('name')),
+    vscode.commands.registerCommand('weft.sortAuthorsByCommits', () => authors.setOrder('commits')),
+
     vscode.commands.registerCommand('weft.filterAuthors', async () => {
       // The list is loaded lazily, when the section is first expanded. Opening the picker is asking
       // for it, so ask for it rather than offering an empty one.
@@ -559,7 +576,7 @@ function start(context: vscode.ExtensionContext): void {
       picker.items = authors.listAuthors().map((author) => ({
         label: author.name,
         description: `${author.commits}`,
-        detail: author.email,
+        detail: author.emails.join(', '),
         author: author.name,
       }));
 

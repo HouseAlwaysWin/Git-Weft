@@ -78,6 +78,23 @@ Working:
 - Column headers, and a click on one sorts by description, author, date or commit. A sorted list is
   flat: a lane's Y coordinate is a row index, so in any order but git's the lines would join commits
   that are no longer neighbours. A third click puts the graph back
+- A graph opens on the branch you are on, and a checkout takes it with you. Everything else is
+  unticked until you say otherwise: a clone with fourteen hundred refs spends seconds walking all
+  of them to draw a graph so wide that the branch you came to look at is one lane among hundreds.
+  **Show All Branches & Tags** is one click away, and between checkouts the ticks are yours - the
+  first one you move stops the default applying, and Clear Filters hands it back. Switching branch
+  starts again from the new one, hand-picked set included: a graph still drawing the branch you
+  left is drawing the wrong thing
+- Three buttons for the three answers worth one click - everything, nothing, and the branch you are
+  on - over the branch list and again in the graph's own header. Ticking three refs out of fourteen
+  hundred starts by unticking the rest, which is not something anybody does a box at a time
+- A box in the header switches branches: type a name, arrows to aim, Return or a click to check
+  out, Escape to give it up. Its list is plain - one row, one thing, and clicking it goes there.
+  The button beside it is the other question, and keeps its own list of ticks: which branches the
+  graph should draw
+- **only here** walks what the ticked branches have and no other ref does. Ticking a branch narrows
+  where git starts, not what it reaches - a branch cut off a trunk with three hundred others merged
+  into it still reaches all of them, which is not what "show me this branch" looks like it means
 - Two filters in the Source Control sidebar: untick branches, remotes or tags to keep them out of
   the walk, and tick authors to show only theirs. Both narrow what `git log` walks rather than
   hiding rows
@@ -92,7 +109,14 @@ Working:
 - **Authors** has the same filter the branch list has, for the same reason: on a repository with
   two hundred contributors, finding the one you want is what stands between you and ticking them.
   Narrow to a name, a surname or a company's email domain, then one button shows the graph exactly
-  the people left listed
+  the people left listed. What you typed stays beside the section's title while it applies, because
+  a filter you cannot see is one you forget is on
+- One row per author, sorted by commits or by name. Several addresses, or several spellings of one
+  name - `Sean Lin`, `sean_lin`, `SEAN_LIN` - are one row and one count, with every spelling shown
+  on it. Ticking that row names all of them to `git log`, so what it counted is what the graph
+  walks. Names that differ by more than case and separators are left alone, and a shared address
+  merges nothing: one service account is a dozen people. The count covers the whole history back to
+  the root commit and does not move when the graph is narrowed to a date range or a branch
 - Each author gets their own colour, derived from the name so it never shifts as pages stream in
 - **Git Weft: Manage Remotes...** in the command palette lists what each remote points at, and
   adds, renames, repoints or removes one. Adding fetches it; removing says how many
@@ -109,7 +133,10 @@ Working:
   it with. A history with thirty concurrent branches wants three hundred and sixty pixels of graph,
   which on a side panel is the whole width - and the subject column, which is what people came to
   read, becomes `feat(s…`. Given less room the lanes are drawn closer together rather than cut off:
-  a graph missing its right-hand branches is a graph lying about the history
+  a graph missing its right-hand branches is a graph lying about the history. What they ask for is
+  what the rows on screen need, not what the widest row in the history needed - the widest row in a
+  repository with a hundred branches is almost never the one you are reading, and paying its width
+  everywhere means a column that is mostly blank and lanes squeezed for no reason
 - Drag the line between two column headings to resize a column, double-click it to put the width
   back, and right-click the headings to switch Author, Date or Commit off. Description stays: it is
   the `1fr` the others leave their space to, and the column people came to read. All of it is

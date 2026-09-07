@@ -63,6 +63,7 @@ interface Collected {
   links: GraphLink[];
   paths: { id: number; color: number; points: Point[] }[];
   width: number;
+  widths: number[];
 }
 
 /** Run the layout in pages of `pageSize` and stitch the deltas back into one whole. */
@@ -70,11 +71,13 @@ function layoutPaged(commits: readonly GraphCommit[], pageSize: number): Collect
   const state = new LayoutState();
   const dots: GraphDot[] = [];
   const links: GraphLink[] = [];
+  const widths: number[] = [];
   const points = new Map<number, { color: number; points: Point[] }>();
 
   const collect = (delta: GraphDelta): void => {
     dots.push(...delta.dots);
     links.push(...delta.links);
+    widths.push(...delta.widths);
 
     for (const p of delta.paths) {
       const existing = points.get(p.id);
@@ -96,7 +99,7 @@ function layoutPaged(commits: readonly GraphCommit[], pageSize: number): Collect
     .sort((a, b) => a[0] - b[0])
     .map(([id, v]) => ({ id, color: v.color, points: v.points }));
 
-  return { dots, links, paths, width: state.width };
+  return { dots, links, paths, width: state.width, widths };
 }
 
 test('every commit gets exactly one dot, in order', () => {
@@ -161,6 +164,11 @@ test('paging produces byte-identical output to laying out in one pass', () => {
       assert.deepEqual(paged.links, whole.links, `${name}: links differ at page size ${pageSize}`);
       assert.deepEqual(paged.paths, whole.paths, `${name}: paths differ at page size ${pageSize}`);
       assert.equal(paged.width, whole.width, `${name}: width differs at page size ${pageSize}`);
+      assert.deepEqual(
+        paged.widths,
+        whole.widths,
+        `${name}: row widths differ at page size ${pageSize}`,
+      );
     }
   }
 });
@@ -211,4 +219,43 @@ test('disconnected histories each get their own lane', () => {
 
   assert.equal(graph.dots.length, 4);
   assert.equal(graph.paths.length >= 2, true);
+});
+
+test('every row reports a width, and the widest of them is the whole graph', () => {
+  for (const [name, commits] of Object.entries(topologies)) {
+    const laid = layoutPaged(commits, commits.length);
+
+    assert.equal(laid.widths.length, commits.length, `${name}: one width per commit`);
+    assert.equal(
+      Math.max(...laid.widths),
+      laid.width,
+      `${name}: the graph is exactly as wide as its widest row`,
+    );
+  }
+});
+
+/*
+ * The invariant the view leans on: it sizes the lane column to the rows on screen, so a row that
+ * under-reports is a lane drawn outside the canvas - a branch silently missing from the graph.
+ *
+ * A point sits either at a row's centre (Y = i + 0.5) or on the boundary between two rows, where
+ * it belongs to the segment spanning both, so either of them may account for it.
+ */
+test('no lane is ever drawn wider than the rows it passes through say they are', () => {
+  for (const [name, commits] of Object.entries(topologies)) {
+    const laid = layoutPaged(commits, commits.length);
+
+    for (const path of laid.paths) {
+      for (const point of path.points) {
+        const rows = Number.isInteger(point.y) ? [point.y - 1, point.y] : [Math.floor(point.y)];
+        const room = Math.max(...rows.map((row) => laid.widths[row] ?? 0));
+
+        assert.equal(
+          point.x + 8 <= room,
+          true,
+          `${name}: a lane at x=${point.x} on row ${point.y} needs more than ${room}px`,
+        );
+      }
+    }
+  }
 });

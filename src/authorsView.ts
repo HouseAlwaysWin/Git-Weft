@@ -15,6 +15,9 @@ import type { RepoInfo } from './git/discovery.ts';
 import type { Author } from './git/authors.ts';
 import { authorArgs, listAuthors } from './git/authors.ts';
 
+/** What the list is sorted by. */
+export type AuthorOrder = 'commits' | 'name';
+
 export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
   private readonly git: Git;
   private readonly changed = new vscode.EventEmitter<Author | undefined>();
@@ -38,6 +41,15 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
    * repository with two hundred contributors the second is what stands between you and the first.
    */
   private query = '';
+
+  /**
+   * How the list is ordered.
+   *
+   * By commits to begin with: "who works on this" is the question a list of authors is usually
+   * being asked, and the busiest names are the ones worth ticking. By name is for when you already
+   * know who you are looking for and the list is long enough to lose them in.
+   */
+  private order: AuthorOrder = 'commits';
 
   readonly onDidChangeTreeData = this.changed.event;
   readonly onDidChangeFilter = this.filterChanged.event;
@@ -76,7 +88,19 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
       return [];
     }
 
-    return authorArgs([...this.selected]);
+    /*
+     * Every spelling of every ticked name, not only the one the row happened to show.
+     *
+     * A row can be the fold of `Max_Chiue` and `max_chiue`, and `--author` is case-sensitive, so
+     * passing one of them walks a fraction of what the row counted. git takes multiple `--author`
+     * as "any of these", which makes naming them all exact - and exact is worth more here than
+     * `-i`, which is a walk-wide flag and would quietly widen the user's own search with it.
+     */
+    const spellings = [...this.selected].flatMap(
+      (name) => this.authors.find((author) => author.name === name)?.names ?? [name],
+    );
+
+    return authorArgs(spellings);
   }
 
   /**
@@ -99,17 +123,40 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
     return this.visible();
   }
 
-  /** Authors left after the text filter. Matches the email too - names collide, addresses do not. */
+  /** Authors left after the text filter, in the chosen order. Addresses match as well as names. */
   private visible(): Author[] {
-    if (this.query.length === 0) {
-      return this.authors;
+    const needle = this.query.toLowerCase();
+
+    const listed =
+      needle.length === 0
+        ? this.authors
+        : this.authors.filter(
+            (author) =>
+              author.names.some((name) => name.toLowerCase().includes(needle)) ||
+              author.emails.some((email) => email.toLowerCase().includes(needle)),
+          );
+
+    // A copy. `authors` is the order the history came back in, and sorting it in place would make
+    // that order unrecoverable without walking the history again.
+    return this.order === 'name'
+      ? [...listed].sort((a, b) => a.name.localeCompare(b.name))
+      : listed;
+  }
+
+  /** Reorder the listing. The ticks and what the graph walks are untouched by it. */
+  setOrder(order: AuthorOrder): void {
+    if (this.order === order) {
+      return;
     }
 
-    const needle = this.query.toLowerCase();
-    return this.authors.filter(
-      (author) =>
-        author.name.toLowerCase().includes(needle) || author.email.toLowerCase().includes(needle),
-    );
+    this.order = order;
+    this.publishOrder();
+    this.changed.fire(undefined);
+    this.updateMessage();
+  }
+
+  private publishOrder(): void {
+    void vscode.commands.executeCommand('setContext', 'weft.authorsByName', this.order === 'name');
   }
 
   /** Narrow the listing. An empty string clears it. */
@@ -125,10 +172,10 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
   }
 
   /** Every author, for a picker to offer as completions. */
-  listAuthors(): { name: string; email: string; commits: number }[] {
-    return this.authors.map((author) => ({
+  listAuthors(): { name: string; emails: readonly string[]; commits: number }[] {
+    return this.visible().map((author) => ({
       name: author.name,
-      email: author.email,
+      emails: author.emails,
       commits: author.commits,
     }));
   }
@@ -177,11 +224,31 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
   }
 
   getTreeItem(author: Author): vscode.TreeItem {
-    const item = new vscode.TreeItem(author.name, vscode.TreeItemCollapsibleState.None);
+    // Every spelling on the row, busiest first. One person's row saying `Sean Lin, sean_lin` is
+    // how the reader knows the count in front of them covers both, rather than wondering where the
+    // other one went.
+    const item = new vscode.TreeItem(author.names.join(', '), vscode.TreeItemCollapsibleState.None);
 
-    item.id = `author:${author.name}`;
-    item.description = `${author.commits}`;
-    item.tooltip = `${author.name} <${author.email}>\n${author.commits} commits\nTick to show only these`;
+    // Unique now that the rows are one per person. It was not while two addresses could share a
+    // name, and a tree with two items claiming the same id draws one of them twice.
+    item.id = `author:${author.name.toLowerCase()}`;
+
+    /*
+     * What the row is made of, on the row rather than only in the tooltip: a name that turns out
+     * to be two addresses and two spellings is the answer to "why is that number bigger than I
+     * expected", and it is not a question anybody thinks to hover over.
+     */
+    item.description =
+      author.emails.length > 1
+        ? `${author.commits} · ${author.emails.length} emails`
+        : `${author.commits}`;
+
+    item.tooltip = [
+      ...author.names,
+      ...author.emails.map((email) => `<${email}>`),
+      `${author.commits} commits, across the whole history - the count takes no notice of what the graph is filtered to`,
+      'Tick to show only these',
+    ].join('\n');
     // Ticked means "only these", the opposite polarity to the ref filter. With nobody ticked
     // everyone is shown and no box is ticked - starting all-ticked would suggest that unticking one
     // hides that person, which is not what happens.
@@ -195,6 +262,7 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
 
   attach(view: vscode.TreeView<Author>): vscode.Disposable {
     this.view = view;
+    this.publishOrder();
     this.updateMessage();
 
     return view.onDidChangeCheckboxState((event) => {
@@ -244,6 +312,15 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
       return;
     }
 
+    /*
+     * The query, in the section header beside the word "Authors".
+     *
+     * A tree view cannot hold a text box, so the filter is typed into a picker that closes behind
+     * itself - and a filter you cannot see is one you forget is on, which makes the list look like
+     * it has lost people. The header is the one part of a collapsed section that stays visible.
+     */
+    this.view.description = this.query.length > 0 ? `“${this.query}”` : '';
+
     if (!this.loaded) {
       this.view.message = '';
       return;
@@ -271,7 +348,7 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
 
     this.view.message =
       this.selected.size === 0
-        ? 'Tick an author to show only their commits.'
+        ? 'Tick an author to show only their commits. The counts are for the whole history.'
         : `Showing ${this.selected.size} of ${total} authors.`;
   }
 }

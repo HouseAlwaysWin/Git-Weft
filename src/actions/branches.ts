@@ -104,27 +104,47 @@ const checkoutRemoteBranch: Action = {
       return 'Not a branch';
     }
 
-    // With a local branch of that name already present, "checkout origin/x" is ambiguous: the user
-    // means the local one, and that is a different action.
-    if (state.branches.includes(localNameOf(target.label))) {
-      return 'Local branch already exists';
+    /*
+     * A local branch of that name existing is not a reason to refuse - it is the branch this ends
+     * on either way, which is what the label has always said. Refusing on it made "Checkout uat"
+     * on `origin/uat` permanently grey next to a reason that reads like "you are already there",
+     * with the only way through being to find the local badge and right-click that one instead.
+     *
+     * So the only refusal left is being on it already.
+     */
+    if (state.branch === localNameOf(target.label)) {
+      return 'Already checked out';
     }
 
     return null;
   },
 
-  async run({ git, repo, target, ui }) {
+  async run({ git, repo, state, target, ui }) {
     if (target.kind !== 'ref') {
       return { message: '', ran: false };
     }
 
     const local = localNameOf(target.label);
 
+    /*
+     * Two commands for one intention. With no local branch yet, `--track` makes one at the remote
+     * tip and set up to follow it; with one already there `--track` is an error, and the branch
+     * meant is the one that exists, wherever it happens to be pointing. Checking out the remote
+     * branch itself is the third possibility and the wrong one: it detaches HEAD.
+     */
+    const exists = state.branches.includes(local);
+
     await ui.progress(`Checking out ${local}`, () =>
-      git.runWrite(repo.root, ['checkout', '--track', target.refName]),
+      git.runWrite(
+        repo.root,
+        exists ? ['checkout', local] : ['checkout', '--track', target.refName],
+      ),
     );
 
-    return { message: `Checked out ${local}, tracking ${target.label}`, ran: true };
+    return {
+      message: exists ? `Checked out ${local}` : `Checked out ${local}, tracking ${target.label}`,
+      ran: true,
+    };
   },
 };
 

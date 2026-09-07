@@ -46,6 +46,9 @@ export interface Row {
   readonly uncommitted?: boolean;
 }
 
+/** Draw every ref, draw none of them, or draw the branch HEAD is on. */
+export type RefsPreset = 'all' | 'none' | 'current';
+
 /**
  * One ref, as the branch menu in the header needs it.
  *
@@ -177,11 +180,15 @@ export type WebviewMessage =
       readonly search: Search | null;
       readonly dates: DateRange | null;
       readonly firstParent: boolean;
+      /** Whether the walk is narrowed to what no other ref can reach. */
+      readonly onlyHere: boolean;
       readonly order: CommitOrder;
     }
   | { readonly type: 'refresh' }
   /** Drop the search, the date range, and the sidebar's ref and author filters, all at once. */
   | { readonly type: 'clearFilters' }
+  /** Walk only what the ticked refs have and every other ref does not. */
+  | { readonly type: 'onlyHere'; readonly on: boolean }
   | { readonly type: 'search'; readonly search: Search | null }
   /** Narrow the walk to a stretch of time. Separate from the search: the two combine. */
   | { readonly type: 'dates'; readonly range: DateRange | null }
@@ -204,5 +211,14 @@ export type WebviewMessage =
    * fifty messages would be fifty reloads of the graph.
    */
   | { readonly type: 'setRefsVisible'; readonly refNames: readonly string[]; readonly visible: boolean }
+  /**
+   * The three answers worth one click, the same three the sidebar's title bar offers.
+   *
+   * A preset rather than a list of ref names: "everything" on a repository with fourteen hundred
+   * refs would be fourteen hundred names across the wire to say something the other side can work
+   * out for itself, and "the branch you are on" is not something the view knows at all - the ticks
+   * follow HEAD, and HEAD is the host's to read.
+   */
+  | { readonly type: 'refsPreset'; readonly preset: RefsPreset }
   /** Hand a conflicted file to VS Code, whose merge editor is better at this than anything here. */
   | { readonly type: 'openConflict'; readonly path: string };

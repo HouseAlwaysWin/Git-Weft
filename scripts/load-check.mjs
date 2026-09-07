@@ -856,7 +856,32 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     problems.push('the refs view never explains what its checkboxes do');
   }
 
-  const baseline = done?.total ?? 0;
+  /*
+   * A graph opens on the branch HEAD is on and nothing else, so the first walk is not the whole
+   * history. That is asserted here, and then undone: everything below is about ticks narrowing a
+   * full history, and it needs a full one to narrow.
+   */
+  const openedTicked = allRefs.filter((r) => treeProvider.getTreeItem(r).checkboxState === 1);
+
+  console.log('opens ticked   :', openedTicked.map((r) => r.label).join(', ') || '(nothing)');
+
+  if (openedTicked.length !== 1 || openedTicked[0]?.refName !== 'refs/heads/main') {
+    problems.push(
+      `a graph should open on the branch HEAD is on; ticked instead: ${openedTicked.map((r) => r.label).join(', ') || 'nothing'}`,
+    );
+  }
+
+  await commands.get('weft.showAllRefs')();
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
+
+  console.log('opened with    :', done?.total, 'commits; every ref ->', baseline);
+
+  if (baseline <= (done?.total ?? 0)) {
+    problems.push('showing every ref did not widen the walk past the branch HEAD is on');
+  }
+
   const keep = allRefs.find((r) => r.label === 'main' || r.label === 'master') ?? allRefs[0];
 
   if (keep === undefined) {
@@ -920,6 +945,128 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   }
 } else {
   problems.push('no refs tree view was registered');
+}
+
+/*
+ * The three presets, driven from the graph rather than from the sidebar.
+ *
+ * The buttons are in the webview and the state they move is the sidebar's, so this is the whole
+ * round trip: a message from the view, a provider that changes, and a graph that reloads. The
+ * counts are the point - "nothing ticked" has to reach git as a walk of nothing, not as a walk of
+ * everything with the ticks ignored.
+ */
+{
+  const refsProvider = treeProviders.get('weft.refs');
+
+  if (refsProvider === undefined) {
+    problems.push('no refs tree view to drive the presets against');
+  } else {
+    const tickedNow = () =>
+      refsProvider
+        .getChildren()
+        .flatMap((g) => refsProvider.getChildren(g))
+        .filter((ref) => refsProvider.getTreeItem(ref).checkboxState === 1);
+
+    const settle = async (from) => {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length <= from) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
+    };
+
+    const send = async (preset) => {
+      const from = posted.filter((m) => m.type === 'done').length;
+      await messageHandler({ type: 'refsPreset', preset });
+      return settle(from);
+    };
+
+    const all = await send('all');
+    const everyRef = tickedNow().length;
+
+    const none = await send('none');
+    const noRef = tickedNow().length;
+
+    const current = await send('current');
+    const currentRefs = tickedNow().map((ref) => ref.label);
+
+    console.log('');
+    console.log('presets        : all ->', all, 'commits,', everyRef, 'ticked');
+    console.log('                 none ->', none, 'commits,', noRef, 'ticked');
+    console.log('                 current ->', current, 'commits,', currentRefs.join(', '));
+
+    if (everyRef === 0 || all <= 0) {
+      problems.push(`the "everything" preset left ${everyRef} refs ticked and ${all} commits`);
+    }
+
+    if (noRef !== 0 || none !== 0) {
+      problems.push(`the "nothing" preset left ${noRef} refs ticked and ${none} commits`);
+    }
+
+    if (currentRefs.length !== 1 || currentRefs[0] !== 'main') {
+      problems.push(
+        `the "current branch" preset ticked ${currentRefs.join(', ') || 'nothing'}, expected main`,
+      );
+    }
+
+    if (current >= all) {
+      problems.push(`the "current branch" preset walked ${current} of ${all} commits`);
+    }
+  }
+}
+
+/*
+ * A checkout takes the ticks with it.
+ *
+ * The default is "the branch you are on", and which branch that is changes. Switching has to move
+ * the ticks even when the set on screen is one somebody chose by hand - a graph still drawing the
+ * branch you left is drawing the wrong thing, and finding the new one by hand means a search
+ * through every ref in the repository. Show All immediately before this is what makes this the
+ * interesting case rather than a no-op.
+ */
+{
+  const refsProvider = treeProviders.get('weft.refs');
+
+  if (refsProvider === undefined) {
+    problems.push('no refs tree view to check a checkout against');
+  } else {
+    const everyRef = () => refsProvider.getChildren().flatMap((g) => refsProvider.getChildren(g));
+    const tickedNow = () =>
+      everyRef().filter((ref) => refsProvider.getTreeItem(ref).checkboxState === 1);
+
+    await commands.get('weft.showAllRefs')();
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const chosen = tickedNow().length;
+
+    await messageHandler({
+      type: 'runAction',
+      id: 'weft.checkoutBranch',
+      target: { kind: 'ref', refName: 'refs/heads/side', label: 'side', refKind: 'local' },
+    });
+
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const after = tickedNow();
+
+    console.log('');
+    console.log('checkout ticks :', chosen, 'ticked ->', after.map((r) => r.label).join(', ') || '(nothing)');
+
+    if (after.length !== 1 || after[0]?.refName !== 'refs/heads/side') {
+      problems.push(
+        `a checkout should leave only the new branch ticked; ticked: ${after.map((r) => r.label).join(', ') || 'nothing'}`,
+      );
+    }
+
+    // Back to main, so nothing after this is reading a different branch's history.
+    await messageHandler({
+      type: 'runAction',
+      id: 'weft.checkoutBranch',
+      target: { kind: 'ref', refName: 'refs/heads/main', label: 'main', refKind: 'local' },
+    });
+
+    await new Promise((r) => setTimeout(r, 2500));
+  }
 }
 
 /*
@@ -989,6 +1136,13 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
    * return early when nothing was unticked - so with a text filter applied and nothing unticked,
    * which is the ordinary case, the button did nothing at all.
    */
+  /*
+   * Its premise is "nothing unticked", and a graph opens on the branch HEAD is on - so that is a
+   * state to reach first rather than one to assume.
+   */
+  await commands.get('weft.showAllRefs')();
+  await new Promise((r) => setTimeout(r, 1500));
+
   await typeIntoRefFilter('side');
 
   const reloadsBefore = posted.filter((m) => m.type === 'done').length;
@@ -1079,7 +1233,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   }
 
   const applied = posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
-  const baseline = posted.filter((m) => m.type === 'done')[0]?.total ?? 0;
+  // The walk immediately before applying, not the first of the session: the first is the branch
+  // HEAD is on, which is narrower than what this is about to narrow.
+  const baseline = posted.filter((m) => m.type === 'done')[applyFrom - 1]?.total ?? 0;
 
   console.log('  applied      :', applied, 'commits from the one ref that was listed');
 
@@ -1224,6 +1380,13 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   const refsHandler = checkboxHandlers.get('weft.refs');
   const authorsProvider = treeProviders.get('weft.authors');
   const authorsHandler = checkboxHandlers.get('weft.authors');
+  /*
+   * What the graph opened with, because that is what Clear Filters goes back to: the branch HEAD
+   * is on. Show All Branches & Tags is the button that means every ref, and it is a different
+   * gesture - "as it was when I opened it" and "everything there is" are not the same request.
+   */
+  const asOpened = posted.filter((m) => m.type === 'done')[0]?.total ?? 0;
+  /** The walk this block starts from, which is what the filters below are narrowing. */
   const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
 
   const settle = async (from) => {
@@ -1267,16 +1430,18 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   console.log(
     'filters cleared:',
     restored,
-    'of',
-    baseline,
-    '| view told:',
+    'of the',
+    asOpened,
+    'it opened with | view told:',
     posted.some((m) => m.type === 'filtersCleared'),
     '| reset says filtered:',
     stillFlagged,
   );
 
-  if (restored !== baseline) {
-    problems.push(`clearing every filter left ${restored} of ${baseline} commits`);
+  if (restored !== asOpened) {
+    problems.push(
+      `clearing every filter left ${restored} commits, expected the ${asOpened} it opened with`,
+    );
   }
 
   if (stillFlagged !== false) {
@@ -1353,6 +1518,12 @@ if (watchTest) {
 {
   const refsProvider = treeProviders.get('weft.refs');
   const refsHandler = checkboxHandlers.get('weft.refs');
+
+  // From a known state. The block before this one cleared the filters, which puts the ticks back
+  // to the branch HEAD is on - and "unticking narrows the walk" needs something to narrow.
+  await commands.get('weft.showAllRefs')();
+  await new Promise((r) => setTimeout(r, 1500));
+
   const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
 
   // The graph is no longer the focused editor, exactly as it is not when a sidebar is being used.
