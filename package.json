@@ -63,6 +63,11 @@
         "icon": "$(filter)"
       },
       {
+        "command": "weft.revealCommit",
+        "title": "Show Commit in the Graph",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.untickAllRefs",
         "title": "Untick All Branches & Tags",
         "category": "Git Weft",
@@ -219,6 +224,11 @@
       "commandPalette": [
         {
           "command": "weft.openCommitFile",
+          "when": "false"
+        },
+        {
+          "_comment": "Takes a sha and a repository root, so there is nothing to type it with.",
+          "command": "weft.revealCommit",
           "when": "false"
         },
         {

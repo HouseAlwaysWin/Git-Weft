@@ -326,6 +326,44 @@ function start(context: vscode.ExtensionContext): void {
       );
     }),
 
+    /*
+     * A commit named somewhere other than the graph - the line-end blame - and the graph brought
+     * to it.
+     *
+     * Beside rather than over: the reader is in a file and asked what one of its lines is about,
+     * so taking the file off screen to answer would be trading one question for another. Opens a
+     * graph if there is none, because "open the graph first" is a step they did not ask about.
+     */
+    vscode.commands.registerCommand('weft.revealCommit', async (args: unknown) => {
+      const ask = args as { sha?: unknown; root?: unknown } | undefined;
+      const sha = typeof ask?.sha === 'string' ? ask.sha : null;
+      const root = typeof ask?.root === 'string' ? ask.root : null;
+
+      if (sha === null || root === null) {
+        return;
+      }
+
+      const repo = await discover(git, root);
+
+      if (repo === null) {
+        void vscode.window.showInformationMessage(
+          'Weft: that file is not in a git repository any more.',
+        );
+        return;
+      }
+
+      await refs.setRepository(repo);
+      authors.setRepository(repo);
+
+      WeftPanel.show(
+        context.extensionUri,
+        git,
+        repo,
+        vscode.ViewColumn.Beside,
+        filters,
+      ).revealCommit(sha);
+    }),
+
     vscode.commands.registerCommand('weft.showAllRefs', () => refs.showAll()),
 
     vscode.commands.registerCommand('weft.showOnlyListedRefs', () => refs.showOnlyListed()),

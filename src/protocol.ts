@@ -164,6 +164,14 @@ export type HostMessage =
       readonly conflicted: readonly string[];
       readonly controls: readonly MenuItem[];
     }
+  /**
+   * Put the cursor on one commit, wherever the reader came from.
+   *
+   * By sha rather than by row, because a row number belongs to one walk: the message is sent once
+   * when it is asked for and again when the page carrying that commit lands, and forty thousand
+   * rows can arrive in between.
+   */
+  | { readonly type: 'reveal'; readonly sha: string }
   /** Ask the view to search for one file's history. It owns the boxes, so it sets them itself. */
   | { readonly type: 'showHistory'; readonly path: string }
   | { readonly type: 'error'; readonly message: string };

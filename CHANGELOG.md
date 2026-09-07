@@ -6,7 +6,10 @@
   every line turns a file into two columns and makes the code the narrower one, while the line
   being read is where "why is this here" gets asked. It follows the buffer rather than the file
   on disk, so a line typed a moment ago says so instead of wearing the name of whoever wrote
-  what used to be there. `weft.inlineBlame` turns it off.
+  what used to be there. Hovering it gives the sha, the date, and **Show in the graph**, which
+  opens one beside the file with the cursor already on that commit - it waits for the page that
+  carries it rather than missing, and says so if a filter is keeping the commit out.
+  `weft.inlineBlame` turns it off.
 
 - **A graph opens on the branch you are on.** Every ref used to be ticked, which on a clone with
   fourteen hundred of them is seconds of `git log --all` to draw a graph whose lanes are too many

@@ -2461,6 +2461,43 @@ if (disposeHandler !== null) {
   } else if (!last.includes('•')) {
     problems.push(`the line-end blame drew "${last}", which does not say what the commit was`);
   }
+
+  /*
+   * And the way through to the graph.
+   *
+   * The link lives in the hover because a decoration's trailing text is drawn rather than built,
+   * so there is nothing else to attach a click to - which makes "is it in the hover" the only
+   * question worth asking about it.
+   */
+  const linked = decorations
+    .flat()
+    .map((entry) => entry?.hoverMessage?.value ?? '')
+    .filter((value) => value.includes('command:weft.revealCommit'));
+
+  console.log('blame hover    :', linked.length > 0 ? 'links into the graph' : 'NO LINK');
+
+  if (drawn.length > 0 && linked.length === 0) {
+    problems.push('the blame hover offers no way through to the graph');
+  }
+
+  const head = String(runGit(repoPath, 'rev-parse', 'HEAD')).trim();
+  const before = posted.filter((m) => m.type === 'reveal').length;
+
+  await commands.get('weft.revealCommit')({ sha: head, root: repoPath });
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const asked = posted.filter((m) => m.type === 'reveal');
+
+  console.log(
+    'reveal commit  :',
+    asked.length > before ? asked[asked.length - 1].sha.slice(0, 8) : 'NOTHING SENT',
+  );
+
+  if (asked.length === before) {
+    problems.push('Show in the graph did not reach the view');
+  } else if (asked[asked.length - 1].sha !== head) {
+    problems.push('Show in the graph asked the view for a different commit');
+  }
 }
 
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');

@@ -2334,6 +2334,20 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       renderComparison(message);
       break;
 
+    case 'reveal': {
+      const wanted = message.sha.toLowerCase();
+      const index = view.findIndex((row) => row.sha.startsWith(wanted));
+
+      // Not here yet is the ordinary case on a long history: the host sends this again when the
+      // page carrying it arrives, so a miss now is not worth saying anything about.
+      if (index >= 0) {
+        select(index);
+        statusEl.textContent = `jumped to ${message.sha.slice(0, 8)}`;
+      }
+
+      break;
+    }
+
     case 'showHistory':
       showHistory(message.path);
       break;

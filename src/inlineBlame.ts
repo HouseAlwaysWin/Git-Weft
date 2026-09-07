@@ -180,7 +180,7 @@ export class InlineBlame {
       {
         range: new vscode.Range(end, end),
         renderOptions: { after: { contentText: label(entry) } },
-        hoverMessage: hover(entry),
+        hoverMessage: hover(entry, repo.root),
       },
     ]);
   }
@@ -240,8 +240,17 @@ function label(entry: BlameLine): string {
   return summary.length > 0 ? `${who}${when} • ${summary}` : `${who}${when}`;
 }
 
-/** The same thing at length, for anyone who wants the sha and the date rather than "6 months ago". */
-function hover(entry: BlameLine): vscode.MarkdownString {
+/**
+ * The same thing at length, and the way through to the graph.
+ *
+ * The link has to be here. A decoration’s trailing text is drawn, not built from elements, so
+ * there is nothing to attach a click to - the hover is the only part of an annotation that can
+ * hold one, which is why every editor that does this does it here.
+ *
+ * Trusted for exactly one command. A markdown string that will run commands is a small piece of
+ * authority, and this one needs only the piece it uses.
+ */
+function hover(entry: BlameLine, root: string): vscode.MarkdownString {
   const text = new vscode.MarkdownString();
 
   if (entry.uncommitted) {
@@ -249,9 +258,13 @@ function hover(entry: BlameLine): vscode.MarkdownString {
     return text;
   }
 
+  text.isTrusted = { enabledCommands: ['weft.revealCommit'] };
+
   const when = entry.authorTime > 0 ? new Date(entry.authorTime).toISOString().slice(0, 10) : '';
+  const args = encodeURIComponent(JSON.stringify([{ sha: entry.sha, root }]));
 
   text.appendMarkdown(`**${entry.summary}**\n\n`);
-  text.appendMarkdown(`${entry.author} · ${when} · \`${entry.sha.slice(0, 8)}\``);
+  text.appendMarkdown(`${entry.author} · ${when} · \`${entry.sha.slice(0, 8)}\`\n\n`);
+  text.appendMarkdown(`[Show in the graph](command:weft.revealCommit?${args})`);
   return text;
 }

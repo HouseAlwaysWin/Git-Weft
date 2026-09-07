@@ -203,6 +203,9 @@ export class WeftPanel {
   private firstParent = false;
   /** Walk only what the ticked refs have that no other ref does. */
   private onlyHere = false;
+
+  /** A commit somebody asked to be shown, until the walk produces it or runs out. */
+  private pendingReveal: string | null = null;
   /** Not a filter: ordering hides nothing, so `clearFilters` leaves it alone the way it leaves sort. */
   private order: CommitOrder = 'date';
   private readonly filters: FilterSource;
@@ -420,6 +423,20 @@ export class WeftPanel {
    * narrowed to a path while the box says something else is the disagreement the handshake exists
    * to prevent.
    */
+  /**
+   * Bring the graph forward with the cursor on one commit.
+   *
+   * Sent twice, and not by mistake. A graph that is already showing the commit takes the first
+   * one; a graph that has just been opened, or is forty thousand rows from that commit, has
+   * nothing to put the cursor on yet - so the sha is held and sent again with the page that
+   * carries it. A walk that ends without ever reaching it says so rather than doing nothing.
+   */
+  revealCommit(sha: string): void {
+    this.panel.reveal(this.panel.viewColumn);
+    this.pendingReveal = sha;
+    this.post({ type: 'reveal', sha });
+  }
+
   showFileHistory(path: string): void {
     this.panel.reveal(this.panel.viewColumn);
     this.post({ type: 'showHistory', path });
@@ -929,6 +946,15 @@ export class WeftPanel {
           });
 
           this.post({ type: 'page', rows, delta: page.delta });
+
+          // The page that carries it is the first moment the view can act on it.
+          if (
+            this.pendingReveal !== null &&
+            rows.some((row) => row.sha.startsWith(this.pendingReveal as string))
+          ) {
+            this.post({ type: 'reveal', sha: this.pendingReveal });
+            this.pendingReveal = null;
+          }
         },
         {
           batchSize: 500,
@@ -945,6 +971,20 @@ export class WeftPanel {
 
       if (!controller.signal.aborted) {
         this.post({ type: 'done', total: loader.rowCount, elapsedMs: Date.now() - started });
+
+        /*
+         * The walk finished and never produced it. Said out loud, because the reader clicked
+         * something and the graph did not move: the commit is real - it came off a blame - and
+         * what is hiding it is a filter of their own.
+         */
+        if (this.pendingReveal !== null) {
+          this.post({
+            type: 'error',
+            message: `${this.pendingReveal.slice(0, 8)} is not in this graph. A branch, a date or an author filter is keeping it out.`,
+          });
+
+          this.pendingReveal = null;
+        }
       }
     } catch (err) {
       if (!controller.signal.aborted) {
