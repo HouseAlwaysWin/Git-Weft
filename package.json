@@ -63,6 +63,12 @@
         "icon": "$(filter)"
       },
       {
+        "command": "weft.toggleFileBlame",
+        "title": "Toggle File Blame",
+        "category": "Git Weft",
+        "icon": "$(list-selection)"
+      },
+      {
         "command": "weft.revealCommit",
         "title": "Show Commit in the Graph",
         "category": "Git Weft"
@@ -298,6 +304,13 @@
         {
           "command": "weft.manageRemotes",
           "when": "weft.graphVisible"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "weft.toggleFileBlame",
+          "when": "editorTextFocus && resourceScheme == file",
+          "group": "navigation@100"
         }
       ],
       "editor/title": [

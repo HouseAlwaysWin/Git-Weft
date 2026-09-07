@@ -10,7 +10,7 @@ import type { RefsPreset } from './protocol.ts';
 import { RefsProvider } from './refsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
-import { InlineBlame } from './inlineBlame.ts';
+import { BlameAnnotations } from './blameAnnotations.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
 
 let output: vscode.LogOutputChannel | undefined;
@@ -224,6 +224,13 @@ function start(context: vscode.ExtensionContext): void {
     clear: () => files.setCommit(null, null),
   });
 
+  /*
+   * Blame on the editor: the line the cursor is on, always, and the whole file on request. It
+   * listens to the window rather than to the graph, so a workspace with no graph open still gets
+   * it - which is the point of it.
+   */
+  const blame = new BlameAnnotations(git);
+
   // Read fresh on every reload, so neither view has to push anything at the panel.
   const filters = {
     refs: (root: string) => refs.visibleRefs(root),
@@ -269,7 +276,7 @@ function start(context: vscode.ExtensionContext): void {
      * about editors, so it is its own thing: it listens to the window rather than to the graph, and
      * a workspace with no graph open still gets it.
      */
-    new InlineBlame(git),
+    blame,
 
     refs.attach(refsView),
     authors.attach(authorsView),
@@ -363,6 +370,8 @@ function start(context: vscode.ExtensionContext): void {
         filters,
       ).revealCommit(sha);
     }),
+
+    vscode.commands.registerCommand('weft.toggleFileBlame', () => blame.toggleFile()),
 
     vscode.commands.registerCommand('weft.showAllRefs', () => refs.showAll()),
 

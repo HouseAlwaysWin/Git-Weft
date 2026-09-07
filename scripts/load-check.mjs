@@ -203,6 +203,8 @@ const editorDocument = {
   isDirty: false,
   getText: () => 'one\n',
   lineAt: (line) => ({ range: { end: { line, character: 0 } } }),
+  // The whole-file column walks this, so a document without it is a column with no lines in it.
+  lineCount: 1,
 };
 
 const activeEditor = {
@@ -374,6 +376,7 @@ const vscodeStub = {
   ThemeColor: class { constructor(id) { this.id = id; } },
   MarkdownString: class { constructor() { this.value = ''; } appendMarkdown(v) { this.value += v; } },
   Range: class { constructor(start, end) { this.start = start; this.end = end; } },
+  Position: class { constructor(line, character) { this.line = line; this.character = character; } },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
   TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
@@ -2497,6 +2500,47 @@ if (disposeHandler !== null) {
     problems.push('Show in the graph did not reach the view');
   } else if (asked[asked.length - 1].sha !== head) {
     problems.push('Show in the graph asked the view for a different commit');
+  }
+}
+
+/*
+ * The whole-file column, which is the other annotation and the one nobody gets unasked.
+ *
+ * Told apart from the line-end one by which side of the text it attaches to: a column is drawn
+ * `before`, the quiet one `after`. Both go through the same recorder, and needing to tell them
+ * apart at all is the point - turning one on must not have turned the other off.
+ */
+{
+  const columns = () =>
+    decorations.flat().filter((entry) => entry?.renderOptions?.before !== undefined);
+
+  const before = columns().length;
+
+  await commands.get('weft.toggleFileBlame')();
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const drawn = columns();
+  const text = drawn[drawn.length - 1]?.renderOptions?.before?.contentText ?? '';
+
+  console.log('');
+  console.log('file blame     :', drawn.length > before ? JSON.stringify(text) : 'NOTHING DRAWN');
+
+  if (drawn.length === before) {
+    problems.push('Toggle File Blame drew no column');
+  } else if (!/\d{4}-\d{2}-\d{2}/.test(text)) {
+    problems.push(`the file blame column drew "${text}", which does not say when`);
+  }
+
+  await commands.get('weft.toggleFileBlame')();
+  await new Promise((r) => setTimeout(r, 500));
+
+  const last = decorations[decorations.length - 1];
+  const cleared = Array.isArray(last) && last.length === 0;
+
+  console.log('file blame off :', cleared ? 'cleared' : 'STILL THERE');
+
+  if (!cleared) {
+    problems.push('Toggle File Blame a second time did not take the column away');
   }
 }
 

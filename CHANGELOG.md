@@ -11,6 +11,12 @@
   carries it rather than missing, and says so if a filter is keeping the commit out.
   `weft.inlineBlame` turns it off.
 
+- **Toggle File Blame** puts every line’s author and date in a column down the left, and takes
+  it away again. Off unless asked for, and asked for per file: it moves the code right and
+  gives the eye a second column to read, which is worth it while you are reading a file’s
+  history and in the way while you are writing it. The column is measured to its widest name,
+  because a ragged edge stops a column reading as one. It is on the editor’s right-click menu.
+
 - **A graph opens on the branch you are on.** Every ref used to be ticked, which on a clone with
   fourteen hundred of them is seconds of `git log --all` to draw a graph whose lanes are too many
   to count, let alone read - and the branch you opened it for is somewhere in the middle of them.
