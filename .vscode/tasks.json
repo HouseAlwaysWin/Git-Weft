@@ -2,18 +2,25 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "build",
+      // node directly rather than `npm run build`. VS Code runs a task's command through the
+      // automation shell, which on Windows is PowerShell - and a machine whose execution policy
+      // refuses to load scripts cannot load npm.ps1, so F5 fails before the extension is ever
+      // built, with an error about execution policies rather than about anything here. The npm
+      // script is this one line, and "process" runs it with no shell in the way at all.
+      "type": "process",
+      "command": "node",
+      "args": ["esbuild.mjs"],
       "problemMatcher": "$esbuild",
       "group": { "kind": "build", "isDefault": true },
-      "label": "npm: build"
+      "label": "build"
     },
     {
-      "type": "npm",
-      "script": "watch",
+      "type": "process",
+      "command": "node",
+      "args": ["esbuild.mjs", "--watch"],
       "problemMatcher": "$esbuild-watch",
       "isBackground": true,
-      "label": "npm: watch"
+      "label": "watch"
     }
   ]
 }
