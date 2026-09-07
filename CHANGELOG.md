@@ -80,6 +80,11 @@
   the ring sat off its own dot and the dashed line to the working tree ran down a column no lane
   was in.
 
+- **Checkout is the first thing on a branch's menu**, and copying a name is the last. Nobody
+  right-clicks a branch to copy its name, and Checkout sitting third meant reading past two things
+  that were not it. Comparing stays where it is: on a commit it is a real answer to "what do I want
+  to do with this", not an afterthought like the clipboard.
+
 - The commit-order dropdown takes the theme's colours, like the two beside it. It had been left to
   the browser's own, which on a dark theme is a white box in a dark toolbar.
 

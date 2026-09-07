@@ -1310,55 +1310,71 @@ function renderMenu(target: Target, items: readonly MenuItem[], x: number, y: nu
     return;
   }
 
+  /*
+   * Copying goes to the bottom, everything else the view answers stays on top.
+   *
+   * Nobody opens a branch's menu to copy its name - they open it to check the branch out, and
+   * Checkout being third meant reading past two things to reach the one thing. Comparing is not
+   * the same case: it is a real answer to "what do I want to do with this commit", and on a commit
+   * it is the first one.
+   */
+  const leading = local.filter((item) => item.group !== 'copy');
+  const trailing = local.filter((item) => item.group === 'copy');
+
   const menu = document.createElement('div');
   menu.className = 'menu';
   menu.setAttribute('role', 'menu');
 
-  let localGroup: string | null = null;
+  /** Whether anything is on the menu yet, so a rule is only ever drawn between two things. */
+  let drawn = false;
+  let lastGroup: string | null = null;
 
-  for (const item of local) {
-    if (localGroup !== null && item.group !== localGroup) {
-      const rule = document.createElement('div');
+  const rule = (): void => {
+    const line = document.createElement('div');
 
-      rule.className = 'menu-separator';
-      menu.append(rule);
+    line.className = 'menu-separator';
+    menu.append(line);
+  };
+
+  const appendLocal = (entries: readonly LocalItem[]): void => {
+    for (const item of entries) {
+      // A rule between groups, and between these and whatever was already on the menu.
+      if (drawn && item.group !== lastGroup) {
+        rule();
+      }
+
+      drawn = true;
+      lastGroup = item.group;
+
+      const el = document.createElement('div');
+
+      el.className = 'menu-item';
+      el.setAttribute('role', 'menuitem');
+      // textContent, like the host's own items: `menu-label` is not a class this stylesheet has.
+      el.textContent = item.label;
+      el.addEventListener('click', () => {
+        closeMenu();
+        item.run();
+      });
+
+      menu.append(el);
     }
+  };
 
-    localGroup = item.group;
-
-    const el = document.createElement('div');
-
-    el.className = 'menu-item';
-    el.setAttribute('role', 'menuitem');
-    // textContent, like the host's own items: `menu-label` is not a class this stylesheet has.
-    el.textContent = item.label;
-    el.addEventListener('click', () => {
-      closeMenu();
-      item.run();
-    });
-
-    menu.append(el);
-  }
-
-  if (local.length > 0 && items.length > 0) {
-    const rule = document.createElement('div');
-
-    rule.className = 'menu-separator';
-    menu.append(rule);
-  }
+  appendLocal(leading);
 
   let previousGroup: string | null = null;
 
   for (const item of items) {
     // A rule between groups, so "Delete" never sits flush against "Checkout" and gets hit by
     // someone aiming one row higher.
-    if (previousGroup !== null && item.group !== previousGroup) {
-      const rule = document.createElement('div');
-      rule.className = 'menu-separator';
-      menu.append(rule);
+    if (drawn && item.group !== previousGroup) {
+      rule();
     }
 
+    drawn = true;
     previousGroup = item.group;
+    lastGroup = item.group;
 
     const el = document.createElement('div');
     el.className = item.destructive ? 'menu-item destructive' : 'menu-item';
@@ -1379,6 +1395,8 @@ function renderMenu(target: Target, items: readonly MenuItem[], x: number, y: nu
 
     menu.append(el);
   }
+
+  appendLocal(trailing);
 
   showMenuAt(menu, x, y);
 }
