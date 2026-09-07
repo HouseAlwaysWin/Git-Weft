@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+- **Toggle File Blame** puts every line’s author and date in a column down the left, and takes
+  it away again. Off unless asked for, and asked for per file: it moves the code right and
+  gives the eye a second column to read, which is worth it while you are reading a file’s
+  history and in the way while you are writing it. The column is measured to its widest name,
+  because a ragged edge stops a column reading as one. It is on the editor’s right-click menu.
+
+- **The Date column shows the time once it is wide enough for it.** The day is what a history is
+  read by, and four thousand rows carrying a time nobody asked about is noise - but two commits
+  an hour apart on the same day are indistinguishable without it, which is the moment anybody
+  widens the column. So the format follows the width rather than a setting. The whole timestamp,
+  offset included, is on hover at any width.
+
 ## 0.3.0
 
 - **Who last changed this line, at the end of the line.** The cursor’s line only: annotating
@@ -11,17 +25,6 @@
   carries it rather than missing, and says so if a filter is keeping the commit out.
   `weft.inlineBlame` turns it off.
 
-- **The Date column shows the time once it is wide enough for it.** The day is what a history is
-  read by, and four thousand rows carrying a time nobody asked about is noise - but two commits
-  an hour apart on the same day are indistinguishable without it, which is the moment anybody
-  widens the column. So the format follows the width rather than a setting. The whole timestamp,
-  offset included, is on hover at any width.
-
-- **Toggle File Blame** puts every line’s author and date in a column down the left, and takes
-  it away again. Off unless asked for, and asked for per file: it moves the code right and
-  gives the eye a second column to read, which is worth it while you are reading a file’s
-  history and in the way while you are writing it. The column is measured to its widest name,
-  because a ragged edge stops a column reading as one. It is on the editor’s right-click menu.
 
 - **A graph opens on the branch you are on.** Every ref used to be ticked, which on a clone with
   fourteen hundred of them is seconds of `git log --all` to draw a graph whose lanes are too many
