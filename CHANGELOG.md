@@ -2,6 +2,12 @@
 
 ## 0.3.0
 
+- **Who last changed this line, at the end of the line.** The cursor’s line only: annotating
+  every line turns a file into two columns and makes the code the narrower one, while the line
+  being read is where "why is this here" gets asked. It follows the buffer rather than the file
+  on disk, so a line typed a moment ago says so instead of wearing the name of whoever wrote
+  what used to be there. `weft.inlineBlame` turns it off.
+
 - **A graph opens on the branch you are on.** Every ref used to be ticked, which on a clone with
   fourteen hundred of them is seconds of `git log --all` to draw a graph whose lanes are too many
   to count, let alone read - and the branch you opened it for is somewhere in the middle of them.

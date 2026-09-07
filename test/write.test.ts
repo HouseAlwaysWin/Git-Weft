@@ -33,6 +33,7 @@ import {
 } from '../src/git/repoState.ts';
 import { Remedy, mapGitError } from '../src/git/errors.ts';
 import { listAuthors } from '../src/git/authors.ts';
+import { blameFile } from '../src/git/blame.ts';
 import type { ActionUi, Target } from '../src/actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from '../src/actions/registry.ts';
 import { RepoLock } from '../src/git/lock.ts';
@@ -495,6 +496,41 @@ test('only-here with every ref in the walk has nothing to exclude, and narrows n
   const asked = await walk(dir, { onlyHere: true });
 
   assert.deepEqual(asked, everything);
+});
+
+test('blame names the commit behind a line', async () => {
+  const dir = makeRepo();
+  const blame = await blameFile(git, await open(dir), join(dir, 'a.txt'));
+
+  assert.equal(blame[0]?.author, 'Weft Test');
+  assert.equal(blame[0]?.summary, 'first');
+  assert.equal(blame[0]?.uncommitted, false);
+  assert.ok(blame[0]!.authorTime > 0, 'and when, in milliseconds');
+});
+
+/*
+ * The buffer, not the file. git blames what is on disk, and an editor holding unsaved edits has
+ * moved every line below the first change - so the annotation beside line twelve would be about
+ * whatever line twelve used to be.
+ */
+test('blame follows the buffer when it is handed one', async () => {
+  const dir = makeRepo();
+  const repo = await open(dir);
+
+  const blame = await blameFile(git, repo, join(dir, 'a.txt'), 'typed above\none\n');
+
+  assert.equal(blame[0]?.uncommitted, true, 'the line that was just typed belongs to nobody yet');
+  assert.equal(blame[1]?.summary, 'first', 'and the one it pushed down is still the commit it was');
+});
+
+test('a file git will not blame comes back empty rather than throwing', async () => {
+  const dir = makeRepo();
+  const repo = await open(dir);
+
+  writeFileSync(join(dir, 'untracked.txt'), 'never added\n');
+
+  assert.deepEqual(await blameFile(git, repo, join(dir, 'untracked.txt')), []);
+  assert.deepEqual(await blameFile(git, repo, join(dir, 'not-even-there.txt')), []);
 });
 
 const commit = (sha: string): Target => ({ kind: 'commit', sha, subject: 'x' });

@@ -185,6 +185,32 @@ const uri = (p) => ({
   toString: () => `file://${p}`,
 });
 
+/*
+ * An editor, for the line-end blame. It watches the window rather than the graph, so without these
+ * the extension does not finish activating at all - and everything after that is a null.
+ */
+const activeEditorChanged = new StubEmitter();
+const selectionChanged = new StubEmitter();
+const documentChanged = new StubEmitter();
+const documentClosed = new StubEmitter();
+
+/** What the blame annotation was last asked to draw, so a test can read it back. */
+const decorations = [];
+
+const editorDocument = {
+  uri: uri(repoPath.replace(/\\/g, '/') + '/f1.txt'),
+  version: 1,
+  isDirty: false,
+  getText: () => 'one\n',
+  lineAt: (line) => ({ range: { end: { line, character: 0 } } }),
+};
+
+const activeEditor = {
+  document: editorDocument,
+  selection: { active: { line: 0 } },
+  setDecorations: (_type, ranges) => decorations.push(ranges),
+};
+
 const vscodeStub = {
   Uri: {
     file: uri,
@@ -218,7 +244,10 @@ const vscodeStub = {
      * rejection took `weft.hasRepository` with it. Every section in Source Control disappeared,
      * while the graph itself kept working, because opening that has no editor focused.
      */
-    activeTextEditor: { document: { uri: uri(repoPath.replace(/\\/g, '/') + '/f1.txt') } },
+    activeTextEditor: activeEditor,
+    onDidChangeActiveTextEditor: activeEditorChanged.event,
+    onDidChangeTextEditorSelection: selectionChanged.event,
+    createTextEditorDecorationType: () => ({ dispose() {} }),
     createOutputChannel: () => ({
       info: (m) => outputLines.push(`info  ${m}`),
       warn: (m) => outputLines.push(`warn  ${m}`),
@@ -343,6 +372,9 @@ const vscodeStub = {
   EventEmitter: StubEmitter,
   ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
   ThemeColor: class { constructor(id) { this.id = id; } },
+  MarkdownString: class { constructor() { this.value = ''; } appendMarkdown(v) { this.value += v; } },
+  Range: class { constructor(start, end) { this.start = start; this.end = end; } },
+  DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
   TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
   TreeItemCheckboxState: { Unchecked: 0, Checked: 1 },
@@ -355,6 +387,8 @@ const vscodeStub = {
       },
     }),
     onDidChangeWorkspaceFolders: () => ({ dispose() {} }),
+    onDidChangeTextDocument: documentChanged.event,
+    onDidCloseTextDocument: documentClosed.event,
     onDidChangeConfiguration: (fn) => {
       configurationChanged.listeners.push(fn);
       return { dispose() {} };
@@ -1268,6 +1302,13 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     if (authors.length === 0) {
       problems.push('the authors view listed nobody');
     } else {
+      /*
+       * Let the walk before this one land first. The block above ends by putting every ref back,
+       * and reading the baseline while that reload is still in flight gets the narrowed number -
+       * against which the author filter appears to have narrowed nothing.
+       */
+      await new Promise((r) => setTimeout(r, 1500));
+
       const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
       const from = posted.filter((m) => m.type === 'done').length;
 
@@ -2394,6 +2435,33 @@ if (disposeHandler !== null) {
   }
 }
 
+
+/*
+ * The line-end blame.
+ *
+ * It draws on a timer after activation and watches the window rather than the graph, so by now it
+ * has had the whole run above to land. What it drew is the check: a decoration with nothing in it
+ * is one nobody can read, and the annotation is the entire feature.
+ */
+{
+  const drawn = decorations
+    .flat()
+    .map((entry) => entry?.renderOptions?.after?.contentText ?? '')
+    .filter((text) => text.length > 0);
+
+  const last = drawn[drawn.length - 1] ?? '';
+
+  console.log('');
+  console.log('inline blame   :', drawn.length === 0 ? 'NOTHING DRAWN' : JSON.stringify(last));
+
+  if (drawn.length === 0) {
+    problems.push('the line-end blame never drew anything for a line that has a commit behind it');
+  } else if (!last.includes('ago') && !last.includes('just now')) {
+    problems.push(`the line-end blame drew "${last}", which does not say when`);
+  } else if (!last.includes('•')) {
+    problems.push(`the line-end blame drew "${last}", which does not say what the commit was`);
+  }
+}
 
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');
 

@@ -8,6 +8,7 @@ import { SearchMode, TOGGLES, escapeBasicRegex, filterArgs, looksLikeCommitId, s
 import { authorArgs } from '../src/git/authors.ts';
 import { dateArgs, isDay } from '../src/git/dates.ts';
 import { parseBranchName } from '../src/git/repoState.ts';
+import { describeAge, parseBlame } from '../src/git/blame.ts';
 
 const RS = '\x1e';
 const NUL = '\x00';
@@ -377,4 +378,87 @@ test('commit ids are told apart from search text', () => {
   assert.equal(looksLikeCommitId('abc'), false, 'too short to be an abbreviation');
   assert.equal(looksLikeCommitId('deadbeeg'), false, 'g is not hex');
   assert.equal(looksLikeCommitId('fix: cafebabe'), false);
+});
+
+const A = 'a'.repeat(40);
+const B = 'b'.repeat(40);
+const ZERO = '0'.repeat(40);
+
+/*
+ * Blame output is a sequence of hunks in the order git found them, not in file order, and a
+ * commit's details appear only the first time that commit does. Both are the whole reason this is
+ * parsed rather than read.
+ */
+test('blame lands each hunk on the line it is about, whatever order they arrive in', () => {
+  const out = [
+    `${B} 1 3 1`,
+    'author Second',
+    'author-time 200',
+    'summary the later one',
+    '\tthird line',
+    `${A} 1 1 2`,
+    'author First',
+    'author-time 100',
+    'summary the first one',
+    '\tfirst line',
+    `${A} 2 2`,
+    '\tsecond line',
+    '',
+  ].join('\n');
+
+  const blame = parseBlame(out);
+
+  assert.equal(blame.length, 3);
+  assert.equal(blame[0]?.author, 'First');
+  assert.equal(blame[1]?.author, 'First', 'a repeated sha says nothing, so it has to be remembered');
+  assert.equal(blame[1]?.summary, 'the first one');
+  assert.equal(blame[2]?.author, 'Second');
+  assert.equal(blame[0]?.authorTime, 100_000, 'seconds from git, milliseconds here');
+});
+
+test('blame tells the fields that only look alike apart', () => {
+  const out = [
+    `${A} 1 1 1`,
+    'author Ada Lovelace',
+    'author-mail <ada@example.invalid>',
+    'author-time 1700000000',
+    'author-tz +0000',
+    'committer Somebody Else',
+    'committer-time 1800000000',
+    'summary the subject',
+    '\tthe line',
+    '',
+  ].join('\n');
+
+  const line = parseBlame(out)[0];
+
+  assert.equal(line?.author, 'Ada Lovelace', 'not the mail, the time or the committer');
+  assert.equal(line?.authorTime, 1_700_000_000_000);
+  assert.equal(line?.summary, 'the subject');
+});
+
+test('a line that is not committed yet is marked as such', () => {
+  const out = [`${ZERO} 1 1 1`, 'author Not Committed Yet', 'author-time 0', 'summary x', '\tnew', ''].join('\n');
+
+  assert.equal(parseBlame(out)[0]?.uncommitted, true);
+  assert.equal(parseBlame(`${A} 1 1 1\nauthor A\nauthor-time 1\nsummary s\n\tx\n`)[0]?.uncommitted, false);
+});
+
+test('blame of nothing is nothing, not a crash', () => {
+  assert.deepEqual(parseBlame(''), []);
+  assert.deepEqual(parseBlame('fatal: no such path\n'), []);
+});
+
+test('an age is said the way a person would say it', () => {
+  const now = Date.UTC(2026, 0, 1);
+  const ago = (ms: number): string => describeAge(now - ms, now);
+
+  assert.equal(ago(5_000), 'just now');
+  assert.equal(ago(60_000), '1 minute ago');
+  assert.equal(ago(5 * 60_000), '5 minutes ago');
+  assert.equal(ago(3 * 3_600_000), '3 hours ago');
+  assert.equal(ago(2 * 86_400_000), '2 days ago');
+  assert.equal(ago(6 * 30 * 86_400_000), '6 months ago');
+  assert.equal(ago(3 * 365 * 86_400_000), '3 years ago');
+  assert.equal(ago(-1000), 'just now', 'a clock ahead of ours is not "in -1 minutes"');
 });

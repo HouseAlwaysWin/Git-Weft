@@ -10,6 +10,7 @@ import type { RefsPreset } from './protocol.ts';
 import { RefsProvider } from './refsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
+import { InlineBlame } from './inlineBlame.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
 
 let output: vscode.LogOutputChannel | undefined;
@@ -262,6 +263,14 @@ function start(context: vscode.ExtensionContext): void {
     refsView,
     authorsView,
     filesView,
+
+    /*
+     * Who last changed the line the cursor is on, at the end of that line. Nothing else here knows
+     * about editors, so it is its own thing: it listens to the window rather than to the graph, and
+     * a workspace with no graph open still gets it.
+     */
+    new InlineBlame(git),
+
     refs.attach(refsView),
     authors.attach(authorsView),
 

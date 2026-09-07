@@ -92,6 +92,11 @@ Working:
   out, Escape to give it up. Its list is plain - one row, one thing, and clicking it goes there.
   The button beside it is the other question, and keeps its own list of ticks: which branches the
   graph should draw
+- Who last changed the line the cursor is on, greyed at the end of it, with the commit’s
+  subject and how long ago. One line rather than all of them: the file still looks like a file.
+  It blames the buffer, not what is on disk, so unsaved edits do not shift every annotation
+  below them onto the wrong line - and the line you just typed says so. `weft.inlineBlame`
+  turns it off
 - **only here** walks what the ticked branches have and no other ref does. Ticking a branch narrows
   where git starts, not what it reaches - a branch cut off a trunk with three hundred others merged
   into it still reaches all of them, which is not what "show me this branch" looks like it means

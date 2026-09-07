@@ -463,6 +463,11 @@
           "default": true,
           "description": "Give each author their own colour in the commit list. Always off in high contrast themes."
         },
+        "weft.inlineBlame": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show who last changed the line the cursor is on, at the end of that line."
+        },
         "weft.networkIdleTimeoutSeconds": {
           "type": "number",
           "default": 60,
