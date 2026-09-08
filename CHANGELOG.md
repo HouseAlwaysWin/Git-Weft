@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
+  four ways was one row reading `sean_lin, Sean Lin, SEAN_LIN, Sean_Lin` - a list pretending to
+  be a name, and unreadable by the fourth. A person is now a row you can open, the spellings are
+  the rows inside it, and a name that matched nobody else stays a plain row rather than becoming
+  a group of one.
+
+  Right-click to put a spelling, or a whole person, with somebody else - which is the answer
+  where the rule cannot help: `Lineric` and `lineric_lin` share a prefix and nothing that can be
+  proved, and a list that guesses is worse than one that shows a person twice. Removing the
+  assignment hands the spelling back to the rule rather than inventing a third state, and the
+  groups are remembered per repository, because they are a judgement about one set of people.
+
+  Ticks moved to the spelling, so a group’s box is all of it at once and one spelling on its own
+  is still a thing you can ask for.
+
 - **Show File History reaches files, not just the list of changed ones.** It is on the right-
   click menu in the Explorer, on an editor tab and inside an editor, as well as where it
   already was. The tree could assume which repository a file was in and what git called it,

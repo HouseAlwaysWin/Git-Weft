@@ -6,9 +6,14 @@
  * rather than three times - the same reason the log format uses `%aN` instead of `%an`.
  *
  * `.mailmap` only merges the identities it has been told about, though, and most repositories have
- * not been told about any - so the addresses are folded by name here as well. See `listAuthors`.
+ * not been told about any. So there are two steps here, and they are deliberately apart:
  *
- * **What the count covers:** `--all` walks every ref, back to the root commit. It is the whole
+ * - `listAuthors` asks git, and folds only what git itself is sure about: one entry per name
+ *   exactly as it is spelled, carrying every address that name has committed from.
+ * - `groupAuthors` decides which of those spellings are one person. That is a judgement, it can be
+ *   overruled by hand, and it has nothing to do with git - so it does not live behind a process.
+ *
+ * **What the counts cover:** `--all` walks every ref, back to the root commit. It is the whole
  * history and takes no notice of what the graph is currently narrowed to - a date range, a search,
  * a branch unticked - so the number beside a name does not move when those do.
  *
@@ -19,21 +24,32 @@ import type { Git } from './exec.ts';
 import { escapeBasicRegex } from './search.ts';
 import type { RepoInfo } from './discovery.ts';
 
-export interface Author {
-  /** The spelling to show: whichever has the most commits behind it. */
+/** One name exactly as git records it, with everything committed under it. */
+export interface AuthorIdentity {
+  /** The spelling `--author` has to be given. */
   readonly name: string;
-  /**
-   * Every spelling folded into this row, busiest first.
-   *
-   * Kept rather than thrown away because `--author` is case-sensitive: ticking a row that folded
-   * `Max_Chiue` into `max_chiue` has to name both, or the graph walks a fraction of what the row
-   * counted.
-   */
-  readonly names: readonly string[];
-  /** Every address those names have committed from, the busiest first. */
+  /** Every address this spelling has committed from, the busiest first. */
+  readonly emails: readonly string[];
+  readonly commits: number;
+}
+
+/**
+ * One person, as the list shows them.
+ *
+ * A group of one is not a group: it is a name that matched nobody else, and the view draws it as a
+ * plain row rather than as something to open.
+ */
+export interface Author {
+  /** What the row is called: the busiest spelling, or the name a hand-made group was given. */
+  readonly name: string;
+  /** The spellings folded into it, busiest first. */
+  readonly members: readonly AuthorIdentity[];
+  /** Every address across all of them. */
   readonly emails: readonly string[];
   /** Commits from all of them together - which is what ticking the row shows. */
   readonly commits: number;
+  /** True when a hand-made assignment put this together rather than the spelling rule. */
+  readonly custom: boolean;
 }
 
 /** `   42\tMartin Wang <martin@example.com>` */
@@ -44,44 +60,31 @@ const LINE = /^\s*(\d+)\s+(.*?)\s*<([^>]*)>\s*$/;
  *
  * `Sean Lin`, `sean_lin` and `SEAN_LIN` are one person who has configured git on three machines,
  * and separators are the whole of the difference. Deliberately no further than that - `Lineric`
- * and `lineric_lin` share a prefix and nothing else that can be proved, and a list that quietly
- * merges two people is worse than one that shows a person twice.
+ * and `lineric_lin` share a prefix and nothing that can be proved, and a list that quietly merges
+ * two people is worse than one that shows a person twice. Those are what the hand-made groups are
+ * for.
  *
  * A name with nothing but punctuation in it keeps its own spelling rather than joining every other
  * such name at the empty string.
  */
-function fingerprint(name: string): string {
+export function fingerprint(name: string): string {
   const stripped = name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
   return stripped.length > 0 ? stripped : name.toLowerCase();
 }
 
 /**
- * Every author, one row per person.
+ * Every name git has, one entry per spelling.
  *
- * Two things are folded together, and neither is what `shortlog` does on its own:
- *
- * **Addresses**, because the tick is `--author=<name>` and that finds every address the name has
- * committed from. Two rows that always select each other are two rows of the same thing - and
- * sharing a name meant sharing a tree item id, which is what put one of them on screen twice
- * wearing the other's count.
- *
- * **Spelling**, by `fingerprint`: case and separators, so `MARTIN_WANG`, `martin_wang` and
- * `Martin Wang` are one person who has configured git three times. Nothing beyond that, and in
- * particular not the address: a service account - `Administrator <admin@example.com>` - is one
- * address behind a dozen names, and merging on it would fold a dozen people into one row.
- *
- * The spellings themselves are kept, because `--author` *is* case-sensitive - see `Author.names`.
+ * Addresses are folded in, because a name committing from a laptop and a build box is that name
+ * twice and `--author=<name>` finds both whichever row you clicked. Spellings are not: telling
+ * `Sean Lin` from `sean_lin` is a judgement, and it is made in `groupAuthors`.
  */
-export async function listAuthors(git: Git, repo: RepoInfo): Promise<Author[]> {
+export async function listAuthors(git: Git, repo: RepoInfo): Promise<AuthorIdentity[]> {
   const out = await git
     .runRead(repo.root, ['shortlog', '--summary', '--numbered', '--email', '--all'])
     .catch(() => '');
 
-  /** Keyed by fingerprint; the spellings map counts each one, to pick which to show first. */
-  const folded = new Map<
-    string,
-    { names: Map<string, number>; emails: string[]; commits: number }
-  >();
+  const byName = new Map<string, { name: string; emails: string[]; commits: number }>();
 
   for (const line of out.split('\n')) {
     const match = LINE.exec(line);
@@ -98,38 +101,82 @@ export async function listAuthors(git: Git, repo: RepoInfo): Promise<Author[]> {
 
     const email = match[3] ?? '';
     const commits = Number(match[1]) || 0;
-    const key = fingerprint(name);
-    const existing = folded.get(key) ?? { names: new Map<string, number>(), emails: [], commits: 0 };
+    const existing = byName.get(name);
+
+    if (existing === undefined) {
+      byName.set(name, { name, emails: email.length === 0 ? [] : [email], commits });
+      continue;
+    }
 
     existing.commits += commits;
-    existing.names.set(name, (existing.names.get(name) ?? 0) + commits);
 
     if (email.length > 0 && !existing.emails.includes(email)) {
       existing.emails.push(email);
     }
-
-    folded.set(key, existing);
   }
 
-  return (
-    [...folded.values()]
-      .map((entry) => {
-        // Busiest spelling first: it is the one shown, and the one a reader will recognise.
-        const names = [...entry.names.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .map(([name]) => name);
+  return [...byName.values()].sort((a, b) => b.commits - a.commits);
+}
 
-        return {
-          name: names[0] ?? '',
-          names,
-          emails: entry.emails,
-          commits: entry.commits,
-        };
-      })
-      // shortlog numbered its own output; folding rows together can only have moved a name up past
-      // another, so the order has to be settled again here.
-      .sort((a, b) => b.commits - a.commits)
-  );
+/**
+ * Fold spellings into people.
+ *
+ * `custom` overrules the spelling rule: it maps a spelling to the name of the group it belongs in,
+ * which is how `Lineric` and `lineric_lin` become one person, and how a name the rule swept in can
+ * be taken back out again by being given a group of its own.
+ */
+export function groupAuthors(
+  identities: readonly AuthorIdentity[],
+  custom: ReadonlyMap<string, string> = new Map(),
+): Author[] {
+  const folded = new Map<
+    string,
+    { name: string | null; members: AuthorIdentity[]; emails: string[]; commits: number }
+  >();
+
+  for (const identity of identities) {
+    const named = custom.get(identity.name);
+
+    /*
+     * The group's name goes through the same fingerprint as a spelling would.
+     *
+     * Otherwise "group this with Weft Test" files it under `Weft Test` while Weft Test itself is
+     * filed under `wefttest`, and the two never meet - which looks exactly like the assignment
+     * having been ignored. Naming an existing person is the ordinary way to use this, so the two
+     * keys have to be the same kind of thing.
+     */
+    const key = fingerprint(named ?? identity.name);
+    const entry = folded.get(key) ?? { name: named ?? null, members: [], emails: [], commits: 0 };
+
+    // A hand-made group keeps the name it was given, whichever spelling arrives first.
+    entry.name = named ?? entry.name;
+    entry.members.push(identity);
+    entry.commits += identity.commits;
+
+    for (const email of identity.emails) {
+      if (!entry.emails.includes(email)) {
+        entry.emails.push(email);
+      }
+    }
+
+    folded.set(key, entry);
+  }
+
+  return [...folded.values()]
+    .map((entry) => {
+      // Busiest spelling first: it names the group when nothing else does, and it is the one a
+      // reader will recognise.
+      const members = [...entry.members].sort((a, b) => b.commits - a.commits);
+
+      return {
+        name: entry.name ?? members[0]?.name ?? '',
+        members,
+        emails: entry.emails,
+        commits: entry.commits,
+        custom: entry.name !== null,
+      };
+    })
+    .sort((a, b) => b.commits - a.commits);
 }
 
 /**

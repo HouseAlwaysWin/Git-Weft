@@ -129,6 +129,16 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "weft.groupAuthor",
+        "title": "Group With…",
+        "category": "Git Weft"
+      },
+      {
+        "command": "weft.ungroupAuthor",
+        "title": "Remove from Group",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.sortAuthorsByName",
         "title": "Sort Authors by Name",
         "category": "Git Weft",
@@ -264,6 +274,15 @@
         },
         {
           "command": "weft.showFileHistory",
+          "when": "false"
+        },
+        {
+          "_comment": "Both act on the row that was right-clicked, so there is nothing to type them with.",
+          "command": "weft.groupAuthor",
+          "when": "false"
+        },
+        {
+          "command": "weft.ungroupAuthor",
           "when": "false"
         },
         {
@@ -419,6 +438,16 @@
           "command": "weft.showOnlyRef",
           "when": "view == weft.refs && viewItem =~ /^weftRef/",
           "group": "filter@1"
+        },
+        {
+          "command": "weft.groupAuthor",
+          "when": "view == weft.authors && viewItem =~ /^weftAuthor/",
+          "group": "group@1"
+        },
+        {
+          "command": "weft.ungroupAuthor",
+          "when": "view == weft.authors && viewItem =~ /Custom$/",
+          "group": "group@2"
         },
         {
           "command": "weft.showAllRefs",

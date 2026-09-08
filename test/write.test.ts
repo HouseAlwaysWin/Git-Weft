@@ -32,7 +32,7 @@ import {
   workAtRisk,
 } from '../src/git/repoState.ts';
 import { Remedy, mapGitError } from '../src/git/errors.ts';
-import { listAuthors } from '../src/git/authors.ts';
+import { groupAuthors, listAuthors } from '../src/git/authors.ts';
 import { blameFile } from '../src/git/blame.ts';
 import type { ActionUi, Target } from '../src/actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from '../src/actions/registry.ts';
@@ -342,7 +342,7 @@ test('one row per name, however many addresses that name has committed from', as
   commitAs(dir, 'jiaying_wu', 'jia@build.invalid', 'two.txt');
   commitAs(dir, 'jiaying_wu', 'jia@build.invalid', 'three.txt');
 
-  const listed = await listAuthors(git, await open(dir));
+  const listed = groupAuthors(await listAuthors(git, await open(dir)));
   const jia = listed.filter((author) => author.name === 'jiaying_wu');
 
   assert.equal(jia.length, 1, 'one row, not one per address');
@@ -352,7 +352,11 @@ test('one row per name, however many addresses that name has committed from', as
     ['jia@build.invalid', 'jia@laptop.invalid'],
     'both addresses are kept, so the row can say why the number is what it is',
   );
-  assert.deepEqual(jia[0]?.names, ['jiaying_wu'], 'one spelling, so one name to filter by');
+  assert.deepEqual(
+    jia[0]?.members.map((member) => member.name),
+    ['jiaying_wu'],
+    'one spelling, so one name to filter by',
+  );
 });
 
 /*
@@ -369,7 +373,7 @@ test('spellings that differ only in case or separators are one person, and all a
   commitAs(dir, 'Sean Lin', 'sean@work.invalid', 'spaced2.txt');
   commitAs(dir, 'SEAN_LIN', 'sean@example.invalid', 'shouty.txt');
 
-  const sean = (await listAuthors(git, await open(dir))).filter(
+  const sean = (groupAuthors(await listAuthors(git, await open(dir)))).filter(
     (author) => author.name.toLowerCase().replace('_', ' ') === 'sean lin',
   );
 
@@ -377,7 +381,7 @@ test('spellings that differ only in case or separators are one person, and all a
   assert.equal(sean[0]?.commits, 4);
   assert.equal(sean[0]?.name, 'Sean Lin', 'shown as whichever spelling has the most behind it');
   assert.deepEqual(
-    [...(sean[0]?.names ?? [])].sort(),
+    (sean[0]?.members ?? []).map((member) => member.name).sort(),
     ['SEAN_LIN', 'Sean Lin', 'sean_lin'],
     'all three are kept, or a tick walks a fraction of what the row counted',
   );
@@ -389,13 +393,63 @@ test('spellings that differ only in case or separators are one person, and all a
  * proved, and two people folded into one row is a worse answer than one person shown twice - the
  * count would then be a number no tick could produce. Deciding these is what `.mailmap` is for.
  */
+/*
+ * Where the rule stops, a hand takes over.
+ *
+ * The rule folds what it can prove and no further, so the two halves of a person who spells
+ * themselves two different ways stay apart until somebody says otherwise. Saying so is an
+ * override on one spelling, not a rewrite of the list.
+ */
+test('a group made by hand joins spellings the rule will not', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'Lineric', 'lin@example.invalid', 'short.txt');
+  commitAs(dir, 'lineric_lin', 'lin@example.invalid', 'long.txt');
+
+  const identities = await listAuthors(git, await open(dir));
+  const custom = new Map([['Lineric', 'Lineric Lin'], ['lineric_lin', 'Lineric Lin']]);
+
+  const grouped = groupAuthors(identities, custom).filter((author) => author.custom);
+
+  assert.equal(grouped.length, 1, 'one person, not two');
+  assert.equal(grouped[0]?.name, 'Lineric Lin', 'and it is called what it was named');
+  assert.deepEqual(
+    (grouped[0]?.members ?? []).map((member) => member.name).sort(),
+    ['Lineric', 'lineric_lin'],
+    'with both spellings kept, because --author still needs each of them',
+  );
+});
+
+test('a group made by hand can take a spelling back out of one the rule made', async () => {
+  const dir = makeRepo();
+
+  commitAs(dir, 'Max_Chiue', 'max@example.invalid', 'upper.txt');
+  commitAs(dir, 'max_chiue', 'max@example.invalid', 'lower.txt');
+
+  const identities = await listAuthors(git, await open(dir));
+
+  assert.equal(
+    groupAuthors(identities).filter((a) => a.name.toLowerCase() === 'max_chiue').length,
+    1,
+    'the rule puts them together',
+  );
+
+  const apart = groupAuthors(identities, new Map([['max_chiue', 'Somebody Else']]));
+
+  assert.deepEqual(
+    apart.filter((a) => a.members.some((m) => m.name.toLowerCase() === 'max_chiue')).map((a) => a.name).sort(),
+    ['Max_Chiue', 'Somebody Else'],
+    'and naming one of them separately takes it back out',
+  );
+});
+
 test('names differing by more than case and separators are left alone', async () => {
   const dir = makeRepo();
 
   commitAs(dir, 'Lineric', 'lin@example.invalid', 'short.txt');
   commitAs(dir, 'lineric_lin', 'lin@example.invalid', 'long.txt');
 
-  const names = (await listAuthors(git, await open(dir))).map((author) => author.name);
+  const names = (groupAuthors(await listAuthors(git, await open(dir)))).map((author) => author.name);
 
   assert.ok(names.includes('Lineric'));
   assert.ok(names.includes('lineric_lin'));
@@ -411,7 +465,7 @@ test('a shared address does not merge the people using it', async () => {
   commitAs(dir, 'Deploy Bot', 'admin@example.invalid', 'deployed.txt');
   commitAs(dir, 'Administrator', 'admin@example.invalid', 'administered.txt');
 
-  const names = (await listAuthors(git, await open(dir))).map((author) => author.name);
+  const names = (groupAuthors(await listAuthors(git, await open(dir)))).map((author) => author.name);
 
   assert.ok(names.includes('Deploy Bot'));
   assert.ok(names.includes('Administrator'));
@@ -425,7 +479,7 @@ test('the author list comes back busiest first, after the folding has moved name
   commitAs(dir, 'busy', 'c@example.invalid', 'a3.txt');
   commitAs(dir, 'quiet', 'd@example.invalid', 'b1.txt');
 
-  const counts = (await listAuthors(git, await open(dir))).map((author) => author.commits);
+  const counts = (groupAuthors(await listAuthors(git, await open(dir)))).map((author) => author.commits);
 
   assert.deepEqual(
     counts,

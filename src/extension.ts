@@ -8,6 +8,7 @@ import { WeftPanel, setCommitFiles, setPanelLogger } from './panel.ts';
 import { RevisionContentProvider, SCHEME } from './contentProvider.ts';
 import type { RefsPreset } from './protocol.ts';
 import { RefsProvider } from './refsView.ts';
+import type { AuthorNode } from './authorsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
 import { BlameAnnotations } from './blameAnnotations.ts';
@@ -206,7 +207,11 @@ function start(context: vscode.ExtensionContext): void {
     manageCheckboxStateManually: true,
   });
 
-  const authors = new AuthorsProvider(git);
+  /*
+   * The workspace's own memory, for the groups made by hand. They are a judgement about one
+   * repository’s contributors, so they belong to the workspace rather than to the machine.
+   */
+  const authors = new AuthorsProvider(git, context.workspaceState);
   const authorsView = vscode.window.createTreeView('weft.authors', { treeDataProvider: authors });
 
   /*
@@ -653,6 +658,64 @@ function start(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('weft.listAllRefs', () => refs.setTickedOnly(false)),
     vscode.commands.registerCommand('weft.showCurrentRefOnly', () => refs.followHead()),
 
+    /*
+     * Put a spelling, or a whole person, with somebody else.
+     *
+     * The spelling rule folds what it can prove - case and separators - and stops there, because a
+     * list that quietly merges two people is worse than one that shows a person twice. Everything
+     * past that is a judgement only the reader can make: `Lineric` and `lineric_lin` share a prefix
+     * and nothing else, and whether they are one person is not in the repository.
+     */
+    vscode.commands.registerCommand('weft.groupAuthor', async (node: unknown) => {
+      const target = asAuthorNode(node);
+
+      if (target === undefined) {
+        return;
+      }
+
+      const label = authors.labelOf(target);
+      const existing = authors.groupNames().filter((name) => name !== label);
+
+      const picked = await vscode.window.showQuickPick(
+        [
+          { label: 'New group…', description: `under a name of its own`, group: null as string | null },
+          ...existing.map((name) => ({ label: name, description: '', group: name as string | null })),
+        ],
+        { title: `Group ${label} with…`, placeHolder: 'An existing person, or a new group' },
+      );
+
+      if (picked === undefined) {
+        return;
+      }
+
+      const named =
+        picked.group ??
+        (await vscode.window.showInputBox({
+          title: `Name the group for ${label}`,
+          value: label,
+          validateInput: (value) => (value.trim().length === 0 ? 'A group needs a name' : null),
+        }));
+
+      if (named === undefined || named.trim().length === 0) {
+        return;
+      }
+
+      authors.setGroup(authors.spellingsOf(target), named.trim());
+    }),
+
+    /*
+     * And out again. Out is not the same as alone: dropping the assignment hands the spelling back
+     * to the rule, which may well put it straight where it was. That is the right answer - this is
+     * an override, and removing one restores what was underneath rather than inventing a state.
+     */
+    vscode.commands.registerCommand('weft.ungroupAuthor', (node: unknown) => {
+      const target = asAuthorNode(node);
+
+      if (target !== undefined) {
+        authors.setGroup(authors.spellingsOf(target), null);
+      }
+    }),
+
     vscode.commands.registerCommand('weft.sortAuthorsByName', () => authors.setOrder('name')),
     vscode.commands.registerCommand('weft.sortAuthorsByCommits', () => authors.setOrder('commits')),
 
@@ -860,4 +923,11 @@ function asUri(value: unknown): vscode.Uri | undefined {
   return typeof candidate?.fsPath === 'string' && typeof candidate.scheme === 'string'
     ? candidate
     : undefined;
+}
+
+/** A node from the Authors tree, told by its shape - menu arguments arrive as `unknown`. */
+function asAuthorNode(value: unknown): AuthorNode | undefined {
+  const candidate = value as AuthorNode | undefined;
+
+  return candidate?.kind === 'group' || candidate?.kind === 'member' ? candidate : undefined;
 }

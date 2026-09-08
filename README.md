@@ -132,7 +132,12 @@ Working:
   Narrow to a name, a surname or a company's email domain, then one button shows the graph exactly
   the people left listed. What you typed stays beside the section's title while it applies, because
   a filter you cannot see is one you forget is on
-- One row per author, sorted by commits or by name. Several addresses, or several spellings of one
+- One row per person in **Authors**, opening onto the spellings it is made of - `Sean Lin`,
+  `sean_lin`, `SEAN_LIN` are one row and three rows inside it, rather than one row with all
+  three names in it. Right-click to group two the rule will not join, or to take one back out;
+  those are remembered per repository. Ticking the person ticks every spelling, and a spelling
+  can be ticked on its own
+- Sorted by commits or by name. Several addresses, or several spellings of one
   name - `Sean Lin`, `sean_lin`, `SEAN_LIN` - are one row and one count, with every spelling shown
   on it. Ticking that row names all of them to `git log`, so what it counted is what the graph
   walks. Names that differ by more than case and separators are left alone, and a shared address

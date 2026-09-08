@@ -479,12 +479,23 @@ const extension = require_(resolve('dist/extension.js'));
 console.log('exports        :', Object.keys(extension).join(', '));
 
 const memory = new Map();
+const workspaceMemory = new Map();
+
 const context = {
   subscriptions: [],
   extensionUri: uri(resolve('.').replace(/\\/g, '/')),
   globalState: {
     get: (key, fallback) => memory.get(key) ?? fallback,
     update: async (key, value) => void memory.set(key, value),
+  },
+  /*
+   * The workspace's own memory. Hand-made author groups live here, and a context without it is an
+   * extension that cannot finish pointing itself at a repository - which is every section gone.
+   */
+  workspaceState: {
+    get: (key, fallback) => workspaceMemory.get(key) ?? fallback,
+    update: async (key, value) => void workspaceMemory.set(key, value),
+    keys: () => [...workspaceMemory.keys()],
   },
 };
 extension.activate(context);
@@ -1583,7 +1594,8 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     const authors = await authorsProvider.getChildren();
     console.log(
       '\nauthors        :',
-      authors.map((a) => `${a.name} (${a.commits})`).join(', ') || '(none)',
+      // The tree hands back nodes now, one level of people and one of spellings inside them.
+      authors.map((a) => `${a.author.name} (${a.author.commits})`).join(', ') || '(none)',
     );
 
     if (authors.length === 0) {
@@ -1607,11 +1619,11 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       }
 
       const after = posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
-      console.log(`  filtered to  : ${authors[0].name} -> ${after} of ${baseline} commits`);
+      console.log(`  filtered to  : ${authors[0].author.name} -> ${after} of ${baseline} commits`);
 
-      if (after >= baseline || after !== authors[0].commits) {
+      if (after >= baseline || after !== authors[0].author.commits) {
         problems.push(
-          `filtering to ${authors[0].name} gave ${after} commits, expected their ${authors[0].commits} of ${baseline}`,
+          `filtering to ${authors[0].author.name} gave ${after} commits, expected their ${authors[0].author.commits} of ${baseline}`,
         );
       }
 
@@ -1644,15 +1656,15 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   const walksBefore = posted.filter((m) => m.type === 'done').length;
 
   // Drive it the way the picker does: type, then accept.
-  const target = everyone[0];
+  const target = everyone[0].author;
   provider.setQuery(target.name);
 
   const listed = await provider.getChildren();
 
   console.log('\nauthor filter  :', JSON.stringify(view?.message ?? ''));
-  console.log('  listing      :', listed.map((a) => a.name).join(', '), `of ${everyone.length}`);
+  console.log('  listing      :', listed.map((a) => a.author.name).join(', '), `of ${everyone.length}`);
 
-  if (listed.length !== 1 || listed[0].name !== target.name) {
+  if (listed.length !== 1 || listed[0].author.name !== target.name) {
     problems.push(`filtering authors to ${target.name} listed ${listed.length}`);
   }
 
@@ -1694,6 +1706,70 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   if (provider.filterText !== '') {
     problems.push('Show All left the author list still narrowed');
+  }
+}
+
+/*
+ * Two levels, and a group made by hand.
+ *
+ * A person is a group of spellings and the spellings are the rows inside it - except where there is
+ * only one, which is a row and not a group of one. The rule folds what it can prove and stops; past
+ * that the reader says so, and saying so has to be undoable, because it is a judgement and
+ * judgements are wrong sometimes.
+ */
+{
+  const provider = treeProviders.get('weft.authors');
+  const people = await provider.getChildren();
+
+  console.log('');
+  console.log(
+    'author tree    :',
+    people.map((node) => `${node.author.name}[${node.author.members.length}]`).join(', '),
+  );
+
+  if (people.some((node) => node.kind !== 'group')) {
+    problems.push('the top of the author list is something other than people');
+  }
+
+  const lone = people.find((node) => node.author.members.length === 1);
+
+  if (lone !== undefined && (await provider.getChildren(lone)).length !== 0) {
+    problems.push('an author of one spelling was drawn as something to open');
+  }
+
+  if (people.length < 2) {
+    problems.push('the fixture has too few authors to group');
+  } else {
+    const [first, second] = people;
+
+    provider.setGroup(provider.spellingsOf(second), first.author.name);
+
+    const joined = await provider.getChildren();
+    const group = joined.find((node) => node.author.name === first.author.name);
+    const members = group === undefined ? [] : await provider.getChildren(group);
+
+    console.log(
+      'grouped by hand:',
+      `${group?.author.name} -> ${members.map((node) => node.identity.name).join(', ')}`,
+    );
+
+    if (members.length !== 2) {
+      problems.push(`grouping by hand gave ${members.length} spellings, expected two`);
+    }
+
+    if (members.some((node) => node.kind !== 'member')) {
+      problems.push('a group opened onto something other than its spellings');
+    }
+
+    provider.setGroup(provider.spellingsOf(second), null);
+
+    const apart = await provider.getChildren();
+
+    console.log('ungrouped      :', apart.map((node) => node.author.name).join(', '));
+
+    if (apart.length !== people.length) {
+      problems.push(`ungrouping left ${apart.length} people, expected ${people.length}`);
+    }
   }
 }
 

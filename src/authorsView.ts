@@ -6,33 +6,71 @@
  * A list you tick is the same filter without the recall problem.
  *
  * Like the ref filter, this narrows what `git log` walks rather than hiding rows after the fact.
+ *
+ * **Two levels.** One person is often several spellings, and the row used to be all of them joined
+ * by commas - which is a list pretending to be a name, and unreadable by four of them. A person is
+ * a group you can open, its spellings are the rows inside, and a name that matched nobody else is
+ * a plain row rather than a group of one. Where the spelling rule cannot tell - `Lineric` and
+ * `lineric_lin` share a prefix and nothing that can be proved - the answer is a group made by hand,
+ * and those are remembered per repository.
  */
 
 import * as vscode from 'vscode';
 
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
-import type { Author } from './git/authors.ts';
-import { authorArgs, listAuthors } from './git/authors.ts';
+import type { Author, AuthorIdentity } from './git/authors.ts';
+import { authorArgs, groupAuthors, listAuthors } from './git/authors.ts';
 
 /** What the list is sorted by. */
 export type AuthorOrder = 'commits' | 'name';
 
-export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
+/** A person: one spelling, or several gathered under one name. */
+interface GroupNode {
+  readonly kind: 'group';
+  readonly author: Author;
+}
+
+/** One spelling inside a person. Only ever a child, and only when there is more than one. */
+interface MemberNode {
+  readonly kind: 'member';
+  readonly identity: AuthorIdentity;
+  /** Whether the group above it was made by hand, which is the only kind there is to leave. */
+  readonly custom: boolean;
+}
+
+export type AuthorNode = GroupNode | MemberNode;
+
+/** Where hand-made groups live, keyed by repository so one clone's answer is not another's. */
+const GROUPS_KEY = 'weft.authorGroups';
+
+export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
   private readonly git: Git;
-  private readonly changed = new vscode.EventEmitter<Author | undefined>();
+  private readonly memento: vscode.Memento;
+  private readonly changed = new vscode.EventEmitter<AuthorNode | undefined>();
   private readonly filterChanged = new vscode.EventEmitter<void>();
 
   private repo: RepoInfo | null = null;
+  /** Every spelling git knows, before any judgement about which are the same person. */
+  private identities: AuthorIdentity[] = [];
   private authors: Author[] = [];
   private loaded = false;
-  private view: vscode.TreeView<Author> | null = null;
+  private view: vscode.TreeView<AuthorNode> | null = null;
 
-  /** Selected authors, by name. Empty means everyone, which is not the same as nobody. */
+  /**
+   * Ticked spellings, exactly as git records them.
+   *
+   * By spelling and not by group, because a spelling is what `--author` takes and because the two
+   * levels can be ticked separately: a group's box is every one of its spellings at once, and one
+   * spelling on its own is a perfectly reasonable thing to want.
+   */
   private selected = new Set<string>();
 
-  /** Ticked authors per repository, for the same two reasons the ref view keeps its own. */
+  /** Ticked spellings per repository, for the same two reasons the ref view keeps its own. */
   private readonly selectedByRepo = new Map<string, Set<string>>();
+
+  /** Spelling to the name of the group it was put in by hand. */
+  private custom = new Map<string, string>();
 
   /**
    * Text narrowing the *listing*, which is a different job from the ticks.
@@ -54,8 +92,9 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
   readonly onDidChangeTreeData = this.changed.event;
   readonly onDidChangeFilter = this.filterChanged.event;
 
-  constructor(git: Git) {
+  constructor(git: Git, memento: vscode.Memento) {
     this.git = git;
+    this.memento = memento;
   }
 
   setRepository(repo: RepoInfo | null): void {
@@ -68,9 +107,11 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
     }
 
     this.repo = repo;
+    this.identities = [];
     this.authors = [];
     this.loaded = false;
     this.selected = this.selectedByRepo.get(repo?.root ?? '') ?? new Set<string>();
+    this.custom = this.readGroups();
     // A name typed to find someone in one repository means nothing in another.
     this.query = '';
     this.publishFiltering();
@@ -82,25 +123,17 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
    *
    * Answered for one repository only - the one this view is showing. Every open graph reloads when
    * a tick moves, and a name that authored nothing in the other one filters it down to nothing.
+   *
+   * Spellings, exactly as ticked. `--author` is case-sensitive and git takes several of them as
+   * "any of these", so naming each one is exact - and exact is worth more here than `-i`, which is
+   * a walk-wide flag and would quietly widen the user's own search with it.
    */
   filterArgs(root: string): string[] {
     if (this.repo === null || this.repo.root !== root || this.selected.size === 0) {
       return [];
     }
 
-    /*
-     * Every spelling of every ticked name, not only the one the row happened to show.
-     *
-     * A row can be the fold of `Max_Chiue` and `max_chiue`, and `--author` is case-sensitive, so
-     * passing one of them walks a fraction of what the row counted. git takes multiple `--author`
-     * as "any of these", which makes naming them all exact - and exact is worth more here than
-     * `-i`, which is a walk-wide flag and would quietly widen the user's own search with it.
-     */
-    const spellings = [...this.selected].flatMap(
-      (name) => this.authors.find((author) => author.name === name)?.names ?? [name],
-    );
-
-    return authorArgs(spellings);
+    return authorArgs([...this.selected]);
   }
 
   /**
@@ -109,21 +142,33 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
    * `shortlog` walks the entire history; on a large repository that is seconds of work for a list
    * nobody has asked to see yet.
    */
-  async getChildren(node?: Author): Promise<Author[]> {
-    if (node !== undefined || this.repo === null) {
+  async getChildren(node?: AuthorNode): Promise<AuthorNode[]> {
+    if (this.repo === null) {
       return [];
     }
 
-    if (!this.loaded) {
-      this.authors = await listAuthors(this.git, this.repo);
-      this.loaded = true;
-      this.updateMessage();
+    if (node === undefined) {
+      if (!this.loaded) {
+        this.identities = await listAuthors(this.git, this.repo);
+        this.regroup();
+        this.loaded = true;
+        this.updateMessage();
+      }
+
+      return this.visible().map((author) => ({ kind: 'group', author }));
     }
 
-    return this.visible();
+    // A person of one spelling is not something to open: the row already says everything.
+    return node.kind === 'group' && node.author.members.length > 1
+      ? node.author.members.map((identity) => ({
+          kind: 'member' as const,
+          identity,
+          custom: node.author.custom,
+        }))
+      : [];
   }
 
-  /** Authors left after the text filter, in the chosen order. Addresses match as well as names. */
+  /** Authors left after the text filter, in the chosen order. Spellings and addresses both match. */
   private visible(): Author[] {
     const needle = this.query.toLowerCase();
 
@@ -132,7 +177,8 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
         ? this.authors
         : this.authors.filter(
             (author) =>
-              author.names.some((name) => name.toLowerCase().includes(needle)) ||
+              author.name.toLowerCase().includes(needle) ||
+              author.members.some((member) => member.name.toLowerCase().includes(needle)) ||
               author.emails.some((email) => email.toLowerCase().includes(needle)),
           );
 
@@ -180,6 +226,66 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
     }));
   }
 
+  /** The names groups already have, so a picker can offer joining one rather than inventing one. */
+  groupNames(): string[] {
+    return this.authors.filter((author) => author.members.length > 1 || author.custom).map((author) => author.name);
+  }
+
+  /** The spellings a node stands for: one, or all of a group's. */
+  spellingsOf(node: AuthorNode): string[] {
+    return node.kind === 'member'
+      ? [node.identity.name]
+      : node.author.members.map((member) => member.name);
+  }
+
+  /** What a node is called, for a dialog to name what it is about to move. */
+  labelOf(node: AuthorNode): string {
+    return node.kind === 'member' ? node.identity.name : node.author.name;
+  }
+
+  /**
+   * Put these spellings into a group, or take them out of one.
+   *
+   * Out is not the same as alone: dropping the assignment hands the spelling back to the rule that
+   * folds by case and separators, which may well put it straight back with the same people. That is
+   * the right answer - the hand-made group is an override, and removing an override restores what
+   * was underneath rather than inventing a third state.
+   */
+  setGroup(spellings: readonly string[], group: string | null): void {
+    for (const spelling of spellings) {
+      if (group === null) {
+        this.custom.delete(spelling);
+      } else {
+        this.custom.set(spelling, group);
+      }
+    }
+
+    this.writeGroups();
+    this.regroup();
+    this.changed.fire(undefined);
+    this.updateMessage();
+  }
+
+  private regroup(): void {
+    this.authors = groupAuthors(this.identities, this.custom);
+  }
+
+  private readGroups(): Map<string, string> {
+    const stored = this.memento.get<Record<string, Record<string, string>>>(GROUPS_KEY, {});
+    return new Map(Object.entries(stored[this.repo?.root ?? ''] ?? {}));
+  }
+
+  private writeGroups(): void {
+    if (this.repo === null) {
+      return;
+    }
+
+    const stored = { ...this.memento.get<Record<string, Record<string, string>>>(GROUPS_KEY, {}) };
+
+    stored[this.repo.root] = Object.fromEntries(this.custom);
+    void this.memento.update(GROUPS_KEY, stored);
+  }
+
   /**
    * Tick everyone the list is currently showing.
    *
@@ -194,25 +300,24 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
       return;
     }
 
-    const before = this.selected.size;
+    const before = [...this.selected].sort().join('\n');
 
     this.selected.clear();
 
     for (const author of listed) {
-      this.selected.add(author.name);
-    }
-
-    // Nothing moved, so nothing is announced: re-applying the same set would cost a full walk of
-    // the history to arrive at the same graph.
-    if (before === this.selected.size && before === listed.length) {
-      this.changed.fire(undefined);
-      this.updateMessage();
-      return;
+      for (const member of author.members) {
+        this.selected.add(member.name);
+      }
     }
 
     this.changed.fire(undefined);
     this.updateMessage();
-    this.filterChanged.fire();
+
+    // Nothing moved, so nothing is announced: re-applying the same set would cost a full walk of
+    // the history to arrive at the same graph.
+    if (before !== [...this.selected].sort().join('\n')) {
+      this.filterChanged.fire();
+    }
   }
 
   private publishFiltering(): void {
@@ -223,54 +328,102 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
     );
   }
 
-  getTreeItem(author: Author): vscode.TreeItem {
-    // Every spelling on the row, busiest first. One person's row saying `Sean Lin, sean_lin` is
-    // how the reader knows the count in front of them covers both, rather than wondering where the
-    // other one went.
-    const item = new vscode.TreeItem(author.names.join(', '), vscode.TreeItemCollapsibleState.None);
+  getTreeItem(node: AuthorNode): vscode.TreeItem {
+    return node.kind === 'member'
+      ? this.memberItem(node.identity, node.custom)
+      : this.groupItem(node.author);
+  }
 
-    // Unique now that the rows are one per person. It was not while two addresses could share a
-    // name, and a tree with two items claiming the same id draws one of them twice.
+  private groupItem(author: Author): vscode.TreeItem {
+    const several = author.members.length > 1;
+
+    const item = new vscode.TreeItem(
+      author.name,
+      several ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+    );
+
     item.id = `author:${author.name.toLowerCase()}`;
 
     /*
-     * What the row is made of, on the row rather than only in the tooltip: a name that turns out
-     * to be two addresses and two spellings is the answer to "why is that number bigger than I
-     * expected", and it is not a question anybody thinks to hover over.
+     * What the row is made of, on the row rather than only in the tooltip: a name that turns out to
+     * be three spellings is the answer to "why is that number bigger than I expected", and it is
+     * not a question anybody thinks to hover over.
      */
-    item.description =
-      author.emails.length > 1
-        ? `${author.commits} · ${author.emails.length} emails`
-        : `${author.commits}`;
+    const ticked = author.members.filter((member) => this.selected.has(member.name)).length;
+
+    item.description = [
+      `${author.commits}`,
+      ...(several ? [`${author.members.length} spellings`] : []),
+      ...(author.emails.length > 1 ? [`${author.emails.length} emails`] : []),
+      // Only while it is neither all nor nothing, which the box itself cannot show.
+      ...(ticked > 0 && ticked < author.members.length ? [`${ticked} ticked`] : []),
+    ].join(' · ');
 
     item.tooltip = [
-      ...author.names,
+      ...author.members.map((member) => `${member.name} — ${member.commits}`),
       ...author.emails.map((email) => `<${email}>`),
       `${author.commits} commits, across the whole history - the count takes no notice of what the graph is filtered to`,
+      author.custom ? 'Grouped by hand' : 'Grouped by spelling',
       'Tick to show only these',
     ].join('\n');
-    // Ticked means "only these", the opposite polarity to the ref filter. With nobody ticked
-    // everyone is shown and no box is ticked - starting all-ticked would suggest that unticking one
-    // hides that person, which is not what happens.
-    item.checkboxState = this.selected.has(author.name)
-      ? vscode.TreeItemCheckboxState.Checked
-      : vscode.TreeItemCheckboxState.Unchecked;
 
+    /*
+     * Ticked means "only these", the opposite polarity to the ref filter. With nobody ticked
+     * everyone is shown and no box is ticked - starting all-ticked would suggest that unticking one
+     * hides that person, which is not what happens.
+     *
+     * A group is ticked when all of it is. Half a group ticked reads as unticked, and says so in
+     * the description, because there is no third box state to say it with.
+     */
+    item.checkboxState =
+      ticked === author.members.length && ticked > 0
+        ? vscode.TreeItemCheckboxState.Checked
+        : vscode.TreeItemCheckboxState.Unchecked;
+
+    item.contextValue = author.custom ? 'weftAuthorGroupCustom' : 'weftAuthorGroup';
     item.iconPath = new vscode.ThemeIcon('account');
     return item;
   }
 
-  attach(view: vscode.TreeView<Author>): vscode.Disposable {
+  private memberItem(identity: AuthorIdentity, custom: boolean): vscode.TreeItem {
+    const item = new vscode.TreeItem(identity.name, vscode.TreeItemCollapsibleState.None);
+
+    item.id = `spelling:${identity.name}`;
+    item.description = [
+      `${identity.commits}`,
+      ...(identity.emails.length > 1 ? [`${identity.emails.length} emails`] : []),
+    ].join(' · ');
+
+    item.tooltip = [
+      identity.name,
+      ...identity.emails.map((email) => `<${email}>`),
+      `${identity.commits} commits under this spelling`,
+    ].join('\n');
+
+    item.checkboxState = this.selected.has(identity.name)
+      ? vscode.TreeItemCheckboxState.Checked
+      : vscode.TreeItemCheckboxState.Unchecked;
+
+    item.contextValue = custom ? 'weftAuthorSpellingCustom' : 'weftAuthorSpelling';
+    item.iconPath = new vscode.ThemeIcon('mention');
+    return item;
+  }
+
+  attach(view: vscode.TreeView<AuthorNode>): vscode.Disposable {
     this.view = view;
     this.publishOrder();
     this.updateMessage();
 
     return view.onDidChangeCheckboxState((event) => {
-      for (const [author, state] of event.items) {
-        if (state === vscode.TreeItemCheckboxState.Checked) {
-          this.selected.add(author.name);
-        } else {
-          this.selected.delete(author.name);
+      for (const [node, state] of event.items) {
+        // A group's box is every spelling in it: the group is the person, and half a person is not
+        // what anybody meant by ticking them.
+        for (const spelling of this.spellingsOf(node)) {
+          if (state === vscode.TreeItemCheckboxState.Checked) {
+            this.selected.add(spelling);
+          } else {
+            this.selected.delete(spelling);
+          }
         }
       }
 
@@ -340,15 +493,15 @@ export class AuthorsProvider implements vscode.TreeDataProvider<Author> {
       const ticked =
         this.selected.size === 0
           ? 'Nothing is ticked, so the graph still shows everyone.'
-          : `${this.selected.size} ticked, which is what the graph is showing.`;
+          : `${this.selected.size} spellings ticked, which is what the graph is showing.`;
 
-      this.view.message = `Listing ${listed} of ${total} authors matching \u201C${this.query}\u201D. ${ticked}`;
+      this.view.message = `Listing ${listed} of ${total} authors matching “${this.query}”. ${ticked}`;
       return;
     }
 
     this.view.message =
       this.selected.size === 0
         ? 'Tick an author to show only their commits. The counts are for the whole history.'
-        : `Showing ${this.selected.size} of ${total} authors.`;
+        : `${this.selected.size} spellings ticked, of ${total} authors.`;
   }
 }
