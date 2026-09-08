@@ -1127,6 +1127,78 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 }
 
 /*
+ * The switch box asks before it switches.
+ *
+ * It is a text field with Return bound to "check that branch out", which is the right shape for the
+ * gesture and one typo away from a checkout nobody wanted. The menus are not asked about: getting
+ * to Checkout there is already two deliberate steps, and a dialog on top of that is a click that
+ * teaches people to click through dialogs.
+ */
+{
+  const head = () => String(runGit(repoPath, 'rev-parse', '--abbrev-ref', 'HEAD')).trim();
+  const side = { kind: 'ref', refName: 'refs/heads/side', label: 'side', refKind: 'local' };
+
+  const before = confirmations.length;
+
+  // Said no.
+  confirmed = false;
+  await messageHandler({ type: 'runAction', id: 'weft.checkoutBranch', target: side, confirm: true });
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const asked = confirmations.slice(before);
+
+  console.log('');
+  console.log(
+    'switch asks    :',
+    asked.length === 0
+      ? 'NOTHING ASKED'
+      : JSON.stringify(`${asked[0].message} — ${asked[0].detail}`),
+  );
+  console.log('  said no      : HEAD is', head());
+
+  if (asked.length === 0) {
+    problems.push('the switch box checked out without asking');
+  } else {
+    if (!String(asked[0].message).includes('side')) {
+      problems.push(`the switch dialog did not name the branch: ${asked[0].message}`);
+    }
+
+    if (!/ago|just now/.test(String(asked[0].detail))) {
+      problems.push(`the switch dialog did not say how old the branch is: ${asked[0].detail}`);
+    }
+  }
+
+  if (head() !== 'main') {
+    problems.push('saying no to the switch dialog checked the branch out anyway');
+  }
+
+  // And the menus, which do not ask.
+  confirmed = true;
+  const beforeMenu = confirmations.length;
+
+  await messageHandler({ type: 'runAction', id: 'weft.checkoutBranch', target: side });
+  await new Promise((r) => setTimeout(r, 2500));
+
+  console.log('  menu path    : HEAD is', head(), '| asked', confirmations.length - beforeMenu, 'times');
+
+  if (confirmations.length !== beforeMenu) {
+    problems.push('checking out from a menu asked for confirmation, which is a click too many');
+  }
+
+  if (head() !== 'side') {
+    problems.push('checking out from a menu did not check the branch out');
+  }
+
+  // Back where the rest of this run expects to be.
+  await messageHandler({
+    type: 'runAction',
+    id: 'weft.checkoutBranch',
+    target: { kind: 'ref', refName: 'refs/heads/main', label: 'main', refKind: 'local' },
+  });
+  await new Promise((r) => setTimeout(r, 2500));
+}
+
+/*
  * A checkout takes the ticks with it.
  *
  * The default is "the branch you are on", and which branch that is changes. Switching has to move

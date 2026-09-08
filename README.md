@@ -89,7 +89,7 @@ Working:
   on - over the branch list and again in the graph's own header. Ticking three refs out of fourteen
   hundred starts by unticking the rest, which is not something anybody does a box at a time
 - A box in the header switches branches: type a name, arrows to aim, Return or a click to check
-  out, Escape to give it up. Its list is plain - one row, one thing, and clicking it goes there.
+  out - it asks first, and says how long since that branch moved - and Escape to give it up. Its list is plain - one row, one thing, and clicking it goes there.
   The button beside it is the other question, and keeps its own list of ticks: which branches the
   graph should draw
 - Who last changed the line the cursor is on, greyed at the end of it, with the commit’s

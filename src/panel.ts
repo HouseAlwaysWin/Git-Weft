@@ -81,6 +81,7 @@ import { describeOperation, readRepoState, readWorkingTree } from './git/repoSta
 import { watchWorkingTree } from './git/vscodeGit.ts';
 import { listStashes } from './git/stash.ts';
 import { Remedy, mapGitError } from './git/errors.ts';
+import { describeAge } from './git/blame.ts';
 import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
 
@@ -497,6 +498,10 @@ export class WeftPanel {
         await this.showMenu(message.target, message.x, message.y);
         break;
       case 'runAction':
+        if (message.confirm === true && !(await this.confirmSwitch(message.target))) {
+          break;
+        }
+
         await this.runAction(message.id, message.target);
         break;
       case 'refsPreset':
@@ -544,6 +549,43 @@ export class WeftPanel {
    * has to still be true when it acts, and the watcher must not reload the graph from underneath a
    * half-finished operation.
    */
+  /**
+   * Ask before a checkout that one keystroke started.
+   *
+   * The switch box is a text field with Return bound to "check that branch out", which is the right
+   * shape for the gesture and one typo away from a checkout of somebody else's branch. On a large
+   * repository that is a minute of files being rewritten, and on a dirty one it is a refusal to
+   * read - so it asks, with the one fact that decides it: how long since the branch moved.
+   */
+  private async confirmSwitch(target: Target): Promise<boolean> {
+    if (target.kind !== 'ref') {
+      return true;
+    }
+
+    const moved = await this.refMoved(target.refName);
+
+    const choice = await vscode.window.showWarningMessage(
+      `Check out ${target.label}?`,
+      {
+        modal: true,
+        detail: moved === null ? '' : `Last moved ${describeAge(moved)}.`,
+      },
+      'Checkout',
+    );
+
+    return choice === 'Checkout';
+  }
+
+  /** When a ref last moved, epoch milliseconds, or null when git will not say. */
+  private async refMoved(refName: string): Promise<number | null> {
+    const out = await this.git
+      .runRead(this.repo.root, ['log', '-1', '--format=%ct', refName])
+      .catch(() => '');
+
+    const seconds = Number(out.trim());
+    return seconds > 0 ? seconds * 1000 : null;
+  }
+
   private async runAction(
     id: string,
     target: Target,

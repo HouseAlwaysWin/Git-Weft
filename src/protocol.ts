@@ -213,7 +213,19 @@ export type WebviewMessage =
   | { readonly type: 'copy'; readonly text: string }
   /** Right-click: the host decides what is on the menu, because availability depends on repo state. */
   | { readonly type: 'requestMenu'; readonly target: Target; readonly x: number; readonly y: number }
-  | { readonly type: 'runAction'; readonly id: string; readonly target: Target }
+  | {
+      readonly type: 'runAction';
+      readonly id: string;
+      readonly target: Target;
+      /**
+       * Ask before running it.
+       *
+       * Set by the one control that can start a checkout from a single keystroke. The action itself
+       * is the same one the menus run, and it is the reaching for it that differs - so the asking
+       * belongs to the caller rather than to the action.
+       */
+      readonly confirm?: boolean;
+    }
   /**
    * Draw these refs, or stop drawing them - the same switch the sidebar's ticks set.
    *

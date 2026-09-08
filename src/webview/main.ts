@@ -1142,7 +1142,7 @@ function paintJumpPick(): void {
  * name, creating and tracking one when there is none, because checking out the remote branch
  * itself detaches HEAD.
  */
-function checkoutRef(entry: RefEntry): void {
+function checkoutRef(entry: RefEntry, confirm = false): void {
   closeJumpMenu();
   closeBranchMenu();
   branchJump.value = '';
@@ -1151,6 +1151,7 @@ function checkoutRef(entry: RefEntry): void {
     type: 'runAction',
     id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
     target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
+    ...(confirm ? { confirm: true } : {}),
   });
 }
 
@@ -1200,7 +1201,9 @@ function renderJumpMenu(): void {
         // Listed, so the box can show where you are. Not clickable, because you are there.
         row.disabled = true;
       } else {
-        row.addEventListener('click', () => checkoutRef(entry));
+        // Asked about first: this row is one Return away from a checkout, and the box above it is
+        // a text field - which is a keystroke somebody can arrive at while still typing.
+        row.addEventListener('click', () => checkoutRef(entry, true));
       }
 
       jumpRows.append(row);

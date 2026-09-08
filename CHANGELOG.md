@@ -2,6 +2,13 @@
 
 ## 0.4.0
 
+- **The switch box asks before it switches**, and says how long since that branch moved. It is a
+  text field with Return bound to "check that branch out" - the right shape for the gesture and
+  one typo away from a checkout nobody wanted, which on a large repository is a minute of files
+  being rewritten. The menus are not asked about: reaching Checkout there is already two
+  deliberate steps, and a dialog on top of that is a click that teaches people to click through
+  dialogs.
+
 - **A stash no longer drags its branch into a graph that excluded it.** A stash is a commit, and
   naming one puts everything it can reach into the walk with it - so ticking a single branch
   produced a graph full of commits from branches that had been unticked, with the stashes
