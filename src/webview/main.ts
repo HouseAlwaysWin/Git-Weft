@@ -21,6 +21,7 @@ import type { DateRange } from '../git/dates.ts';
 import type { Upstream } from '../git/repoState.ts';
 import type { Search, SearchMode, SearchToggle } from '../git/search.ts';
 import { TOGGLES, looksLikeCommitId } from '../git/search.ts';
+import { describeAge } from '../git/blame.ts';
 import type { MenuItem, Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
 import { authorHue } from './authorColor.ts';
@@ -939,6 +940,10 @@ function branchRow(entry: RefEntry): HTMLElement {
 
   row.append(draw, name);
 
+  if (entry.updated > 0) {
+    row.append(span('branch-age', describeAge(entry.updated)));
+  }
+
   if (here) {
     row.append(span('branch-here', 'here'));
   }
@@ -1176,8 +1181,20 @@ function renderJumpMenu(): void {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'jump-name';
-      row.textContent = entry.label;
       row.title = entry.refName;
+
+      row.append(span('jump-label', entry.label));
+
+      /*
+       * How long since it moved.
+       *
+       * The question a list of a hundred and fifty branch names raises and cannot answer is which
+       * of them are still alive. Reading it here is the difference between switching to the branch
+       * you meant and switching to one that was abandoned in March.
+       */
+      if (entry.updated > 0) {
+        row.append(span('jump-age', describeAge(entry.updated)));
+      }
 
       if (entry.kind === 'local' && entry.label === headBranch) {
         // Listed, so the box can show where you are. Not clickable, because you are there.

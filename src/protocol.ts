@@ -61,6 +61,8 @@ export interface RefEntry {
   readonly refName: string;
   readonly kind: 'local' | 'remote' | 'tag';
   readonly visible: boolean;
+  /** When the ref last moved, epoch milliseconds, or 0 for a ref that will not say. */
+  readonly updated: number;
 }
 
 /**

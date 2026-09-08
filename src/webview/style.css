@@ -1075,7 +1075,9 @@ body.vscode-high-contrast.author-tint .row .author {
 }
 
 .jump-name {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   width: 100%;
   overflow: hidden;
   padding: 3px 10px;
@@ -1087,6 +1089,21 @@ body.vscode-high-contrast.author-tint .row .author {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* The name takes the room, so a long one truncates rather than pushing the age off the end. */
+.jump-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jump-age,
+.branch-age {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
 }
 
 .jump-name:hover {

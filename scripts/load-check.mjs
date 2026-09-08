@@ -902,6 +902,20 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   console.log('opens ticked   :', openedTicked.map((r) => r.label).join(', ') || '(nothing)');
 
+  /*
+   * How long since each ref moved, beside its name. The whole point of it is deciding not to check
+   * out a branch nobody has touched since March, so a row without it is a row that cannot be read
+   * for that - and it costs nothing, being one more field on the walk of the refs that already
+   * happens.
+   */
+  const ages = allRefs.map((ref) => String(treeProvider.getTreeItem(ref).description ?? ''));
+
+  console.log('ref ages       :', JSON.stringify(ages));
+
+  if (ages.some((age) => !/ago|just now/.test(age))) {
+    problems.push(`a ref was listed with no age beside it: ${JSON.stringify(ages)}`);
+  }
+
   if (openedTicked.length !== 1 || openedTicked[0]?.refName !== 'refs/heads/main') {
     problems.push(
       `a graph should open on the branch HEAD is on; ticked instead: ${openedTicked.map((r) => r.label).join(', ') || 'nothing'}`,

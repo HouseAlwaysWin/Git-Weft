@@ -14,6 +14,7 @@ import * as vscode from 'vscode';
 
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
+import { describeAge } from './git/blame.ts';
 
 interface Group {
   readonly kind: 'group';
@@ -30,6 +31,13 @@ interface Ref {
   /** What the user reads, e.g. `origin/main`. */
   readonly label: string;
   readonly isHead: boolean;
+  /**
+   * When the ref last moved, epoch milliseconds, or 0 for a ref that will not say.
+   *
+   * The committer date rather than the author's: the question it answers is "has anybody touched
+   * this branch lately", and rebasing a year-old commit onto today is a branch that moved today.
+   */
+  readonly updated: number;
 }
 
 type Node = Group | Ref;
@@ -204,7 +212,8 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     try {
       const out = await this.git.runRead(repo.root, [
         'for-each-ref',
-        '--format=%(refname)%00%(HEAD)',
+        // One field more, and no second process: the age comes off the same walk of the refs.
+        '--format=%(refname)%00%(HEAD)%00%(committerdate:unix)',
         'refs/heads',
         'refs/remotes',
         'refs/tags',
@@ -215,7 +224,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
         .map((line) => line.trim())
         .filter((line) => line.length > 0)
         .flatMap((line) => {
-          const [refName = '', head = ''] = line.split('\x00');
+          const [refName = '', head = '', updated = ''] = line.split('\x00');
           const group = GROUPS.find((g) => refName.startsWith(g.prefix));
 
           if (group === undefined) {
@@ -229,7 +238,17 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
             return [];
           }
 
-          return [{ kind: 'ref', group, refName, label, isHead: head === '*' } satisfies Ref];
+          return [
+            {
+              kind: 'ref',
+              group,
+              refName,
+              label,
+              isHead: head === '*',
+              // Empty for an annotated tag, whose date is the tagger's and lives in another field.
+              updated: Number(updated) > 0 ? Number(updated) * 1000 : 0,
+            } satisfies Ref,
+          ];
         });
     } catch {
       this.refs = [];
@@ -357,12 +376,19 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * Separate from `listRefs` because that reports the group's display label, which is the right
    * thing for a picker to show and the wrong thing to branch on.
    */
-  listForMenu(): { label: string; refName: string; kind: 'local' | 'remote' | 'tag'; visible: boolean }[] {
+  listForMenu(): {
+    label: string;
+    refName: string;
+    kind: 'local' | 'remote' | 'tag';
+    visible: boolean;
+    updated: number;
+  }[] {
     return this.refs.map((ref) => ({
       label: ref.label,
       refName: ref.refName,
       kind: ref.group.id === 'tags' ? 'tag' : ref.group.id === 'remotes' ? 'remote' : 'local',
       visible: !this.hidden.has(ref.refName),
+      updated: ref.updated,
     }));
   }
 
@@ -447,6 +473,14 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
 
     const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
     item.id = `ref:${node.refName}`;
+    /*
+     * How long since it moved, so a branch nobody has touched since March says so before you check
+     * it out rather than after. HEAD keeps its badge and takes the age alongside: which branch you
+     * are on and how stale it is are both worth knowing, and one is not a reason to drop the other.
+     */
+    const age = node.updated > 0 ? describeAge(node.updated) : '';
+
+    item.description = node.isHead ? `HEAD${age === '' ? '' : ` · ${age}`}` : age;
     item.checkboxState = this.hidden.has(node.refName) ? Unchecked : Checked;
     /*
      * The kind is part of the context value because the menu has to tell them apart: a local branch
@@ -461,10 +495,6 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     item.iconPath = new vscode.ThemeIcon(
       node.group.id === 'tags' ? 'tag' : node.group.id === 'remotes' ? 'cloud' : 'git-branch',
     );
-
-    if (node.isHead) {
-      item.description = 'HEAD';
-    }
 
     return item;
   }

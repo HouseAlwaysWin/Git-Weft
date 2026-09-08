@@ -2,6 +2,13 @@
 
 ## 0.4.0
 
+- **How long since each branch moved, beside its name** - in the switch box, in the header list
+  and in Branches & Tags. A hundred and fifty branch names raise a question they cannot answer,
+  which is which of them are still alive, and the answer matters most at the moment you are
+  about to switch to one. It is the committer date, so a year-old commit rebased onto today is
+  a branch that moved today, and it costs no extra git: one more field on the walk of the refs
+  that was already happening.
+
 - **List Only Ticked Branches & Tags.** Once a handful of refs out of fourteen hundred are
   ticked, the ticks are the answer to "what am I looking at" - and finding them again means
   scrolling past the one thousand three hundred that are not. It narrows the listing only: the

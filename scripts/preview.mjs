@@ -73,18 +73,28 @@ messages.push({
  * The refs, for the header's branch menu. Read from the real repository like everything else here,
  * and all ticked - the preview has no sidebar to have unticked anything in.
  */
-const refLines = execFileSync('git', ['for-each-ref', '--format=%(refname)'], {
-  cwd: repo.root,
-  encoding: 'utf8',
-})
+/*
+ * The same fields the real view is handed, `updated` included. A harness that builds this message
+ * by hand is one field away from showing something the extension never shows - which is the one
+ * thing it exists not to do.
+ */
+const refLines = execFileSync(
+  'git',
+  ['for-each-ref', '--format=%(refname)%00%(committerdate:unix)'],
+  { cwd: repo.root, encoding: 'utf8' },
+)
   .split('\n')
   .map((line) => line.trim())
-  .filter((line) => line.length > 0);
+  .filter((line) => line.length > 0)
+  .map((line) => {
+    const [refName = '', updated = ''] = line.split('\x00');
+    return { refName, updated: Number(updated) > 0 ? Number(updated) * 1000 : 0 };
+  });
 
 messages.push({
   type: 'refs',
   branch: state.branch,
-  refs: refLines.map((refName) => ({
+  refs: refLines.map(({ refName, updated }) => ({
     refName,
     label: refName.replace(/^refs\/(heads|remotes|tags)\//, ''),
     kind: refName.startsWith('refs/tags/')
@@ -93,6 +103,7 @@ messages.push({
         ? 'remote'
         : 'local',
     visible: true,
+    updated,
   })),
 });
 
