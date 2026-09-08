@@ -533,20 +533,56 @@ function start(context: vscode.ExtensionContext): void {
      * anything typed, which matters more than usual: `--follow` will not take a case-insensitive
      * pathspec, so the spelling has to be git's own.
      */
-    vscode.commands.registerCommand('weft.showFileHistory', (node: unknown) => {
-      const target = files.target(node);
-      const panel = WeftPanel.any();
+    vscode.commands.registerCommand('weft.showFileHistory', async (node: unknown) => {
+      const fromTree = files.target(node);
 
-      if (target === null) {
+      if (fromTree !== null) {
+        const panel = WeftPanel.any();
+
+        if (panel === null) {
+          void vscode.window.showInformationMessage('Weft: open the graph first.');
+          return;
+        }
+
+        panel.showFileHistory(fromTree.file.path);
         return;
       }
 
-      if (panel === null) {
-        void vscode.window.showInformationMessage('Weft: open the graph first.');
+      /*
+       * Or a file picked anywhere else - the Explorer, an editor, a tab - which arrives as a Uri
+       * and knows nothing about which repository it is in or what git calls it.
+       *
+       * The tree could assume both, because its files came out of a commit Weft had already
+       * walked. Everything here has to be worked out: which repository the path is under, what it
+       * is called relative to that root, and which graph is showing it - opening one beside the
+       * file if there is none, because being told to open a graph first is a step nobody asked
+       * about.
+       */
+      const uri = asUri(node) ?? vscode.window.activeTextEditor?.document.uri;
+
+      if (uri === undefined || uri.scheme !== 'file') {
         return;
       }
 
-      panel.showFileHistory(target.file.path);
+      const repo = await discover(git, dirname(uri.fsPath));
+
+      if (repo === null) {
+        void vscode.window.showInformationMessage(
+          'Weft: that file is not in a git repository.',
+        );
+        return;
+      }
+
+      await refs.setRepository(repo);
+      authors.setRepository(repo);
+
+      WeftPanel.show(
+        context.extensionUri,
+        git,
+        repo,
+        vscode.ViewColumn.Beside,
+        filters,
+      ).showFileHistory(await repoRelative(git, uri.fsPath));
     }),
 
     vscode.commands.registerCommand('weft.openCommitFile', async (node: unknown) => {
@@ -790,4 +826,38 @@ function start(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   output = undefined;
+}
+
+/**
+ * What git calls a file, asked rather than worked out.
+ *
+ * Subtracting the repository root from an absolute path looks like the obvious answer and is
+ * not: the two strings come from different places and do not have to match. Windows hands VS
+ * Code an 8.3 short name while `rev-parse` returns the long one, a drive letter arrives in
+ * whichever case it feels like, and either end may have gone through a symlink. A prefix that
+ * does not match leaves the absolute path behind - which git accepts, and walks nothing for.
+ * An empty graph and no error.
+ *
+ * `--show-prefix` is git answering about its own repository, from inside the directory in
+ * question, so there is nothing to compare.
+ */
+async function repoRelative(git: Git, path: string): Promise<string> {
+  const prefix = await git.runRead(dirname(path), ['rev-parse', '--show-prefix']).catch(() => '');
+
+  return `${prefix.trim()}${basename(path)}`;
+}
+
+/**
+ * A Uri, told by its shape rather than by `instanceof`.
+ *
+ * Which class a Uri is an instance of depends on who built it, and menu arguments do not always
+ * come from this extension host - so the test that reads as the obvious one is the one that returns
+ * false for a perfectly good Uri.
+ */
+function asUri(value: unknown): vscode.Uri | undefined {
+  const candidate = value as vscode.Uri | undefined;
+
+  return typeof candidate?.fsPath === 'string' && typeof candidate.scheme === 'string'
+    ? candidate
+    : undefined;
 }

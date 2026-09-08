@@ -1237,6 +1237,34 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 }
 
 /*
+ * Show File History, from a file rather than from the tree.
+ *
+ * The tree's version could assume both halves of the answer, because its files came out of a commit
+ * Weft had already walked. A file picked in the Explorer arrives as a Uri and knows neither which
+ * repository it is under nor what git calls it - and getting the second wrong is the failure that
+ * looks like success: git accepts an absolute path and walks a file it has never heard of, which is
+ * an empty graph and no error.
+ */
+{
+  const before = posted.filter((m) => m.type === 'showHistory').length;
+
+  await commands.get('weft.showFileHistory')(uri(`${repoPath}/f1.txt`));
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const asked = posted.filter((m) => m.type === 'showHistory');
+  const path = asked[asked.length - 1]?.path;
+
+  console.log('');
+  console.log('file history   :', asked.length > before ? JSON.stringify(path) : 'NOTHING ASKED');
+
+  if (asked.length === before) {
+    problems.push('Show File History on a file from the Explorer asked the graph for nothing');
+  } else if (path !== 'f1.txt') {
+    problems.push(`Show File History asked for "${path}", which is not what git calls that file`);
+  }
+}
+
+/*
  * The switch box asks before it switches.
  *
  * It is a text field with Return bound to "check that branch out", which is the right shape for the

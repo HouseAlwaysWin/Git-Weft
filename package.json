@@ -336,6 +336,25 @@
           "command": "weft.toggleFileBlame",
           "when": "editorTextFocus && resourceScheme == file",
           "group": "navigation@100"
+        },
+        {
+          "command": "weft.showFileHistory",
+          "when": "editorTextFocus && resourceScheme == file && weft.hasRepository",
+          "group": "navigation@101"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "weft.showFileHistory",
+          "when": "!explorerResourceIsFolder && resourceScheme == file && weft.hasRepository",
+          "group": "weft@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "weft.showFileHistory",
+          "when": "resourceScheme == file && weft.hasRepository",
+          "group": "weft@1"
         }
       ],
       "editor/title": [

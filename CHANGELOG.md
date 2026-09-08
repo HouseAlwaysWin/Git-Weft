@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Show File History reaches files, not just the list of changed ones.** It is on the right-
+  click menu in the Explorer, on an editor tab and inside an editor, as well as where it
+  already was. The tree could assume which repository a file was in and what git called it,
+  because its files came out of a commit Weft had walked; a file picked anywhere else knows
+  neither, so both are asked for - and a graph opens beside the file if there is none.
+
 ## 0.5.0
 
 - **The blame annotations stand back while the repository is being written to.** A checkout

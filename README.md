@@ -99,6 +99,8 @@ Working:
   the date, and for **Show in the graph**: a graph beside the file with the cursor on that commit,
   waiting for the page that carries it if it is forty thousand rows down. `weft.inlineBlame`
   turns it off
+- **Show File History** on any file - in the Explorer, on a tab, inside an editor, or in the
+  changed-files list - narrows the graph to the commits that touched it, following renames
 - **Toggle File Blame**, on the editor’s right-click menu, puts every line’s author and date in
   a column down the left. Off unless asked for, and per file: it moves the code right and gives
   the eye a second column, which is worth it while reading a file’s history and in the way while
