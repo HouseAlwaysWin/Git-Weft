@@ -2690,6 +2690,43 @@ if (disposeHandler !== null) {
   }
 }
 
+/*
+ * Every path that runs git has to stand back for a write in flight.
+ *
+ * Not a preference. git replaces a file by renaming a lock over it, and Windows refuses that
+ * while any other process has the old one open - so a read that overlaps a checkout is what turns
+ * the checkout into "unable to write symref for HEAD", with the branch left behind and the whole
+ * diff staged. It has been forgotten twice: once on the working-tree refresh, and once on the
+ * blame annotations, which are the easiest to miss because they watch editors rather than the
+ * graph.
+ *
+ * Read from the source rather than exercised, because the failure is a race and a run that
+ * happens not to lose it proves nothing.
+ */
+{
+  const guards = [
+    ['src/panel.ts', /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.root\)/],
+    ['src/blameAnnotations.ts', /this\.isBusy\(repo\.root\)/],
+  ];
+
+  const missing = guards
+    .filter(
+      ([path, pattern]) =>
+        !pattern.test(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')),
+    )
+    .map(([path]) => path);
+
+  console.log('');
+  console.log(
+    'write-lock     :',
+    missing.length === 0 ? 'every reader stands back' : `UNGUARDED: ${missing.join(', ')}`,
+  );
+
+  for (const path of missing) {
+    problems.push(`${path} runs git without standing back for a write in flight`);
+  }
+}
+
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');
 
 if (problems.length > 0) {

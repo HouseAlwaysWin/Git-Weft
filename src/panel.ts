@@ -176,6 +176,19 @@ export class WeftPanel {
     }
   }
 
+  /**
+   * Whether a write is in flight against this repository.
+   *
+   * Exposed because the rule it enforces is not the panel's: anything that runs git against a
+   * repository while something else is writing to it is a process holding files open at exactly
+   * the wrong moment. On Windows that is not a slowdown but a failure - git renames a lock over
+   * the file it is replacing, and Windows refuses that while any other process has the old one
+   * open.
+   */
+  static isBusy(root: string): boolean {
+    return WeftPanel.lock.isBusy(root);
+  }
+
   /** Any open graph, for a sidebar action that needs one to run against. */
   static any(): WeftPanel | null {
     return WeftPanel.current ?? WeftPanel.open.values().next().value ?? null;

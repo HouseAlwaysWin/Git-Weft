@@ -26,6 +26,9 @@ import { blameFile, describeAge } from './git/blame.ts';
 /** Long enough that a held arrow key is one blame rather than forty, short enough not to lag. */
 const SETTLE_MS = 200;
 
+/** How long to stand back while the repository is being written to, before asking again. */
+const BUSY_MS = 500;
+
 /** A subject is a sentence; the end of a line is not the place for all of one. */
 const SUMMARY_LIMIT = 60;
 
@@ -37,6 +40,17 @@ const PAD = ' ';
 
 export class BlameAnnotations {
   private readonly git: Git;
+
+  /**
+   * Whether a write is in flight against a repository.
+   *
+   * This has to know, and it is the one thing here that is not about editors. A checkout rewrites
+   * the files that are open, VS Code reloads those documents, and the reload is a change event -
+   * so without this, a checkout is the exact moment this runs `git blame`, over and over, on the
+   * repository being checked out. On Windows that is what turns a checkout into
+   * `unable to write symref for HEAD`, with the branch left behind and the whole diff staged.
+   */
+  private readonly isBusy: (root: string) => boolean;
 
   /** The one at the end of the line the cursor is on. */
   private readonly lineDecoration = vscode.window.createTextEditorDecorationType({
@@ -78,8 +92,9 @@ export class BlameAnnotations {
   private timer: NodeJS.Timeout | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
-  constructor(git: Git) {
+  constructor(git: Git, isBusy: (root: string) => boolean) {
     this.git = git;
+    this.isBusy = isBusy;
 
     this.disposables.push(
       vscode.window.onDidChangeActiveTextEditor(() => this.schedule()),
@@ -159,7 +174,7 @@ export class BlameAnnotations {
     return vscode.workspace.getConfiguration('weft').get<boolean>('inlineBlame', true);
   }
 
-  private schedule(): void {
+  private schedule(delay: number = SETTLE_MS): void {
     if (this.timer !== null) {
       clearTimeout(this.timer);
     }
@@ -173,7 +188,7 @@ export class BlameAnnotations {
        * annotation, which is what it should look like anyway.
        */
       void this.refresh().catch(() => undefined);
-    }, SETTLE_MS);
+    }, delay);
   }
 
   private clear(): void {
@@ -211,6 +226,15 @@ export class BlameAnnotations {
 
     if (repo === null) {
       this.clear();
+      return;
+    }
+
+    /*
+     * Not while the repository is being written to. Coming back in half a second is free; running
+     * git against a checkout in progress is how the checkout fails.
+     */
+    if (this.isBusy(repo.root)) {
+      this.schedule(BUSY_MS);
       return;
     }
 

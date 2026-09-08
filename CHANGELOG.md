@@ -2,6 +2,14 @@
 
 ## 0.4.0
 
+- **The blame annotations stand back while the repository is being written to.** A checkout
+  rewrites the files that are open, VS Code reloads those documents, and a reload is a change
+  event - so a checkout was the exact moment Weft ran `git blame`, over and over, on the
+  repository being checked out. On Windows that is what turns a checkout into `unable to write
+  symref for HEAD`: the branch stays where it was while the index and the working tree have
+  already moved, so the whole difference between the two branches shows up staged. The older the
+  branch, the more files change and the more often it happened.
+
 - **The switch box asks before it switches**, and says how long since that branch moved. It is a
   text field with Return bound to "check that branch out" - the right shape for the gesture and
   one typo away from a checkout nobody wanted, which on a large repository is a minute of files

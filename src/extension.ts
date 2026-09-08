@@ -229,7 +229,7 @@ function start(context: vscode.ExtensionContext): void {
    * listens to the window rather than to the graph, so a workspace with no graph open still gets
    * it - which is the point of it.
    */
-  const blame = new BlameAnnotations(git);
+  const blame = new BlameAnnotations(git, (root) => WeftPanel.isBusy(root));
 
   // Read fresh on every reload, so neither view has to push anything at the panel.
   const filters = {
