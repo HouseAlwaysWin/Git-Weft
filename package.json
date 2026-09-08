@@ -31,7 +31,8 @@
         "command": "weft.openGraph",
         "title": "Open Git Graph",
         "category": "Git Weft",
-        "icon": "$(git-branch)"
+        "_iconNote": "A path rather than a codicon: this button sits in Source Control's own title bar, where $(git-branch) is indistinguishable from git's. The extension's icon says whose button it is.",
+        "icon": "media/icon.svg"
       },
       {
         "command": "weft.refresh",

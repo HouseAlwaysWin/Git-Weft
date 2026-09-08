@@ -11,7 +11,7 @@
  *   npm run build && node scripts/icon-check.mjs && node scripts/serve.mjs
  *   # then open http://localhost:4173/icon-check.html
  */
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const source = process.argv[2] ?? 'media';
@@ -107,7 +107,8 @@ console.log(`dist/icon-check.html  <- ${icons.length} icon(s) from ${source}/`);
  * missing or wrong-sized icon then fails the build rather than the upload.
  */
 {
-  const declared = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).icon;
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const declared = manifest.icon;
   const problems = [];
 
   if (declared === undefined) {
@@ -135,6 +136,24 @@ console.log(`dist/icon-check.html  <- ${icons.length} icon(s) from ${source}/`);
       } else if (width !== height) {
         problems.push(`${declared} is ${width}x${height}, and a non-square icon is cropped`);
       }
+    }
+  }
+
+  /*
+   * Icons the manifest names by path rather than by codicon.
+   *
+   * A codicon that does not exist draws nothing and says nothing; a path that does not exist does
+   * the same. Both are the kind of missing that looks like a decision.
+   */
+  const declaredIcons = manifest.contributes.commands
+    .map((entry) => entry.icon)
+    .filter((icon) => typeof icon === 'string' && !icon.startsWith('$('));
+
+  console.log('command icons  :', declaredIcons.join(', ') || '(all codicons)');
+
+  for (const path of declaredIcons) {
+    if (!existsSync(new URL(`../${path}`, import.meta.url))) {
+      problems.push(`a command asks for ${path}, which is not there`);
     }
   }
 
