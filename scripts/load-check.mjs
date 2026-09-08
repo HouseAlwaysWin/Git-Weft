@@ -566,6 +566,28 @@ const contributed = manifest.contributes.commands.map((entry) => entry.command);
 
 console.log('contributed    :', contributed.length, 'commands');
 
+/*
+ * A title bar is icons with no labels, and VS Code draws no separator between them - the overflow
+ * menu is the only place a group can be seen as one. So the only thing keeping that row readable
+ * is its length, and it had reached nine before anybody counted.
+ *
+ * Five: finding a name, applying that listing to the graph, and the three answers to "what should
+ * the graph draw". Anything else belongs behind the ellipsis, where it can at least be read.
+ */
+{
+  const icons = (manifest.contributes.menus['view/title'] ?? []).filter(
+    (entry) =>
+      String(entry.when ?? '').includes('view == weft.refs') &&
+      String(entry.group ?? '').startsWith('navigation'),
+  );
+
+  console.log('refs title bar :', icons.length, 'icons |', icons.map((e) => e.command).join(', '));
+
+  if (icons.length > 5) {
+    problems.push(`the refs title bar has grown to ${icons.length} unlabelled icons`);
+  }
+}
+
 for (const expected of contributed) {
   if (!commands.has(expected)) {
     problems.push(`contributed but never registered: ${expected}`);

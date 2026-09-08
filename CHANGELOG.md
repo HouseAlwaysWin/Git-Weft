@@ -31,6 +31,12 @@
   a branch that moved today, and it costs no extra git: one more field on the walk of the refs
   that was already happening.
 
+- **The Branches & Tags title bar is five icons instead of nine.** It is a row of unlabelled
+  pictures and VS Code draws no separator between them, so the only thing keeping it readable is
+  its length. What stays is finding a name, applying that listing, and the three answers to "what
+  should the graph draw"; the orderings and the ticked-only listing moved behind the ellipsis,
+  where they are grouped, separated and - being words rather than pictures - actually legible.
+
 - **Branches & Tags sorts by name or by most recently moved.** Alphabetical is how you find a
   name you already know; by most recent is the other question a hundred and fifty branches raise
   - which of these is anybody still working on - and it puts the answer at the top instead of

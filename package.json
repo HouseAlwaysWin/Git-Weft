@@ -420,42 +420,42 @@
         {
           "command": "weft.sortRefsByRecent",
           "when": "view == weft.refs && !weft.refsByRecent",
-          "group": "navigation@1"
+          "group": "listing@1"
         },
         {
           "command": "weft.sortRefsByName",
           "when": "view == weft.refs && weft.refsByRecent",
-          "group": "navigation@1"
+          "group": "listing@1"
         },
         {
           "command": "weft.listTickedRefs",
           "when": "view == weft.refs && !weft.refsTickedOnly",
-          "group": "navigation@1"
+          "group": "listing@2"
         },
         {
           "command": "weft.listAllRefs",
           "when": "view == weft.refs && weft.refsTickedOnly",
-          "group": "navigation@1"
+          "group": "listing@2"
         },
         {
           "command": "weft.showAllRefs",
           "when": "view == weft.refs",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "weft.untickAllRefs",
           "when": "view == weft.refs",
-          "group": "navigation@2"
+          "group": "navigation@5"
         },
         {
           "command": "weft.showCurrentRefOnly",
           "when": "view == weft.refs",
-          "group": "navigation@2"
+          "group": "navigation@4"
         },
         {
           "command": "weft.openGraph",
           "when": "view == weft.refs",
-          "group": "navigation@3"
+          "group": "open@1"
         },
         {
           "command": "weft.filterAuthors",
