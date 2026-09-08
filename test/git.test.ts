@@ -4,8 +4,16 @@ import assert from 'node:assert/strict';
 import { parseLog } from '../src/git/logParser.ts';
 import { parseRawDiff } from '../src/git/details.ts';
 import type { Search } from '../src/git/search.ts';
-import { SearchMode, TOGGLES, escapeBasicRegex, filterArgs, looksLikeCommitId, searchArgs } from '../src/git/search.ts';
-import { authorArgs } from '../src/git/authors.ts';
+import {
+  SearchMode,
+  TOGGLES,
+  authorArgs,
+  escapeBasicRegex,
+  filterArgs,
+  foldCase,
+  looksLikeCommitId,
+  searchArgs,
+} from '../src/git/search.ts';
 import { dateArgs, isDay } from '../src/git/dates.ts';
 import { parseBranchName } from '../src/git/repoState.ts';
 import { describeAge, parseBlame } from '../src/git/blame.ts';
@@ -153,20 +161,13 @@ function plain(query: string, mode: SearchMode): Search {
 test('a plain query matches as text, not as a pattern', () => {
   // The dots are escaped, so `v0.4.1` cannot also match `v0X4Y1`. Escaping rather than passing
   // --fixed-strings is deliberate: that flag is global and would reach the Authors sidebar too.
-  assert.deepEqual(searchArgs(plain('v0.4.1', SearchMode.Message)), [
-    '--regexp-ignore-case',
-    '--grep=v0\\.4\\.1',
-  ]);
+  assert.deepEqual(searchArgs(plain('v0.4.1', SearchMode.Message)), ['--grep=[vV]0\\.4\\.1']);
 
   assert.deepEqual(searchArgs(plain('martin', SearchMode.Author)), [
-    '--regexp-ignore-case',
-    '--author=martin',
+    '--author=[mM][aA][rR][tT][iI][nN]',
   ]);
 
-  assert.deepEqual(searchArgs(plain('TODO', SearchMode.Content)), [
-    '--regexp-ignore-case',
-    '-GTODO',
-  ]);
+  assert.deepEqual(searchArgs(plain('TODO', SearchMode.Content)), ['-G[tT][oO][dD][oO]']);
 });
 
 test('the regex switch hands the query to git as written', () => {
@@ -200,31 +201,27 @@ test('match case drops the flag rather than adding one', () => {
 
 test('all terms intersects; one term has nothing to intersect', () => {
   assert.deepEqual(searchArgs({ ...plain('feat filter', SearchMode.Message), allTerms: true }), [
-    '--regexp-ignore-case',
     '--all-match',
-    '--grep=feat',
-    '--grep=filter',
+    '--grep=[fF][eE][aA][tT]',
+    '--grep=[fF][iI][lL][tT][eE][rR]',
   ]);
 
   // --all-match is a global flag, so it is not sent when there is a single pattern to match.
   assert.deepEqual(searchArgs({ ...plain('feat', SearchMode.Message), allTerms: true }), [
-    '--regexp-ignore-case',
-    '--grep=feat',
+    '--grep=[fF][eE][aA][tT]',
   ]);
 });
 
 test('invert asks for the commits that did not match', () => {
   assert.deepEqual(searchArgs({ ...plain('wip', SearchMode.Message), invert: true }), [
-    '--regexp-ignore-case',
     '--invert-grep',
-    '--grep=wip',
+    '--grep=[wW][iI][pP]',
   ]);
 });
 
 test('committer is its own field, not a synonym for author', () => {
   assert.deepEqual(searchArgs(plain('martin', SearchMode.Committer)), [
-    '--regexp-ignore-case',
-    '--committer=martin',
+    '--committer=[mM][aA][rR][tT][iI][nN]',
   ]);
 });
 
@@ -237,7 +234,7 @@ test('a mode ignores the switches it cannot honour', () => {
 
   assert.deepEqual(
     searchArgs({ ...plain('TODO', SearchMode.Content), invert: true, allTerms: true }),
-    ['--regexp-ignore-case', '-GTODO'],
+    ['-G[tT][oO][dD][oO]'],
   );
 
   // A pathspec is a glob with its own magic, so case travels inside it and regex is not offered.
@@ -277,8 +274,7 @@ test('following renames is a path idea, and no other mode is offered it', () => 
 
   assert.ok(!TOGGLES[SearchMode.Message].includes('follow'));
   assert.deepEqual(searchArgs({ ...plain('fix', SearchMode.Message), follow: true }), [
-    '--regexp-ignore-case',
-    '--grep=fix',
+    '--grep=[fF][iI][xX]',
   ]);
 });
 
@@ -290,11 +286,13 @@ test('a path filter goes last, behind --', () => {
 });
 
 test('a query that looks like a flag stays one argument', () => {
-  // No shell is involved, so this is inert - but it must not be split or dropped either.
-  assert.deepEqual(searchArgs(plain('--upload-pack=evil', SearchMode.Message)), [
-    '--regexp-ignore-case',
-    '--grep=--upload-pack=evil',
-  ]);
+  // No shell is involved, so this is inert - but it must not be split or dropped either. Match
+  // case is on only to keep this expectation about the argument rather than about the folding,
+  // which is somebody else's test.
+  assert.deepEqual(
+    searchArgs({ ...plain('--upload-pack=evil', SearchMode.Message), caseSensitive: true }),
+    ['--grep=--upload-pack=evil'],
+  );
 });
 
 test('an empty or absent search filters nothing', () => {
@@ -348,7 +346,7 @@ test('an author filter cannot end up behind a path search', () => {
    */
   const args = filterArgs(
     plain('src/app.ts', SearchMode.Path),
-    authorArgs(['Ada Lovelace']),
+    [{ name: 'Ada Lovelace', emails: [] }],
     dateArgs({ since: '2026-01-01', until: null }, true),
   );
 
@@ -360,6 +358,110 @@ test('an author filter cannot end up behind a path search', () => {
   ]);
 
   assert.ok(args.indexOf('--') === args.length - 2, 'nothing may follow the pathspec but the path');
+});
+
+/** The Authors sidebar's ticks, as they reach `filterArgs`. */
+const ADA = { name: 'Ada Lovelace', emails: ['ada@example.com'] };
+const CHARLES = { name: 'Charles Babbage', emails: ['charles@example.com'] };
+
+test('case travels in the pattern, because the flag for it is walk-wide', () => {
+  /*
+   * --regexp-ignore-case reaches every pattern on the command line, the Authors sidebar's --author
+   * arguments included - so typing anything at all into the search box used to quietly fold
+   * SEAN_LIN and sean_lin back together, two rows the reader had ticked apart on purpose.
+   *
+   * A bracket expression is the only per-pattern case a BRE has, and it is exactly as
+   * case-insensitive as the flag was - measured against git, not assumed.
+   */
+  assert.equal(foldCase('Fix'), '[fF][iI][xX]');
+  assert.equal(foldCase('v1.2'), '[vV]1.2', 'digits and dots have no case to fold');
+  assert.equal(foldCase('台北'), '台北', 'nor has anything outside a cased script');
+
+  const args = filterArgs(plain('fix', SearchMode.Message), [{ name: 'SEAN_LIN', emails: [] }]);
+
+  assert.deepEqual(args, ['--author=SEAN_LIN', '--grep=[fF][iI][xX]']);
+  assert.ok(!args.includes('--regexp-ignore-case'), 'the ticked spelling has to stay exact');
+});
+
+test('a pattern the reader wrote is not rewritten, so the flag comes back', () => {
+  // Folding a regex by hand would change what it means. The flag is the only way, and it is the
+  // one case where the sidebar's spellings are still folded with it - said out loud rather than
+  // pretended away.
+  assert.deepEqual(searchArgs({ ...plain('v0.4..', SearchMode.Message), regex: true }), [
+    '--regexp-ignore-case',
+    '--grep=v0.4..',
+  ]);
+});
+
+test('two author filters intersect, where git would have unioned them', () => {
+  /*
+   * git reads several --author as "any of these", whatever else is on the line - measured, and
+   * --all-match does not change it. So a tick in the sidebar and a name in the box used to widen
+   * each other: tick Ada, type Charles, and out came both. More rows than either filter alone.
+   *
+   * There is no way to intersect two --author patterns in git, so the query is spent narrowing the
+   * ticks instead of being sent beside them.
+   */
+  assert.deepEqual(filterArgs(plain('ada', SearchMode.Author), [ADA, CHARLES]), [
+    '--author=Ada Lovelace',
+  ]);
+
+  // By address as well, because that is what --author matches: the whole `Name <email>` line.
+  assert.deepEqual(filterArgs(plain('charles@example', SearchMode.Author), [ADA, CHARLES]), [
+    '--author=Charles Babbage',
+  ]);
+
+  // With nobody ticked there is nothing to narrow, and the query goes to git as it always did.
+  assert.deepEqual(filterArgs(plain('ada', SearchMode.Author), []), [
+    '--author=[aA][dD][aA]',
+  ]);
+
+  // A different field is a different filter, and git intersects those by itself.
+  assert.deepEqual(filterArgs(plain('ada', SearchMode.Committer), [ADA]), [
+    '--author=Ada Lovelace',
+    '--committer=[aA][dD][aA]',
+  ]);
+});
+
+test('an author filter that matches nobody means nobody, not everybody', () => {
+  /*
+   * The loud one. An empty list of --author arguments does not mean "nobody" to git, it means "no
+   * author filter" - so ticking Ada and searching for a name she has never spelled would have
+   * opened the entire history instead of closing it.
+   */
+  const args = filterArgs(plain('grace', SearchMode.Author), [ADA, CHARLES]);
+
+  assert.deepEqual(args, ['--author=^$']);
+});
+
+test('an author query in regex mode is read in git\'s dialect, not JavaScript\'s', () => {
+  /*
+   * The intersection has to be decided here, so the pattern has to be understood here - and a BRE
+   * is not a JavaScript regex. `\\|` is alternation and a bare `|` is a literal pipe; JavaScript has
+   * it exactly the other way round, so reading one as the other silently picks the wrong people.
+   */
+  const alternation = { ...plain('Ada\\|Grace', SearchMode.Author), regex: true };
+
+  assert.deepEqual(filterArgs(alternation, [ADA, CHARLES]), ['--author=Ada Lovelace']);
+
+  // And a bare pipe is a character nobody is called, not an alternation.
+  const literal = { ...plain('Ada|Grace', SearchMode.Author), regex: true };
+
+  assert.deepEqual(filterArgs(literal, [ADA, CHARLES]), ['--author=^$']);
+});
+
+test('all terms is not offered where it would only widen the search', () => {
+  /*
+   * --all-match governs --grep and nothing else. Measured: `--all-match --committer=Ali
+   * --committer=zz` still returns Ali's commits though nobody in that repository is called zz - so
+   * in author and committer mode the button was widening the search while its label said narrow.
+   */
+  assert.deepEqual(TOGGLES[SearchMode.Author], ['caseSensitive', 'regex']);
+  assert.deepEqual(TOGGLES[SearchMode.Committer], ['caseSensitive', 'regex']);
+
+  assert.deepEqual(searchArgs({ ...plain('ada grace', SearchMode.Author), allTerms: true }), [
+    '--author=[aA][dD][aA] [gG][rR][aA][cC][eE]',
+  ]);
 });
 
 test('the branch header names the branch, and a detached HEAD is not a branch called HEAD', () => {

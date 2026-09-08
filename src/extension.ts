@@ -240,7 +240,7 @@ function start(context: vscode.ExtensionContext): void {
   const filters = {
     refs: (root: string) => refs.visibleRefs(root),
     refsNarrowed: (root: string) => refs.isNarrowed(root),
-    authorArgs: (root: string) => authors.filterArgs(root),
+    authorPicks: (root: string) => authors.authorPicks(root),
     /*
      * Follow the graph that is being looked at.
      *

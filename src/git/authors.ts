@@ -21,7 +21,6 @@
  */
 
 import type { Git } from './exec.ts';
-import { escapeBasicRegex } from './search.ts';
 import type { RepoInfo } from './discovery.ts';
 
 /** One name exactly as git records it, with everything committed under it. */
@@ -177,17 +176,4 @@ export function groupAuthors(
       };
     })
     .sort((a, b) => b.commits - a.commits);
-}
-
-/**
- * `git log --author` takes a regular expression, and names contain characters that mean something
- * to a regex - `Foo (Bar)` and `A. Person` are ordinary names that would otherwise match the wrong
- * people or nobody at all.
- *
- * Escaping here rather than passing `--fixed-strings` is deliberate: that flag would also apply to
- * the user's message search, quietly changing what their own query means. The escape itself is
- * the search box's, because the dialect is git's and there is only one of it.
- */
-export function authorArgs(names: readonly string[]): string[] {
-  return names.map((name) => `--author=${escapeBasicRegex(name)}`);
 }

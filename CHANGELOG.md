@@ -8,6 +8,33 @@
   branch back repeatedly - which is most of them - that is most of the merge joins missing,
   and a graph missing them still looks like a graph, which is why it went unnoticed.
 
+- **The two author filters narrow each other instead of widening.** The Authors ticks and the
+  search box's author mode both say `--author`, and git reads several of those as "any of these" -
+  so ticking one person and typing another handed back both, which is more rows than either filter
+  gave on its own. There is no way to intersect two `--author` patterns in git, so the query is
+  now spent picking out the ticked people it also matches. Which means the query has to be
+  understood here, in git's dialect: `Ada\|Grace` is an alternation and `Ada|Grace` is a literal
+  pipe, and JavaScript has both exactly the other way round. Measured against git across two dozen
+  queries, on the one invariant worth having - ticking everybody must not change what a search
+  finds.
+
+  And an intersection that comes out empty now says so. An empty list of `--author` arguments does
+  not mean "nobody" to git, it means "no author filter", so searching a ticked person's list for a
+  name they have never spelled would have opened the whole history instead of closing it.
+
+- **A search no longer quietly folds the case of the authors you ticked.** `--regexp-ignore-case`
+  is walk-wide: it reaches every pattern on the command line, the Authors sidebar's spellings
+  included. So typing anything at all into the box - the case switch is off by default - put
+  `sean_lin` back in a graph where only `SEAN_LIN` had been ticked, which is the whole point of
+  being able to tick them apart. Case for a pattern we wrote is now carried inside it, and the
+  walk-wide flag is left for the one case with no alternative: a regular expression the reader
+  wrote, which is not ours to rewrite.
+
+- **All words is gone from author and committer mode**, where it never worked. `--all-match`
+  governs `--grep` and nothing else: measured, `--all-match --committer=Ali --committer=zz` still
+  returns Ali's commits though nobody in that repository is called `zz`. The button widened the
+  search while its label said it narrowed it, which is worse than not being there.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

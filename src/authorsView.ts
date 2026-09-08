@@ -20,7 +20,8 @@ import * as vscode from 'vscode';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import type { Author, AuthorIdentity } from './git/authors.ts';
-import { authorArgs, groupAuthors, listAuthors } from './git/authors.ts';
+import { groupAuthors, listAuthors } from './git/authors.ts';
+import type { AuthorPick } from './git/search.ts';
 
 /** What the list is sorted by. */
 export type AuthorOrder = 'commits' | 'name';
@@ -119,21 +120,28 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
   }
 
   /**
-   * `git log` arguments for the current selection; empty when nobody is filtered out.
+   * Who the graph should walk; empty when nobody is filtered out.
    *
    * Answered for one repository only - the one this view is showing. Every open graph reloads when
    * a tick moves, and a name that authored nothing in the other one filters it down to nothing.
    *
-   * Spellings, exactly as ticked. `--author` is case-sensitive and git takes several of them as
-   * "any of these", so naming each one is exact - and exact is worth more here than `-i`, which is
-   * a walk-wide flag and would quietly widen the user's own search with it.
+   * Spellings exactly as ticked, and people rather than `--author` arguments: the search box has an
+   * author mode of its own, git reads several `--author` as "any of these", and two filters that
+   * widen each other are not two filters. Whoever writes the command line has to see both halves at
+   * once, so this hands over the people and lets `filterArgs` decide what to say about them.
+   *
+   * The addresses come too, because `--author` matches `Name <email>` and a query may be either.
    */
-  filterArgs(root: string): string[] {
+  authorPicks(root: string): AuthorPick[] {
     if (this.repo === null || this.repo.root !== root || this.selected.size === 0) {
       return [];
     }
 
-    return authorArgs([...this.selected]);
+    const known = new Map(this.identities.map((identity) => [identity.name, identity]));
+
+    // A spelling with no identity behind it was ticked before the list loaded: still a name git can
+    // be asked about, just without the addresses.
+    return [...this.selected].map((name) => ({ name, emails: known.get(name)?.emails ?? [] }));
   }
 
   /**

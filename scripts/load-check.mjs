@@ -2151,9 +2151,9 @@ if (watchTest) {
      * showing, and to no other.
      */
     const foreign = refsProvider.visibleRefs('D:/somewhere/else');
-    const authorsForeign = treeProviders.get('weft.authors').filterArgs('D:/somewhere/else');
+    const authorsForeign = treeProviders.get('weft.authors').authorPicks('D:/somewhere/else');
 
-    console.log('other repo     : refs ->', foreign, '| authors ->', authorsForeign.length, 'args');
+    console.log('other repo     : refs ->', foreign, '| authors ->', authorsForeign.length, 'people');
 
     if (foreign !== null) {
       problems.push(`a second repository was told to walk ${foreign.length} refs belonging to this one`);
@@ -2379,6 +2379,102 @@ if (watchTest) {
   }
 
   await runSearch(null);
+}
+
+/*
+ * The two author filters, on one command line.
+ *
+ * The Authors sidebar and the search box's author mode both say `--author`, and git reads several
+ * of those as "any of these" - so ticking one person and typing another used to hand back *both*,
+ * more rows than either filter alone. Read off the command line rather than inferred, because the
+ * count alone cannot tell an intersection from a union on a fixture with two authors.
+ */
+{
+  const provider = treeProviders.get('weft.authors');
+  const handler = checkboxHandlers.get('weft.authors');
+  const walks = () => outputLines.filter((line) => line.includes('git log'));
+
+  const settle = async (from) => {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length <= from) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
+  };
+
+  const query = async (search) => {
+    const from = posted.filter((m) => m.type === 'done').length;
+    messageHandler({ type: 'search', search });
+    const total = await settle(from);
+    return { total, walk: walks().pop() ?? '' };
+  };
+
+  const people = await provider.getChildren();
+  const mine = people.find((node) => node.author.name === 'Weft Test');
+  const other = people.find((node) => node.author.name === 'Someone Else');
+
+  if (mine === undefined || other === undefined) {
+    problems.push(`the fixture's authors are ${people.map((n) => n.author.name).join(', ')}`);
+  } else {
+    const from = posted.filter((m) => m.type === 'done').length;
+    handler({ items: [[mine, 1]] });
+    const ticked = await settle(from);
+
+    const author = (text) => ({
+      query: text,
+      mode: 'author',
+      regex: false,
+      caseSensitive: false,
+      allTerms: false,
+      invert: false,
+      follow: false,
+    });
+
+    // Someone the tick has already ruled out. A union would have brought their commits back.
+    const apart = await query(author('Someone'));
+
+    // And a name the tick agrees with, which has to leave the tick standing rather than replace it.
+    const together = await query(author('Weft'));
+
+    const authorFlags = (walk) => (walk.match(/--author=/g) ?? []).length;
+
+    console.log('');
+    console.log('author ticked  :', ticked, 'commits');
+    console.log('  + "Someone"  :', apart.total, 'commits |', authorFlags(apart.walk), '--author on the walk');
+    console.log('  + "Weft"     :', together.total, 'commits |', authorFlags(together.walk), '--author on the walk');
+
+    if (apart.total > ticked) {
+      problems.push(
+        `a tick and an author search gave ${apart.total} commits where the tick alone gave ${ticked}: the two widened each other`,
+      );
+    }
+
+    if (apart.total !== 0) {
+      problems.push(`searching for an author the tick rules out left ${apart.total} commits`);
+    }
+
+    // The one that would have opened the whole history: no --author at all is not "nobody" to git.
+    if (authorFlags(apart.walk) !== 1) {
+      problems.push(
+        `an empty intersection put ${authorFlags(apart.walk)} --author on the walk, and none of them means no filter`,
+      );
+    }
+
+    if (together.total !== ticked) {
+      problems.push(
+        `searching for the ticked author's own name gave ${together.total} of ${ticked} commits`,
+      );
+    }
+
+    if (!together.walk.includes('--author=Weft Test')) {
+      problems.push('the query replaced the ticked spelling instead of narrowing to it');
+    }
+
+    await query(null);
+    const cleared = posted.filter((m) => m.type === 'done').length;
+    handler({ items: [[mine, 0]] });
+    await settle(cleared);
+  }
 }
 
 /*

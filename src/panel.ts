@@ -16,6 +16,7 @@ import type { Comparison } from './git/details.ts';
 import { compareCommits, loadCommitDetails } from './git/details.ts';
 import { RepoWatcher, refSignature } from './git/watcher.ts';
 import type { Search } from './git/search.ts';
+import type { AuthorPick } from './git/search.ts';
 import { filterArgs } from './git/search.ts';
 import type { DateRange } from './git/dates.ts';
 import { dateArgs } from './git/dates.ts';
@@ -50,7 +51,13 @@ export interface FilterSource {
    * that has never been filtered.
    */
   refsNarrowed(root: string): boolean;
-  authorArgs(root: string): string[];
+  /**
+   * The ticked authors, as people rather than as arguments.
+   *
+   * `filterArgs` writes the `--author` line, because the search box may be filtering by author too
+   * and git would union the two rather than intersect them.
+   */
+  authorPicks(root: string): AuthorPick[];
   /** Every ref with whether it is drawn, for the header's branch menu. */
   listRefs(): RefEntry[];
   /** Switch them on or off. The same call the sidebar's own ticks make, so the two cannot drift. */
@@ -744,7 +751,7 @@ export class WeftPanel {
       this.firstParent ||
       this.onlyHere ||
       this.filters.refsNarrowed(this.repo.root) ||
-      this.filters.authorArgs(this.repo.root).length > 0
+      this.filters.authorPicks(this.repo.root).length > 0
     );
   }
 
@@ -1028,7 +1035,7 @@ export class WeftPanel {
           firstParentOnly: this.firstParent,
           onlyHere: this.onlyHere,
           order: this.order,
-          filters: filterArgs(this.search, this.filters.authorArgs(this.repo.root), dates),
+          filters: filterArgs(this.search, this.filters.authorPicks(this.repo.root), dates),
           refs: this.filters.refs(this.repo.root),
           stashes,
         },

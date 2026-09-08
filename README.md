@@ -59,6 +59,11 @@ Working:
   only in the modes where git can honour it - and text is the default, so `v0.4.1` no longer
   quietly also matches `v0X4Y1`. Paste a hash instead and it selects that commit rather than
   grepping for it, and whatever matched is marked in the row
+- Author mode and the **Authors** ticks narrow each other rather than adding up. Two controls, one
+  `git log` flag, and git reads several `--author` as "any of these" - so ticking one person and
+  typing another used to hand back both. Typing now picks out the ticked people the query also
+  matches, read in git's regex dialect rather than JavaScript's, and matching nobody means nobody
+  rather than everybody
 - A **first parent** switch: walk the mainline and leave out what was merged into it, which also
   takes the merge arcs with it rather than leaving them pointing at rows that are no longer there
 - A date filter beside the search: today, the last 7, 30 or 365 days, or a custom range. It narrows

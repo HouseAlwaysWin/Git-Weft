@@ -2671,7 +2671,10 @@ function highlightPattern(): RegExp | null {
     return null;
   }
 
-  const terms = searchOptions.allTerms ? query.split(/\s+/).filter((t) => t.length > 0) : [query];
+  // Through the same table the buttons come from, so the marking cannot claim to have split the
+  // query on words in a mode where git was never asked to.
+  const splitting = searchOptions.allTerms && applicable().includes('allTerms');
+  const terms = splitting ? query.split(/\s+/).filter((t) => t.length > 0) : [query];
 
   if (terms.length === 0) {
     return null;
