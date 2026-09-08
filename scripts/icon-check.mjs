@@ -138,6 +138,27 @@ console.log(`dist/icon-check.html  <- ${icons.length} icon(s) from ${source}/`);
     }
   }
 
+  /*
+   * The tab icons, which the panel names by hand.
+   *
+   * A missing one is not an error anywhere: VS Code draws nothing and the tab looks like it never
+   * asked for an icon, which is exactly what it looked like before it did.
+   */
+  const panelSource = readFileSync(new URL('../src/panel.ts', import.meta.url), 'utf8');
+  const named = [...panelSource.matchAll(/'media', '([^']+\.svg)'/g)].map((match) => match[1]);
+
+  console.log('tab icons      :', named.join(', ') || '(none asked for)');
+
+  if (named.length === 0) {
+    problems.push('the graph tab asks for no icon of its own');
+  }
+
+  for (const name of named) {
+    if (!icons.includes(name)) {
+      problems.push(`the graph tab asks for media/${name}, which is not there`);
+    }
+  }
+
   for (const problem of problems) {
     console.error(`  ! ${problem}`);
   }

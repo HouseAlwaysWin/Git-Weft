@@ -298,6 +298,18 @@ export class WeftPanel {
       },
     );
 
+    /*
+     * Weft's own mark on the tab, rather than the blank VS Code gives a webview by default.
+     *
+     * Two files, one per theme, because a tab icon is drawn as an image: the SVG's own colours are
+     * what appear, and `currentColor` - which is right for the Source Control section, where the
+     * icon is a CSS mask - has nothing here to take a colour from.
+     */
+    panel.iconPath = {
+      light: vscode.Uri.joinPath(extensionUri, 'media', 'tab-light.svg'),
+      dark: vscode.Uri.joinPath(extensionUri, 'media', 'tab-dark.svg'),
+    };
+
     const weft = new WeftPanel(panel, extensionUri, git, repo, filters);
     WeftPanel.open.set(repo.root, weft);
     return weft;
