@@ -806,7 +806,16 @@ function start(context: vscode.ExtensionContext): void {
   );
 
   statusBar.name = 'Weft';
-  statusBar.text = '$(git-branch) Weft';
+  /*
+   * A codicon, because that is all a status bar item can hold: `text` takes the `$(name)` syntax
+   * and nothing else, so the extension's own mark - which the tab and the Source Control button
+   * both wear - cannot come here.
+   *
+   * `circuit-board` rather than `git-branch`: lines with nodes sitting on them is the closest the
+   * set gets to what this opens, and it is not one of the icons git already uses for its own
+   * things a few pixels away.
+   */
+  statusBar.text = '$(circuit-board) Weft';
   statusBar.tooltip = 'Open the Weft commit graph';
   statusBar.command = 'weft.openGraph';
   context.subscriptions.push(statusBar);

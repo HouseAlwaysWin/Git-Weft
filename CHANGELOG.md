@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
   four ways was one row reading `sean_lin, Sean Lin, SEAN_LIN, Sean_Lin` - a list pretending to
@@ -22,6 +22,11 @@
   already was. The tree could assume which repository a file was in and what git called it,
   because its files came out of a commit Weft had walked; a file picked anywhere else knows
   neither, so both are asked for - and a graph opens beside the file if there is none.
+
+- The status bar item no longer wears git’s own branch icon. It cannot wear the extension’s
+  either - a status bar item’s text takes the `$(codicon)` syntax and nothing else - so it is
+  `circuit-board`: lines with nodes on them, which is the closest the set gets to what the button
+  opens, and not something git is already using a few pixels away.
 
 ## 0.5.0
 
