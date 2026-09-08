@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0
+## 0.5.0
 
 - **The blame annotations stand back while the repository is being written to.** A checkout
   rewrites the files that are open, VS Code reloads those documents, and a reload is a change
@@ -10,13 +10,6 @@
   already moved, so the whole difference between the two branches shows up staged. The older the
   branch, the more files change and the more often it happened.
 
-- **The switch box asks before it switches**, and says how long since that branch moved. It is a
-  text field with Return bound to "check that branch out" - the right shape for the gesture and
-  one typo away from a checkout nobody wanted, which on a large repository is a minute of files
-  being rewritten. The menus are not asked about: reaching Checkout there is already two
-  deliberate steps, and a dialog on top of that is a click that teaches people to click through
-  dialogs.
-
 - **A stash no longer drags its branch into a graph that excluded it.** A stash is a commit, and
   naming one puts everything it can reach into the walk with it - so ticking a single branch
   produced a graph full of commits from branches that had been unticked, with the stashes
@@ -24,18 +17,19 @@
   walk already goes, which is every stash while nothing is filtered and the ones that belong
   once something is.
 
+- **The switch box asks before it switches**, and says how long since that branch moved. It is a
+  text field with Return bound to "check that branch out" - the right shape for the gesture and
+  one typo away from a checkout nobody wanted, which on a large repository is a minute of files
+  being rewritten. The menus are not asked about: reaching Checkout there is already two
+  deliberate steps, and a dialog on top of that is a click that teaches people to click through
+  dialogs.
+
 - **How long since each branch moved, beside its name** - in the switch box, in the header list
   and in Branches & Tags. A hundred and fifty branch names raise a question they cannot answer,
   which is which of them are still alive, and the answer matters most at the moment you are
   about to switch to one. It is the committer date, so a year-old commit rebased onto today is
   a branch that moved today, and it costs no extra git: one more field on the walk of the refs
   that was already happening.
-
-- **The Branches & Tags title bar is five icons instead of nine.** It is a row of unlabelled
-  pictures and VS Code draws no separator between them, so the only thing keeping it readable is
-  its length. What stays is finding a name, applying that listing, and the three answers to "what
-  should the graph draw"; the orderings and the ticked-only listing moved behind the ellipsis,
-  where they are grouped, separated and - being words rather than pictures - actually legible.
 
 - **Branches & Tags sorts by name or by most recently moved.** Alphabetical is how you find a
   name you already know; by most recent is the other question a hundred and fifty branches raise
@@ -47,6 +41,20 @@
   scrolling past the one thousand three hundred that are not. It narrows the listing only: the
   graph is untouched, and the count beside each group keeps measuring against everything there
   is, so "1 of 148" does not quietly become "1 of 1".
+
+- **The Branches & Tags title bar is five icons instead of nine.** It is a row of unlabelled
+  pictures and VS Code draws no separator between them, so the only thing keeping it readable is
+  its length. What stays is finding a name, applying that listing, and the three answers to "what
+  should the graph draw"; the orderings and the ticked-only listing moved behind the ellipsis,
+  where they are grouped, separated and - being words rather than pictures - actually legible.
+
+- **Weft's own icon on the graph's tab, and on its Source Control button.** The tab carried
+  whatever VS Code gives a webview that never asked for an icon, and the button sat in git’s own
+  title bar wearing git’s own branch icon - so the one thing in that row that opens something
+  else looked like one of them. A command’s icon can be a path as well as a codicon, and a tab
+  icon is drawn as an image rather than as a mask, so both take the marketplace icon as it is.
+
+## 0.4.0
 
 - **Toggle File Blame** puts every line’s author and date in a column down the left, and takes
   it away again. Off unless asked for, and asked for per file: it moves the code right and
