@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#c5c5c5" stroke-width="2.4" stroke-linecap="round">
-  <!--
-    The editor tab's icon, for dark themes. See `tab-light.svg` for why there are two of these at
-    all; this is the same mark in the grey VS Code gives its own tab icons on a dark ground.
-  -->
-  <path d="M6.5 3c0 3.5 11 4.5 11 9s-11 5.5-11 9"/>
-  <path d="M17.5 3c0 3.5-11 4.5-11 9s11 5.5 11 9"/>
-</svg>

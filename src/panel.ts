@@ -299,16 +299,15 @@ export class WeftPanel {
     );
 
     /*
-     * Weft's own mark on the tab, rather than the blank VS Code gives a webview by default.
+     * The extension's own icon on the tab, rather than the blank VS Code gives a webview.
      *
-     * Two files, one per theme, because a tab icon is drawn as an image: the SVG's own colours are
-     * what appear, and `currentColor` - which is right for the Source Control section, where the
-     * icon is a CSS mask - has nothing here to take a colour from.
+     * One file for both themes, and the marketplace icon rather than a monochrome mark: a tab icon
+     * is drawn as an image, so the SVG's colours are what appear - which is why `weft.svg` cannot
+     * be used here at all (it is `currentColor`, and nothing gives it one) and why this one can.
+     * It carries its own dark ground, so it reads on either theme, and at sixteen pixels a small
+     * coloured badge is easier to pick out of a row of tabs than two thin strokes.
      */
-    panel.iconPath = {
-      light: vscode.Uri.joinPath(extensionUri, 'media', 'tab-light.svg'),
-      dark: vscode.Uri.joinPath(extensionUri, 'media', 'tab-dark.svg'),
-    };
+    panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.svg');
 
     const weft = new WeftPanel(panel, extensionUri, git, repo, filters);
     WeftPanel.open.set(repo.root, weft);
