@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Merge arcs are drawn.** A merge whose second parent already had a lane on screen was joined
+  to it by nothing at all: the layout had been working the curve out and handing it over on
+  every page, and the view had never once mentioned it. On a history that merges a long-lived
+  branch back repeatedly - which is most of them - that is most of the merge joins missing,
+  and a graph missing them still looks like a graph, which is why it went unnoticed.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

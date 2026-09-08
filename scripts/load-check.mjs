@@ -2923,6 +2923,22 @@ if (disposeHandler !== null) {
     ['src/blameAnnotations.ts', /this\.isBusy\(repo\.root\)/],
   ];
 
+  /*
+   * Everything the layout produces has to be drawn by something.
+   *
+   * The merge arcs were computed, serialised onto every page, and then dropped: the view simply
+   * never mentioned them. Nothing failed - a graph missing half its merge joins still looks like
+   * a graph - and the layout’s own doc comment had said all along that handling one of the two
+   * kinds loses half the arcs. A field crossing the wire with no reader is the shape of that.
+   */
+  const view = readFileSync(new URL('../src/webview/main.ts', import.meta.url), 'utf8');
+
+  for (const field of ['links', 'dots', 'paths', 'widths']) {
+    if (!new RegExp(`delta\\.${field}`).test(view)) {
+      problems.push(`the layout sends ${field} and the view never reads them`);
+    }
+  }
+
   const missing = guards
     .filter(
       ([path, pattern]) =>

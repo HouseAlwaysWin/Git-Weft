@@ -14,7 +14,7 @@
  */
 
 import type { GraphDelta, PathDelta } from '../graph/layout.ts';
-import type { GraphDot, Point } from '../graph/model.ts';
+import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import { DotKind } from '../graph/model.ts';
 import type { CommitInfo, CommitOrder, RefEntry } from '../protocol.ts';
 import type { DateRange } from '../git/dates.ts';
@@ -343,6 +343,20 @@ let compareFrom: string | null = null;
 /** The other end, while a comparison is on screen. */
 let comparedTo: string | null = null;
 const paths = new Map<number, { color: number; points: Point[] }>();
+
+/**
+ * The curved joins from a merge commit into a lane that already existed.
+ *
+ * The other half of a merge. When a merge's extra parent has no lane yet the layout opens one, and
+ * that arrives as an ordinary polyline; when it already has one there is nothing to open and the
+ * join is this instead. Drawing only the first kind loses every merge into a branch that was
+ * already on screen, which on a history that merges often is most of them.
+ *
+ * In row order, because that is the order the layout produces them in - which is what lets a frame
+ * find the visible ones without walking the rest.
+ */
+let links: GraphLink[] = [];
+
 let dots: GraphDot[] = [];
 let palette: string[] = [];
 let pending = false;
@@ -1813,6 +1827,32 @@ function drawGraph(): void {
     ctx.stroke();
   }
 
+  /*
+   * The arcs, between the lanes and the dots.
+   *
+   * Over the lanes because an arc joins two of them and has to be seen to; under the dots because a
+   * merge dot is what the arc leaves from, and a line drawn across it would read as passing through.
+   */
+  for (let i = firstLink(topRow - 1); i < links.length; i++) {
+    const link = links[i] as GraphLink;
+
+    // Sorted by where they start, so the first one below the fold ends the loop.
+    if (link.start.y > bottomRow + 1) {
+      break;
+    }
+
+    ctx.strokeStyle = palette[link.color % LANE_COLORS] ?? '#888';
+    ctx.beginPath();
+    ctx.moveTo(x(link.start.x), y(link.start.y));
+    ctx.quadraticCurveTo(
+      x(link.control.x),
+      y(link.control.y),
+      x(link.end.x),
+      y(link.end.y),
+    );
+    ctx.stroke();
+  }
+
   const firstDot = Math.max(0, Math.floor(topRow) - 1);
   const lastDot = Math.min(dots.length, Math.ceil(bottomRow) + 1);
 
@@ -1889,8 +1929,33 @@ function drawWorkingTree(x: (px: number) => number, y: (row: number) => number):
   ctx.setLineDash([]);
 }
 
+/**
+ * The first link that could be on screen, by binary search.
+ *
+ * A linear scan from the top is fine until a history has forty thousand merges in it, and then it
+ * is forty thousand comparisons per frame to find the twenty that are visible. The layout emits
+ * them in row order, so the search is available for free.
+ */
+function firstLink(row: number): number {
+  let low = 0;
+  let high = links.length;
+
+  while (low < high) {
+    const mid = (low + high) >> 1;
+
+    if ((links[mid] as GraphLink).start.y < row) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+}
+
 function applyDelta(delta: GraphDelta): void {
   rowWidths.push(...delta.widths);
+  links.push(...delta.links);
   dots.push(...delta.dots);
 
   for (const dot of delta.dots) {
@@ -2319,6 +2384,7 @@ function reset(): void {
   remote = { upstream: null, branch: null, fetchedAt: null };
   upstreamEl.hidden = true;
   dots = [];
+  links = [];
   paths.clear();
   rowWidths = [];
   laneNeed = 0;
