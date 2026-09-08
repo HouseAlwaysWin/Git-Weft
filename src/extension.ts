@@ -612,6 +612,8 @@ function start(context: vscode.ExtensionContext): void {
      */
     vscode.commands.registerCommand('weft.untickAllRefs', () => refs.untickAll()),
     vscode.commands.registerCommand('weft.listTickedRefs', () => refs.setTickedOnly(true)),
+    vscode.commands.registerCommand('weft.sortRefsByRecent', () => refs.setOrder('recent')),
+    vscode.commands.registerCommand('weft.sortRefsByName', () => refs.setOrder('name')),
     vscode.commands.registerCommand('weft.listAllRefs', () => refs.setTickedOnly(false)),
     vscode.commands.registerCommand('weft.showCurrentRefOnly', () => refs.followHead()),
 

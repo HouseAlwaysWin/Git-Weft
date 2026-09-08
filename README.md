@@ -116,6 +116,8 @@ Working:
   message under it says so with the numbers: `Listing 1 of 24 refs matching "claude/". Nothing is
   unticked, so the graph still walks all 24.` One button applies the listing to the graph when that
   is what you meant
+- Branches & Tags sorts by name or by most recently moved - alphabetical to find a name you know,
+  by date to see which of a hundred and fifty branches anybody is still working on
 - Every branch says how long since it last moved, wherever it is listed - the switch box, the
   header list, and Branches & Tags. Which of a hundred and fifty branches are still alive is the
   question a list of names cannot answer, and it matters most just before you switch to one

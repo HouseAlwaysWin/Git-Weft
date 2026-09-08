@@ -31,6 +31,11 @@
   a branch that moved today, and it costs no extra git: one more field on the walk of the refs
   that was already happening.
 
+- **Branches & Tags sorts by name or by most recently moved.** Alphabetical is how you find a
+  name you already know; by most recent is the other question a hundred and fifty branches raise
+  - which of these is anybody still working on - and it puts the answer at the top instead of
+  scattered down the list beside the names. Neither order touches a tick or a walk.
+
 - **List Only Ticked Branches & Tags.** Once a handful of refs out of fourteen hundred are
   ticked, the ticks are the answer to "what am I looking at" - and finding them again means
   scrolling past the one thousand three hundred that are not. It narrows the listing only: the

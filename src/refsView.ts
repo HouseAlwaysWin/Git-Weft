@@ -42,6 +42,9 @@ interface Ref {
 
 type Node = Group | Ref;
 
+/** What the list is sorted by. */
+export type RefOrder = 'name' | 'recent';
+
 const GROUPS: Group[] = [
   { kind: 'group', id: 'heads', label: 'Local Branches', prefix: 'refs/heads/' },
   { kind: 'group', id: 'remotes', label: 'Remote Branches', prefix: 'refs/remotes/' },
@@ -67,6 +70,16 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * from the *listing* only; nothing about what the graph walks changes.
    */
   private tickedOnly = false;
+
+  /**
+   * How the list is ordered.
+   *
+   * By name to begin with, because a name is what you came looking for and alphabetical is how you
+   * find one. By most recently moved is the other question a list of a hundred and fifty branches
+   * raises - which of these is anybody still working on - and it puts the answer at the top instead
+   * of scattered down the list beside the names.
+   */
+  private order: RefOrder = 'name';
 
   /**
    * Refs the user has switched off. Storing the *hidden* set rather than the visible one means a
@@ -298,12 +311,35 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * the ticked ones.
    */
   private listed(): Ref[] {
-    if (this.query.length === 0) {
-      return this.refs;
+    const needle = this.query.toLowerCase();
+
+    const matching =
+      needle.length === 0
+        ? this.refs
+        : this.refs.filter((ref) => ref.label.toLowerCase().includes(needle));
+
+    if (this.order === 'name') {
+      // Which is the order git listed them in: `for-each-ref` sorts by refname.
+      return matching;
     }
 
-    const needle = this.query.toLowerCase();
-    return this.refs.filter((ref) => ref.label.toLowerCase().includes(needle));
+    /*
+     * A copy, because `refs` is the order they arrived in and sorting it in place would make the
+     * other ordering unrecoverable without re-reading them. A ref with no date - an annotated tag,
+     * whose date is the tagger's and lives in another field - sorts last rather than as 1970.
+     */
+    return [...matching].sort((a, b) => b.updated - a.updated);
+  }
+
+  /** Reorder the listing. The ticks, and what the graph walks, are untouched by it. */
+  setOrder(order: RefOrder): void {
+    if (this.order === order) {
+      return;
+    }
+
+    this.order = order;
+    this.publishFiltering();
+    this.changed.fire(undefined);
   }
 
   /** Show every ref in the list again, or only the ticked ones. The graph is untouched by it. */
@@ -364,6 +400,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private publishFiltering(): void {
     void vscode.commands.executeCommand('setContext', 'weft.refsListFiltered', this.query.length > 0);
     void vscode.commands.executeCommand('setContext', 'weft.refsTickedOnly', this.tickedOnly);
+    void vscode.commands.executeCommand('setContext', 'weft.refsByRecent', this.order === 'recent');
   }
 
   get filterText(): string {

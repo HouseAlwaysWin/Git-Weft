@@ -55,6 +55,15 @@ function runGit(dir, ...args) {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
 }
 
+/** The same, with a committer date. A fixture built in one second cannot be sorted by time. */
+function runGitAt(dir, when, ...args) {
+  return execFileSync('git', args, {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { ...process.env, GIT_COMMITTER_DATE: when, GIT_AUTHOR_DATE: when },
+  });
+}
+
 function commitInto(dir, n) {
   writeFileSync(join(dir, 'f' + n + '.txt'), 'content ' + n + '\n');
   runGit(dir, 'add', '-A');
@@ -1123,6 +1132,85 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     if (back !== before) {
       problems.push(`listing every ref again gave ${back} of the ${before} there were`);
     }
+  }
+}
+
+/*
+ * Ordering the list. Neither order changes a tick or a walk - this is about finding a name among a
+ * hundred and fifty, and about seeing which of them anybody is still working on.
+ */
+{
+  const refsProvider = treeProviders.get('weft.refs');
+
+  if (refsProvider === undefined) {
+    problems.push('no refs tree view to sort');
+  } else {
+    const inGroups = () =>
+      refsProvider.getChildren().map((group) => refsProvider.getChildren(group));
+
+    /*
+     * A branch that moved a year ago, because every ref in this fixture was made within the same
+     * second and an order over identical timestamps is any order at all - the assertion below
+     * would hold whether the sort ran or not.
+     */
+    runGit(repoPath, 'branch', '-f', 'ancient', 'HEAD');
+    runGit(repoPath, 'checkout', '-q', 'ancient');
+    writeFileSync(join(repoPath, 'ancient.txt'), 'a year ago\n');
+    runGit(repoPath, 'add', '-A');
+    runGitAt(repoPath, '2025-01-02T03:04:05', 'commit', '-q', '-m', 'from a year ago');
+    runGit(repoPath, 'checkout', '-q', 'main');
+
+    // The provider's own read: `weft.refresh` reloads the graph, and a ref that appeared since the
+    // view last looked is a different question.
+    await refsProvider.reload();
+
+    await commands.get('weft.sortRefsByRecent')();
+
+    const recent = inGroups();
+
+    console.log('');
+    console.log('sorted recent  :', JSON.stringify(recent.flat().map((ref) => ref.label)));
+
+    // Non-increasing rather than a fixed order: a fixture built in one second has ties in it, and
+    // a test that depends on how they fall is a test that fails on a faster machine.
+    // Within its own group: the tree is grouped first and sorted inside each, so a tag being last
+    // overall says nothing about where a year-old branch ended up among the branches.
+    const locals = recent.find((group) => group.some((ref) => ref.label === 'ancient'));
+
+    if (locals === undefined) {
+      problems.push('the year-old branch was not listed at all');
+    } else if (locals[locals.length - 1]?.label !== 'ancient') {
+      problems.push(
+        `sorting by most recent did not sink the year-old branch: ${JSON.stringify(locals.map((r) => r.label))}`,
+      );
+    }
+
+    for (const group of recent) {
+      const ages = group.map((ref) => ref.updated);
+
+      if (ages.some((age, i) => i > 0 && age > ages[i - 1])) {
+        problems.push(`sorting by most recent left an older ref above a newer one: ${JSON.stringify(group.map((r) => r.label))}`);
+        break;
+      }
+    }
+
+    await commands.get('weft.sortRefsByName')();
+
+    const named = inGroups();
+
+    console.log('sorted by name :', JSON.stringify(named.flat().map((ref) => ref.label)));
+
+    for (const group of named) {
+      const labels = group.map((ref) => ref.label);
+
+      if (labels.some((label, i) => i > 0 && label < labels[i - 1])) {
+        problems.push(`sorting by name left a ref out of order: ${JSON.stringify(labels)}`);
+        break;
+      }
+    }
+
+    runGit(repoPath, 'branch', '-D', 'ancient');
+    await refsProvider.reload();
   }
 }
 
