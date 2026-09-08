@@ -116,7 +116,10 @@ Working:
   message under it says so with the numbers: `Listing 1 of 24 refs matching "claude/". Nothing is
   unticked, so the graph still walks all 24.` One button applies the listing to the graph when that
   is what you meant
-- A text filter for the branch list itself, for repositories with more refs than fit on screen
+- A text filter for the branch list itself, for repositories with more refs than fit on screen,
+  and a button that lists only what is ticked - on a clone with fourteen hundred refs the ticks
+  are what you are looking at, and finding them again is otherwise a scroll past everything else.
+  Both narrow the listing and leave the graph alone
 - **Authors** has the same filter the branch list has, for the same reason: on a repository with
   two hundred contributors, finding the one you want is what stands between you and ticking them.
   Narrow to a name, a surname or a company's email domain, then one button shows the graph exactly

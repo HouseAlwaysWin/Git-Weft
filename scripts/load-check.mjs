@@ -1053,6 +1053,66 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 }
 
 /*
+ * Listing only what is ticked.
+ *
+ * A listing filter, not a walk filter: it decides who is on screen to untick, and the graph is
+ * untouched by it. The counts beside a group have to keep saying "1 of 148" while it is on, or the
+ * one number that says how much is being hidden becomes "1 of 1".
+ */
+{
+  const refsProvider = treeProviders.get('weft.refs');
+
+  if (refsProvider === undefined) {
+    problems.push('no refs tree view to list the ticked ones from');
+  } else {
+    const everyRef = () => refsProvider.getChildren().flatMap((g) => refsProvider.getChildren(g));
+
+    // From the default, which is the branch HEAD is on and nothing else.
+    await commands.get('weft.showCurrentRefOnly')();
+    await new Promise((r) => setTimeout(r, 1200));
+
+    const before = everyRef().length;
+    const walkBefore = posted.filter((m) => m.type === 'done').length;
+
+    await commands.get('weft.listTickedRefs')();
+
+    const listed = everyRef();
+    const groups = refsProvider.getChildren();
+    const counts = groups.map((group) => refsProvider.getTreeItem(group).description);
+
+    console.log('');
+    console.log('ticked only    :', listed.map((r) => r.label).join(', ') || '(nothing)');
+    console.log('group counts   :', JSON.stringify(counts), '| listed', before, '->', listed.length);
+
+    if (listed.length >= before) {
+      problems.push(`listing only the ticked left ${listed.length} of ${before} refs listed`);
+    }
+
+    if (listed.some((ref) => refsProvider.getTreeItem(ref).checkboxState !== 1)) {
+      problems.push('listing only the ticked left an unticked ref on screen');
+    }
+
+    // A listing is not a walk: nothing about what git was asked for has changed.
+    if (posted.filter((m) => m.type === 'done').length !== walkBefore) {
+      problems.push('listing only the ticked re-walked the history, which is not what it decides');
+    }
+
+    if (counts.some((description) => String(description).endsWith('/1'))) {
+      problems.push(`the group counts collapsed to their own listing: ${JSON.stringify(counts)}`);
+    }
+
+    await commands.get('weft.listAllRefs')();
+
+    const back = everyRef().length;
+    console.log('listing all    :', back, 'refs');
+
+    if (back !== before) {
+      problems.push(`listing every ref again gave ${back} of the ${before} there were`);
+    }
+  }
+}
+
+/*
  * A checkout takes the ticks with it.
  *
  * The default is "the branch you are on", and which branch that is changes. Switching has to move

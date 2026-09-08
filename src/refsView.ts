@@ -51,6 +51,16 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private query = '';
 
   /**
+   * List only the refs that are ticked.
+   *
+   * The other half of the same problem the text filter solves. Once a handful of refs out of
+   * fourteen hundred are ticked, the ticks are the answer to "what am I looking at" - and finding
+   * them again means scrolling past one thousand three hundred that are not. This hides the rest
+   * from the *listing* only; nothing about what the graph walks changes.
+   */
+  private tickedOnly = false;
+
+  /**
    * Refs the user has switched off. Storing the *hidden* set rather than the visible one means a
    * branch created after the last refresh shows up by default, which is the behaviour that does not
    * surprise anyone.
@@ -256,12 +266,37 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * hide anyone's commits.
    */
   private visible(): Ref[] {
+    const listed = this.listed();
+
+    return this.tickedOnly ? listed.filter((ref) => !this.hidden.has(ref.refName)) : listed;
+  }
+
+  /**
+   * Refs left after the text filter alone.
+   *
+   * Kept apart from `visible` because the two narrowings answer different questions, and the group
+   * counts are about this one: "1 of 148" stops meaning anything the moment the 148 is itself only
+   * the ticked ones.
+   */
+  private listed(): Ref[] {
     if (this.query.length === 0) {
       return this.refs;
     }
 
     const needle = this.query.toLowerCase();
     return this.refs.filter((ref) => ref.label.toLowerCase().includes(needle));
+  }
+
+  /** Show every ref in the list again, or only the ticked ones. The graph is untouched by it. */
+  setTickedOnly(only: boolean): void {
+    if (this.tickedOnly === only) {
+      return;
+    }
+
+    this.tickedOnly = only;
+    this.publishFiltering();
+    this.changed.fire(undefined);
+    this.updateMessage();
   }
 
   /** Narrow the listing. An empty string clears it. */
@@ -285,7 +320,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     // back to the branch HEAD is on.
     this.following = false;
 
-    const listed = new Set(this.visible().map((ref) => ref.refName));
+    const listed = new Set(this.listed().map((ref) => ref.refName));
     const before = this.hidden.size;
 
     this.hidden.clear();
@@ -309,6 +344,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   /** Whether a text filter is on, so the button that applies it can be offered only then. */
   private publishFiltering(): void {
     void vscode.commands.executeCommand('setContext', 'weft.refsListFiltered', this.query.length > 0);
+    void vscode.commands.executeCommand('setContext', 'weft.refsTickedOnly', this.tickedOnly);
   }
 
   get filterText(): string {
@@ -392,12 +428,12 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
 
   getTreeItem(node: Node): vscode.TreeItem {
     if (node.kind === 'group') {
-      const children = this.visible().filter((ref) => ref.group.id === node.id);
+      const children = this.listed().filter((ref) => ref.group.id === node.id);
       const shown = children.filter((ref) => !this.hidden.has(ref.refName)).length;
 
       const item = new vscode.TreeItem(
         node.label,
-        this.query.length > 0
+        this.query.length > 0 || this.tickedOnly
           ? vscode.TreeItemCollapsibleState.Expanded
           : vscode.TreeItemCollapsibleState.Collapsed,
       );
@@ -495,9 +531,11 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
      */
     const total = this.refs.length;
     const listing =
-      this.query.length === 0
-        ? ''
-        : `Listing ${this.visible().length} of ${total} refs matching “${this.query}”. `;
+      this.query.length > 0
+        ? `Listing ${this.visible().length} of ${total} refs matching “${this.query}”. `
+        : this.tickedOnly
+          ? `Listing the ${this.visible().length} ticked of ${total}. `
+          : '';
 
     const graph = this.following
       ? this.hidden.size === 0
@@ -529,6 +567,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     // the one that means everything.
     this.following = true;
     this.query = '';
+    this.tickedOnly = false;
     this.applyDefault();
 
     const moved =
@@ -650,6 +689,9 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     this.following = false;
     this.hidden.clear();
     this.query = '';
+    // Listing only the ticked, with everything ticked, is a filter that hides nothing - and one
+    // left switched on is one somebody has to find again later.
+    this.tickedOnly = false;
 
     if (!hadHidden && !hadQuery) {
       return;

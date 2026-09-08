@@ -2,6 +2,12 @@
 
 ## 0.4.0
 
+- **List Only Ticked Branches & Tags.** Once a handful of refs out of fourteen hundred are
+  ticked, the ticks are the answer to "what am I looking at" - and finding them again means
+  scrolling past the one thousand three hundred that are not. It narrows the listing only: the
+  graph is untouched, and the count beside each group keeps measuring against everything there
+  is, so "1 of 148" does not quietly become "1 of 1".
+
 - **Toggle File Blame** puts every line’s author and date in a column down the left, and takes
   it away again. Off unless asked for, and asked for per file: it moves the code right and
   gives the eye a second column to read, which is worth it while you are reading a file’s

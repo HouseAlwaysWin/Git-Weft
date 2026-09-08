@@ -611,6 +611,8 @@ function start(context: vscode.ExtensionContext): void {
      * graph that team. `weft.showOnlyListedAuthors` is the second half of it.
      */
     vscode.commands.registerCommand('weft.untickAllRefs', () => refs.untickAll()),
+    vscode.commands.registerCommand('weft.listTickedRefs', () => refs.setTickedOnly(true)),
+    vscode.commands.registerCommand('weft.listAllRefs', () => refs.setTickedOnly(false)),
     vscode.commands.registerCommand('weft.showCurrentRefOnly', () => refs.followHead()),
 
     vscode.commands.registerCommand('weft.sortAuthorsByName', () => authors.setOrder('name')),

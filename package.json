@@ -80,6 +80,18 @@
         "icon": "$(circle-slash)"
       },
       {
+        "command": "weft.listTickedRefs",
+        "title": "List Only Ticked Branches & Tags",
+        "category": "Git Weft",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "weft.listAllRefs",
+        "title": "List Every Branch & Tag",
+        "category": "Git Weft",
+        "icon": "$(list-unordered)"
+      },
+      {
         "command": "weft.showCurrentRefOnly",
         "title": "Show Only the Current Branch",
         "category": "Git Weft",
@@ -392,6 +404,16 @@
           "command": "weft.showOnlyListedRefs",
           "when": "view == weft.refs && weft.refsListFiltered",
           "group": "navigation@2"
+        },
+        {
+          "command": "weft.listTickedRefs",
+          "when": "view == weft.refs && !weft.refsTickedOnly",
+          "group": "navigation@1"
+        },
+        {
+          "command": "weft.listAllRefs",
+          "when": "view == weft.refs && weft.refsTickedOnly",
+          "group": "navigation@1"
         },
         {
           "command": "weft.showAllRefs",
