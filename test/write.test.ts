@@ -533,6 +533,82 @@ test('a file git will not blame comes back empty rather than throwing', async ()
   assert.deepEqual(await blameFile(git, repo, join(dir, 'not-even-there.txt')), []);
 });
 
+/** A repository where the stash was made somewhere the other branch cannot see. */
+function makeStashed(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'weft-stash-')).split('\\').join('/');
+  made.push(dir);
+
+  sh(dir, 'init', '-q', '-b', 'main');
+  sh(dir, 'config', 'user.name', 'Weft Test');
+  sh(dir, 'config', 'user.email', 'test@example.invalid');
+  sh(dir, 'config', 'commit.gpgsign', 'false');
+
+  writeFileSync(join(dir, 'a.txt'), 'base\n');
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', 'base');
+
+  sh(dir, 'checkout', '-q', '-b', 'feature');
+  writeFileSync(join(dir, 'f.txt'), 'on the feature\n');
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', 'only on feature');
+
+  sh(dir, 'checkout', '-q', 'main');
+  writeFileSync(join(dir, 'm.txt'), 'on main\n');
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', 'only on main');
+
+  // Made on main, so its parent is a commit `feature` has never seen.
+  writeFileSync(join(dir, 'a.txt'), 'edited before stashing\n');
+  sh(dir, 'stash', '-q');
+
+  return dir;
+}
+
+async function stashMap(dir: string): Promise<Map<string, string>> {
+  const stashes = await listStashes(git, await open(dir));
+  return new Map(stashes.map((stash) => [stash.sha, stash.name]));
+}
+
+/*
+ * A stash is a commit, and naming one puts everything it can reach into the walk with it. Left
+ * unchecked that undoes the ref filter from the side: ticking one branch produced a graph full of
+ * commits from branches that had been unticked, with the stashes sitting at the top of it.
+ */
+test('a stash does not drag its branch into a walk that excluded it', async () => {
+  const dir = makeStashed();
+  const stashes = await stashMap(dir);
+
+  assert.equal(stashes.size, 1, 'the fixture should have one stash');
+
+  const subjects = await walk(dir, { refs: ['refs/heads/feature'], stashes });
+
+  assert.deepEqual(subjects, ['only on feature', 'base'], 'feature, and nothing the stash reaches');
+});
+
+test('a stash made where the walk goes is still drawn', async () => {
+  const dir = makeStashed();
+  const stashes = await stashMap(dir);
+
+  const subjects = await walk(dir, { refs: ['refs/heads/main'], stashes });
+
+  assert.ok(
+    subjects.some((subject) => subject.startsWith('WIP on main')),
+    `the stash belongs in its own branch's walk: ${subjects.join(', ')}`,
+  );
+});
+
+test('nothing is narrowing the walk, so every stash is in it', async () => {
+  const dir = makeStashed();
+  const stashes = await stashMap(dir);
+
+  const subjects = await walk(dir, { stashes });
+
+  assert.ok(
+    subjects.some((subject) => subject.startsWith('WIP on main')),
+    `an unfiltered graph draws every stash: ${subjects.join(', ')}`,
+  );
+});
+
 const commit = (sha: string): Target => ({ kind: 'commit', sha, subject: 'x' });
 
 async function run(dir: string, id: string, target: Target, ui = fakeUi()) {

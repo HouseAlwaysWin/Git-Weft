@@ -2,6 +2,13 @@
 
 ## 0.4.0
 
+- **A stash no longer drags its branch into a graph that excluded it.** A stash is a commit, and
+  naming one puts everything it can reach into the walk with it - so ticking a single branch
+  produced a graph full of commits from branches that had been unticked, with the stashes
+  sitting at the top of it. A stash is drawn when the commit it was made on is somewhere the
+  walk already goes, which is every stash while nothing is filtered and the ones that belong
+  once something is.
+
 - **How long since each branch moved, beside its name** - in the switch box, in the header list
   and in Branches & Tags. A hundred and fifty branch names raise a question they cannot answer,
   which is which of them are still alive, and the answer matters most at the moment you are

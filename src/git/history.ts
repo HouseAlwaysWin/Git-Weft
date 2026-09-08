@@ -120,6 +120,7 @@ export class HistoryLoader {
 
     const refs = options.refs ?? null;
     const stashes = options.stashes ?? new Map<string, string>();
+    const walked = await stashesInWalk(this.git, this.repo, refs, stashes);
 
     /*
      * An empty ref list is not the same as no ref list: it means the user unticked everything.
@@ -137,7 +138,7 @@ export class HistoryLoader {
       'log',
       ...LOG_ARGS,
       ...(refs === null ? ['--all'] : refs),
-      ...stashes.keys(),
+      ...walked,
       /*
        * `--not` flips the sense of the revisions after it, and `--exclude` applies to the one
        * `--glob` that follows it - so this reads "and not anything reachable from any ref except
@@ -218,4 +219,54 @@ export class HistoryLoader {
 
     onPage({ commits: [], delta: finishLayout(this.state), done: true });
   }
+}
+
+/**
+ * Which stashes belong in this walk.
+ *
+ * A stash is a commit, and naming one puts everything it can reach into the walk with it. That is
+ * right while the graph is drawing everything and wrong the moment it is not: a stash made on one
+ * branch dragged that branch's whole history into a graph narrowed to a different one, so ticking
+ * a single branch produced a graph full of commits from branches that had been unticked - with the
+ * stashes sitting at the top of it, which is what gave it away.
+ *
+ * So a stash is drawn when the commit it was made on is somewhere the walk already goes. Its first
+ * parent is that commit; the other one or two are the index and the untracked files, which are not
+ * anybody's history.
+ *
+ * `--is-ancestor` is a reachability query rather than a walk, and the sets here are small - one
+ * ticked branch and a handful of stashes is the ordinary case. Past a size where the answer is
+ * almost always yes, the question is not worth the processes it would take to ask.
+ */
+async function stashesInWalk(
+  git: Git,
+  repo: RepoInfo,
+  refs: readonly string[] | null,
+  stashes: ReadonlyMap<string, string>,
+): Promise<string[]> {
+  const all = [...stashes.keys()];
+
+  // Nothing is narrowing the walk, so nothing can be out of place in it.
+  if (refs === null || all.length === 0) {
+    return all;
+  }
+
+  if (refs.length * all.length > 64) {
+    return all;
+  }
+
+  const kept: string[] = [];
+
+  for (const sha of all) {
+    for (const ref of refs) {
+      const probe = await git.tryRead(repo.root, ['merge-base', '--is-ancestor', `${sha}^1`, ref]);
+
+      if (probe.exitCode === 0) {
+        kept.push(sha);
+        break;
+      }
+    }
+  }
+
+  return kept;
 }
