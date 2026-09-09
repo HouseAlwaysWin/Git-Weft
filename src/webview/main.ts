@@ -2006,6 +2006,10 @@ function applyDelta(delta: GraphDelta): void {
 function applyView(): void {
   const keepUncommitted = selected >= 0 && view[selected]?.uncommitted === true;
   const keep = selected < 0 ? undefined : view[selected]?.sha;
+
+  // Where the selected commit sits in the history, rather than in the list: the uncommitted row
+  // comes and goes above it, and that is not the row moving.
+  const wasAt = selected < 0 ? -1 : selected - rowOffset();
   const history = sort !== null && complete ? sortRows(rows, sort) : rows;
 
   // Always at the top, whatever the sort: it has no date and no author to be ordered by, and it is
@@ -2025,7 +2029,14 @@ function applyView(): void {
   spacer.style.height = `${view.length * rowHeight}px`;
   updateColumns();
 
-  if (selected >= 0) {
+  /*
+   * Only when the row actually moved - a sort, or a reload that put it somewhere else.
+   *
+   * This ran unconditionally, and this function runs on every working-tree change, so saving a
+   * file scrolled the graph back to whatever was selected. Harmless until it wasn't: the message
+   * that triggers it had never been arriving, and fixing that subscription switched this on.
+   */
+  if (selected >= 0 && selected - rowOffset() !== wasAt) {
     scrollRowIntoView(selected);
   }
 

@@ -12,7 +12,14 @@ import { createRequire } from 'node:module';
 import Module from 'node:module';
 import { resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1408,6 +1415,73 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     });
 
     await new Promise((r) => setTimeout(r, 2500));
+  }
+}
+
+/*
+ * A tick set in the sidebar has to survive the next reload.
+ *
+ * The two ways to tick a ref were written separately, and only one of them stopped following HEAD.
+ * The tree's own checkbox reached into `hidden` directly, so the next `reload` called
+ * `applyDefault` and put the ticks back to "the branch you are on" - not immediately, which is why
+ * it passed being tested by hand, but on the next fetch, commit, branch deleted, or the graph tab
+ * regaining focus. Reloading here is what the bug needed and what a click never does on its own.
+ */
+{
+  const refsProvider = treeProviders.get('weft.refs');
+  const refsHandler = checkboxHandlers.get('weft.refs');
+
+  if (refsProvider === undefined || refsHandler === undefined) {
+    problems.push('no refs tree to tick');
+  } else {
+    const everyRef = () => refsProvider.getChildren().flatMap((g) => refsProvider.getChildren(g));
+    const tickedNow = () =>
+      everyRef()
+        .filter((ref) => refsProvider.getTreeItem(ref).checkboxState === 1)
+        .map((ref) => ref.refName)
+        .sort();
+
+    const before = tickedNow();
+    const victim = everyRef().find((ref) => !before.includes(ref.refName));
+
+    if (victim === undefined) {
+      problems.push('every ref is already ticked, so there is nothing to prove');
+    } else {
+      refsHandler({ items: [[victim, 1]] });
+
+      const ticked = tickedNow();
+      await refsProvider.reload();
+      const survived = tickedNow();
+
+      console.log('');
+      console.log('ticked in tree :', ticked.join(', '));
+      console.log('after a reload :', survived.join(', '));
+
+      if (!ticked.includes(victim.refName)) {
+        problems.push(`ticking ${victim.label} in the tree did not tick it`);
+      }
+
+      if (!survived.includes(victim.refName)) {
+        problems.push(
+          `${victim.label} was ticked in the tree and the next reload put it back`,
+        );
+      }
+
+      // And the graph has to agree that something is being filtered, or Clear Filters stays dark.
+      /*
+       * By the path git spells, not the one `mkdtemp` handed back: on Windows one directory has a
+       * short name and a long one, and the provider's root came from `rev-parse --show-toplevel`.
+       * The same mismatch that kept working-tree events from arriving at all until 91c7ef5.
+       */
+      const root = realpathSync.native(repoPath).replace(/\\/g, '/');
+
+      if (!refsProvider.isNarrowed(root)) {
+        problems.push('a hand-picked set of refs was not reported as narrowing anything');
+      }
+
+      refsHandler({ items: [[victim, 0]] });
+      await new Promise((r) => setTimeout(r, 1200));
+    }
   }
 }
 

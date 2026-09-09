@@ -548,22 +548,37 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     this.updateMessage();
 
     return view.onDidChangeCheckboxState((event) => {
+      /*
+       * Through `setVisible`, and not by reaching into `hidden` directly.
+       *
+       * This used to do its own thing, and what it did not do was stop following HEAD - so the
+       * next reload called `applyDefault` and put the tick straight back where it had been. Not
+       * immediately, which is why it survived being tested: a fetch, a commit, a branch deleted or
+       * the graph tab regaining focus, and the branch you ticked was gone again. The header's own
+       * ticks went through `setVisible` and were fine, so the same gesture worked in one place and
+       * not the other.
+       *
+       * One call per state rather than one per ref, because each is a reload of the graph.
+       */
+      const show: string[] = [];
+      const hide: string[] = [];
+
       for (const [node, state] of event.items) {
         const targets =
           node.kind === 'group' ? this.refs.filter((ref) => ref.group.id === node.id) : [node];
 
         for (const ref of targets) {
-          if (state === Checked) {
-            this.hidden.delete(ref.refName);
-          } else {
-            this.hidden.add(ref.refName);
-          }
+          (state === Checked ? show : hide).push(ref.refName);
         }
       }
 
-      this.changed.fire(undefined);
-      this.updateMessage();
-      this.filterChanged.fire();
+      if (show.length > 0) {
+        this.setVisible(show, true);
+      }
+
+      if (hide.length > 0) {
+        this.setVisible(hide, false);
+      }
     });
   }
 

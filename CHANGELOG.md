@@ -101,6 +101,22 @@
 
   The **follow** switch is still there for a file you know was moved, and now says what it does.
 
+- **A branch ticked in the sidebar stays ticked.** The two ways to tick a ref were written
+  separately, and only the graph header's stopped following HEAD. The tree's own checkbox reached
+  into the hidden set directly, so the next reload put the ticks back to "the branch you are on" -
+  not immediately, which is why it survived being tried, but on the next fetch, commit, branch
+  deleted, or the moment the graph tab regained focus. The same gesture worked in one place and
+  quietly undid itself in the other. Both go through one path now, and *Clear Filters* lights up
+  for a set picked in the tree, which it also had not been doing.
+
+- **The graph stops scrolling back to the selected commit every time a file is saved.** The
+  re-derive that follows a working-tree change ended by scrolling the selection into view, so
+  picking a commit, scrolling off to read something else and saving a file yanked the list back.
+  It now scrolls only when the row actually moved - a sort, or a reload that put it somewhere else -
+  and not when the same commit is still in the same place with the uncommitted row appearing above
+  it. This was harmless until `91c7ef5`: the message that triggers it had never been arriving, and
+  fixing that subscription switched it on.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
