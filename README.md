@@ -17,7 +17,9 @@ Working:
   each its own tab. **Branches & Tags** and **Authors** follow whichever graph you are looking at,
   and remember what you had ticked in the others
 - Streaming load: the first rows paint while git is still walking
-- Virtualized rendering: a 20,000-row history keeps 31 row elements in the DOM
+- Virtualized rendering: a 20,000-row history keeps 31 row elements in the DOM, and a frame of the
+  graph is measured rather than assumed - 0.7ms at the median on 78,000 commits and 1,177 refs,
+  1.5ms at the ninetieth, 2.7ms at its worst
 - A row for the working tree when there is one, above the history and hanging off HEAD by a dashed
   line, with what is staged, unstaged and untracked. Click it and the same **Commit Files** section
   lists them; click a file and the diff is HEAD against the file as it is on disk. It keeps up with

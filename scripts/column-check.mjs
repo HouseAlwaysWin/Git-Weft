@@ -115,7 +115,9 @@ if (!graphHandled) {
 
 // And the ceiling that applies before anybody drags anything. A graph with no cap is the state the
 // grip exists to rescue people from, and a default nobody has to discover is better than a rescue.
-if (!/function laneWidth\(\)/.test(script) || !/clientWidth \/ 3/.test(script)) {
+// The panel's width is read once at the top of a frame and carried, rather than asked of the DOM
+// again after something has been written to it - so the ceiling answers to `frame.width` too.
+if (!/function laneWidth\(\)/.test(script) || !/(clientWidth|frame\.width) \/ 3/.test(script)) {
   problems.push('the lanes have no default ceiling, so a wide history takes the whole panel');
 }
 

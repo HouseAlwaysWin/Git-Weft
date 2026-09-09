@@ -46,6 +46,26 @@
   straight at it: the subscription simply never happened, and a stale row says nothing. It is also
   the last red in `npm test`, which now passes end to end.
 
+- **A frame of the graph is drawn about five times faster**, which is the first time anyone has
+  measured it. On a repository of 78,000 commits and 1,177 refs a frame took 3.9ms at the median,
+  10.2ms at the ninetieth and 33ms at its worst - at 60fps, two frames dropped in the middle of a
+  scroll. It is now 0.7ms, 1.5ms and 2.7ms.
+
+  Two causes, both the same mistake in different clothes: asking a question after making it
+  expensive to answer.
+
+  Reading the panel's size off the DOM is free while nothing has been written since the last
+  layout, and costs a whole re-layout the moment something has. `render` set the header's padding
+  and then asked for a width; drawing the lanes asked for the viewport's height and scroll position
+  after every row in it had just been replaced. Measured at 0.9ms for one such read, twice a frame.
+  Everything is read once now, at the top, before anything is written.
+
+  And a frame tested every lane the layout had ever opened - 19,886 of them, to find the sixty on
+  screen. Lanes open as the walk goes down, so held in that order the first one that opens below
+  the fold rules out every lane after it. The old walk is kept as a test rather than as code: it
+  and the search have to name the same lanes in the same order, for every viewport the history has,
+  because a graph quietly missing lanes still looks like a graph.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

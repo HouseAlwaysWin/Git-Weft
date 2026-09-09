@@ -13,7 +13,8 @@
  * at `y` is drawn at `y * rowHeight - scrollTop`, which is exactly where the matching row div is.
  */
 
-import type { GraphDelta, PathDelta } from '../graph/layout.ts';
+import type { GraphDelta } from '../graph/layout.ts';
+import { LaneStore } from '../graph/lanes.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import { DotKind } from '../graph/model.ts';
 import type { CommitInfo, CommitOrder, RefEntry } from '../protocol.ts';
@@ -342,7 +343,8 @@ let compareFrom: string | null = null;
 
 /** The other end, while a comparison is on screen. */
 let comparedTo: string | null = null;
-const paths = new Map<number, { color: number; points: Point[] }>();
+/** Every lane the layout has handed over, and the few a frame draws. */
+const lanes = new LaneStore();
 
 /**
  * The curved joins from a merge commit into a lane that already existed.
@@ -414,6 +416,37 @@ function rowOffset(): number {
 }
 
 /**
+ * The panel's shape and ground colour, read once at the top of a frame.
+ *
+ * Reading geometry off the DOM is free when nothing has been written since the last layout, and
+ * expensive the moment something has: the browser has to lay the page out again before it can
+ * answer. A frame that writes, reads, writes and reads pays for that twice, and this one did -
+ * `render` set the header's padding and then asked for a width, and `drawGraph` asked for the
+ * viewport's height and scroll position after `renderRows` had just replaced every row in it.
+ *
+ * Measured on a 78,000-commit history: a `clientHeight` read costs nothing with the layout clean
+ * and 0.9ms straight after the rows are replaced, and the whole write-read-write-read shape came to
+ * 2.1ms of a frame that had about 4ms in it.
+ *
+ * So every read happens here, before anything is written, and the rest of the frame works from the
+ * numbers. The background colour comes along because it is the same kind of question - asked of the
+ * style rather than the layout, and just as invalidated by a write - and because reading it per
+ * merge dot was never the intent.
+ */
+const frame = { scrollTop: 0, height: 0, width: 0, scrollbar: 0, background: '#1f1f1f' };
+
+function measureFrame(): void {
+  frame.scrollTop = viewport.scrollTop;
+  frame.height = viewport.clientHeight;
+  frame.width = viewport.clientWidth;
+  // What the scroller takes and its content does not get: sixteen pixels for a classic scrollbar,
+  // none for an overlay one, none for a list too short to scroll.
+  frame.scrollbar = viewport.offsetWidth - viewport.clientWidth;
+  frame.background =
+    getComputedStyle(document.documentElement).getPropertyValue('--weft-bg').trim() || '#1f1f1f';
+}
+
+/**
  * How much room the lanes get.
  *
  * Dragged, if it has been. Otherwise what they need, but never more than a third of the panel:
@@ -429,7 +462,7 @@ function laneWidth(): number {
     return Math.min(graphColumn, laneNeed);
   }
 
-  return Math.min(laneNeed, Math.max(120, Math.round(viewport.clientWidth / 3)));
+  return Math.min(laneNeed, Math.max(120, Math.round(frame.width / 3)));
 }
 
 /** Lane x, squeezed into the room the lanes were given. Identity while they have all they need. */
@@ -480,8 +513,10 @@ function measureLanes(first: number, last: number): void {
 function render(): void {
   // Which rows are on screen decides both what gets built and how much room the lanes ask for, so
   // it is worked out once here rather than separately in each.
-  const first = Math.max(0, Math.floor(viewport.scrollTop / rowHeight) - 1);
-  const last = Math.min(view.length, first + Math.ceil(viewport.clientHeight / rowHeight) + 2);
+  measureFrame();
+
+  const first = Math.max(0, Math.floor(frame.scrollTop / rowHeight) - 1);
+  const last = Math.min(view.length, first + Math.ceil(frame.height / rowHeight) + 2);
 
   measureLanes(first, last);
 
@@ -496,7 +531,7 @@ function render(): void {
    * pixels, an overlay one takes none, and a history short enough not to scroll takes none either.
    */
   columnsEl.style.paddingLeft = `${indent}px`;
-  columnsEl.style.paddingRight = `${12 + viewport.offsetWidth - viewport.clientWidth}px`;
+  columnsEl.style.paddingRight = `${12 + frame.scrollbar}px`;
 
   /*
    * The grips are measured, so they have to be re-measured whenever the boundaries could have
@@ -504,7 +539,7 @@ function render(): void {
    * actually changed: this runs every frame, and four rect reads per frame during a scroll is the
    * kind of thing that turns a smooth list into a stuttering one.
    */
-  const geometry = `${indent}:${columnsEl.clientWidth}`;
+  const geometry = `${indent}:${frame.width}:${frame.scrollbar}`;
 
   if (geometry !== columnGeometry) {
     columnGeometry = geometry;
@@ -1777,7 +1812,7 @@ function drawGraph(): void {
   // dots into ellipses and thin the strokes, and neither of those is what "narrower" should mean.
   const sx = laneScale();
   const x = (px: number): number => px * sx;
-  const height = viewport.clientHeight;
+  const height = frame.height;
 
   if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
     canvas.width = Math.round(width * dpr);
@@ -1789,7 +1824,7 @@ function drawGraph(): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const scrollTop = viewport.scrollTop;
+  const scrollTop = frame.scrollTop;
   // Lane coordinates are in commit rows; the working-tree row sits above all of them, so every
   // line and dot moves down by however many rows are not part of the history.
   const shift = rowOffset();
@@ -1801,21 +1836,17 @@ function drawGraph(): void {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  for (const path of paths.values()) {
-    const pts = path.points;
-    const firstPt = pts[0];
-    const lastPt = pts[pts.length - 1];
+  /*
+   * Everything that opens above the fold, which is where the search can stop rather than where it
+   * has to look. A lane that opened long ago may still reach down into view, so the ones before
+   * that are tested one number at a time rather than skipped - but the ones after it cannot be
+   * here at all, and on a long history that is most of them.
+   */
+  for (const lane of lanes.visible(topRow, bottomRow)) {
+    const pts = lane.points;
+    const firstPt = pts[0] as Point;
 
-    // A lane entirely above or below the viewport costs two comparisons and nothing else.
-    if (pts.length < 2 || firstPt === undefined || lastPt === undefined) {
-      continue;
-    }
-
-    if (lastPt.y < topRow || firstPt.y > bottomRow) {
-      continue;
-    }
-
-    ctx.strokeStyle = palette[path.color % LANE_COLORS] ?? '#888';
+    ctx.strokeStyle = palette[lane.color % LANE_COLORS] ?? '#888';
     ctx.beginPath();
     ctx.moveTo(x(firstPt.x), y(firstPt.y));
 
@@ -1871,9 +1902,7 @@ function drawGraph(): void {
 
     if (dot.kind === DotKind.Merge) {
       // A merge is drawn hollow so it reads differently at a glance without needing a legend.
-      ctx.fillStyle = getComputedStyle(document.documentElement)
-        .getPropertyValue('--weft-bg')
-        .trim();
+      ctx.fillStyle = frame.background;
       ctx.fill();
       ctx.strokeStyle = color;
       ctx.stroke();
@@ -1923,7 +1952,7 @@ function drawWorkingTree(x: (px: number) => number, y: (row: number) => number):
   // Hollow, like a merge dot: the shape says "this is not a commit" before any of the text does.
   ctx.beginPath();
   ctx.arc(at, top, DOT_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--weft-bg').trim();
+  ctx.fillStyle = frame.background;
   ctx.fill();
   ctx.stroke();
   ctx.setLineDash([]);
@@ -1964,14 +1993,7 @@ function applyDelta(delta: GraphDelta): void {
     }
   }
 
-  for (const p of delta.paths as readonly PathDelta[]) {
-    const existing = paths.get(p.id);
-    if (existing === undefined) {
-      paths.set(p.id, { color: p.color, points: [...p.points] });
-    } else {
-      existing.points.push(...p.points);
-    }
-  }
+  lanes.add(delta.paths);
 }
 
 /**
@@ -2123,6 +2145,11 @@ function measureDateWidth(): void {
 }
 
 function placeGrips(): void {
+  // Called from a drag and from a column being shown or hidden, neither of which is a frame - and
+  // from the one frame in a hundred where the geometry moved, which is measuring the DOM here
+  // anyway. Either way the numbers have to be current rather than last frame's.
+  measureFrame();
+
   const bar = columnsEl.getBoundingClientRect();
 
   measureDateWidth();
@@ -2385,7 +2412,7 @@ function reset(): void {
   upstreamEl.hidden = true;
   dots = [];
   links = [];
-  paths.clear();
+  lanes.clear();
   rowWidths = [];
   laneNeed = 0;
   selected = -1;

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { LayoutState, appendCommits, buildGraph, finishLayout } from '../src/graph/layout.ts';
+import { LaneStore } from '../src/graph/lanes.ts';
 import type { GraphDelta } from '../src/graph/layout.ts';
 import type { GraphCommit, GraphDot, GraphLink, Point } from '../src/graph/model.ts';
 import { DotKind } from '../src/graph/model.ts';
@@ -101,6 +102,132 @@ function layoutPaged(commits: readonly GraphCommit[], pageSize: number): Collect
 
   return { dots, links, paths, width: state.width, widths };
 }
+
+/**
+ * A history wide enough to have lanes coming and going: a trunk that absorbs a two-commit side
+ * branch every fourth row, so lanes open, close and have their slots reused all the way down.
+ */
+function branchy(trunk: number): GraphCommit[] {
+  const commits: GraphCommit[] = [];
+
+  for (let i = 0; i < trunk; i++) {
+    if (i % 4 === 0 && i + 6 < trunk) {
+      commits.push(c(`t${i}`, `t${i + 1}`, `s${i}a`));
+      commits.push(c(`s${i}a`, `s${i}b`));
+      commits.push(c(`s${i}b`, `t${i + 6}`));
+    } else {
+      commits.push(c(`t${i}`, `t${i + 1}`));
+    }
+  }
+
+  commits.push(c(`t${trunk}`));
+
+  return commits;
+}
+
+test('a frame finds the same lanes walking every one of them would have', () => {
+  /*
+   * The lane store answers "which lanes cross these rows" with a binary search and a scan, where
+   * the view used to answer it by testing every lane the layout had ever opened. On a real
+   * repository - 78,000 commits, 1,177 refs, 19,886 lanes - that was 0.35ms of a frame spent
+   * deciding not to draw things.
+   *
+   * A faster wrong answer being invisible is the whole risk: a graph missing lanes still looks
+   * like a graph. So this is the old walk, kept here as the thing to agree with, over every
+   * viewport the history has.
+   */
+  const commits = branchy(400);
+  const store = new LaneStore();
+  const arrived: { from: number; to: number; points: Point[]; opened: number }[] = [];
+  const byId = new Map<number, { from: number; to: number; points: Point[]; opened: number }>();
+
+  const state = new LayoutState();
+  const pages: GraphDelta[] = [];
+
+  for (let i = 0; i < commits.length; i += 50) {
+    pages.push(appendCommits(state, commits.slice(i, i + 50)));
+  }
+
+  pages.push(finishLayout(state));
+
+  for (const page of pages) {
+    store.add(page.paths);
+
+    for (const path of page.paths) {
+      const existing = byId.get(path.id);
+      const last = path.points[path.points.length - 1];
+
+      if (existing === undefined) {
+        const lane = {
+          from: path.points[0]?.y ?? 0,
+          to: last?.y ?? 0,
+          points: [...path.points],
+          opened: arrived.length,
+        };
+
+        byId.set(path.id, lane);
+        arrived.push(lane);
+      } else {
+        existing.points.push(...path.points);
+        existing.to = last?.y ?? existing.to;
+      }
+    }
+  }
+
+  /*
+   * The fixture has to be one where the order lanes arrive in is not the order they open in, or
+   * the search would agree with the walk for the wrong reason - measured at 5,028 of 19,886 on the
+   * real repository this came from.
+   */
+  const outOfTurn = arrived.filter(
+    (lane, i) => i > 0 && (arrived[i - 1] as { from: number }).from > lane.from,
+  ).length;
+
+  assert.ok(
+    outOfTurn > 0,
+    'the fixture hands its lanes over in opening order, so it proves nothing about one that does not',
+  );
+
+  /** What the view used to draw, in the order it drew it. */
+  const walked = (topRow: number, bottomRow: number): number[] =>
+    arrived
+      .filter((lane) => lane.points.length > 1 && lane.to >= topRow && lane.from <= bottomRow)
+      .map((lane) => lane.opened);
+
+  const rows = commits.length;
+  let drawnAtMost = 0;
+
+  for (let top = -3; top <= rows + 3; top++) {
+    const bottom = top + 31;
+    const expected = walked(top, bottom);
+
+    drawnAtMost = Math.max(drawnAtMost, expected.length);
+
+    assert.deepEqual(
+      store.visible(top, bottom).map((lane) => lane.opened),
+      expected,
+      `rows ${top}..${bottom}`,
+    );
+  }
+
+  assert.ok(drawnAtMost > 3, `no viewport drew more than ${drawnAtMost} lanes; the fixture is too thin`);
+  assert.ok(store.size > 50, `only ${store.size} lanes, which is not enough to be worth searching`);
+});
+
+test('a lane store forgets everything when the graph is reloaded', () => {
+  // The view clears it on every reset, and a stale lane would be drawn at a row that now belongs
+  // to a different commit.
+  const store = new LaneStore();
+  const state = new LayoutState();
+
+  store.add(appendCommits(state, branchy(60)).paths);
+  assert.ok(store.size > 0);
+
+  store.clear();
+
+  assert.equal(store.size, 0);
+  assert.deepEqual([...store.visible(0, 100)], []);
+});
 
 test('every commit gets exactly one dot, in order', () => {
   for (const [name, commits] of Object.entries(topologies)) {
