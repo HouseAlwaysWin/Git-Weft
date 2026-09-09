@@ -548,7 +548,7 @@
       "properties": {
         "weft.pageSize": {
           "type": "number",
-          "default": 2000,
+          "default": 500,
           "minimum": 100,
           "maximum": 20000,
           "markdownDescription": "How many commits to load per page. The first page is what you wait for on open."
@@ -602,6 +602,13 @@
           "type": "boolean",
           "default": true,
           "description": "Show a Weft button in the status bar when the workspace has a git repository."
+        },
+        "weft.maxCommits": {
+          "type": "number",
+          "default": 250000,
+          "minimum": 1000,
+          "maximum": 5000000,
+          "markdownDescription": "Stop walking after this many commits. The graph says so when it stops here rather than at the end of the history."
         }
       }
     },
@@ -638,7 +645,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build --silent && node --test \"test/**/*.test.ts\" && node scripts/color-check.mjs && node scripts/column-check.mjs && node scripts/icon-check.mjs && node scripts/load-check.mjs --watch && node scripts/load-check.mjs --break-view=weft.files",
+    "test": "npm run build --silent && node --test \"test/**/*.test.ts\" && node scripts/color-check.mjs && node scripts/column-check.mjs && node scripts/settings-check.mjs && node scripts/icon-check.mjs && node scripts/load-check.mjs --watch && node scripts/load-check.mjs --break-view=weft.files",
     "vscode:prepublish": "node esbuild.mjs --production",
     "smoke": "node scripts/smoke.mjs",
     "load-check": "node scripts/load-check.mjs",
@@ -646,7 +653,8 @@
     "icon-check": "node scripts/icon-check.mjs",
     "color-check": "node scripts/color-check.mjs",
     "column-check": "node scripts/column-check.mjs",
-    "test:unit": "node --test \"test/**/*.test.ts\""
+    "test:unit": "node --test \"test/**/*.test.ts\"",
+    "settings-check": "node scripts/settings-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",

@@ -83,6 +83,9 @@ export interface GitLogEntry {
 }
 
 /** Config git is forced into for every call, so output is machine-readable and locale-proof. */
+/** How much of a failing command's complaint is worth keeping. Git's is a line or two. */
+const STDERR_KEPT = 8192;
+
 const FORCED_CONFIG = [
   '-c',
   'core.quotepath=false',
@@ -346,7 +349,8 @@ export class Git {
     const started = Date.now();
 
     try {
-      const exitCode = await this.spawnStreaming(cwd, args, onText, options);
+      const complaint = { text: '' };
+      const exitCode = await this.spawnStreaming(cwd, args, onText, options, complaint);
 
       this.onCommand?.({
         args,
@@ -357,7 +361,7 @@ export class Git {
       });
 
       if (exitCode !== 0) {
-        throw new GitError(args, exitCode, '');
+        throw new GitError(args, exitCode, complaint.text);
       }
     } finally {
       this.release();
@@ -369,6 +373,7 @@ export class Git {
     args: readonly string[],
     onText: (text: string) => void,
     options: GitRunOptions,
+    complaint: { text: string },
   ): Promise<number> {
     return new Promise<number>((resolve, reject) => {
       if (options.signal?.aborted === true) {
@@ -406,7 +411,22 @@ export class Git {
       };
 
       child.stdout.on('data', (chunk: Buffer) => onText(decoder.write(chunk)));
-      child.stderr.resume();
+
+      /*
+       * Kept, rather than drained.
+       *
+       * stderr used to go to `resume()` and the failure was raised with an empty string for it, so
+       * every walk that git refused read as the whole command line followed by
+       * `failed (128): (no output)`. A bad pattern in the search box, an unknown revision, a
+       * repository with no commits yet - one message for all of them, and the one thing git had
+       * said about it thrown away before `mapGitError` could match a remedy to it.
+       *
+       * The tail rather than the whole of it: git's complaint is a line or two, and a walk that
+       * fails on every commit could otherwise hand back a hundred megabytes of it.
+       */
+      child.stderr.on('data', (chunk: Buffer) => {
+        complaint.text = `${complaint.text}${chunk.toString('utf8')}`.slice(-STDERR_KEPT);
+      });
       child.on('error', (err) => finish(() => reject(err)));
 
       child.on('close', (code, signal) => {

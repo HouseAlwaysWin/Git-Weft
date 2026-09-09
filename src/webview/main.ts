@@ -2499,7 +2499,20 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       statusEl.textContent =
         message.total === 0
           ? 'no matching commits'
-          : `${message.total.toLocaleString()} commits in ${message.elapsedMs} ms`;
+          : `${message.total.toLocaleString()} commits in ${message.elapsedMs} ms${
+              message.truncated ? ' · stopped at the limit' : ''
+            }`;
+
+      /*
+       * Because a history that ends early looks exactly like a history that ended.
+       *
+       * git stops at --max-count and exits 0, so nothing about the result says it was cut: the
+       * root commits are simply absent and the lanes that would have closed further back run off
+       * the bottom of the graph instead.
+       */
+      statusEl.title = message.truncated
+        ? 'Stopped at weft.maxCommits. The oldest commits are not drawn, and lanes that would have closed further back run off the bottom.'
+        : '';
 
       // The whole history is here, so a sort the user chose before - or one that outlived a
       // reload - can finally be applied to all of it rather than to whatever had arrived.

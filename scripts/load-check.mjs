@@ -3164,6 +3164,57 @@ if (disposeHandler !== null) {
 }
 
 /*
+ * A history that stopped early has to say so.
+ *
+ * `--max-count` stops git at N and exits 0, so a truncated walk is indistinguishable from a
+ * complete one from the outside: the root commits are simply absent, lanes that would have closed
+ * further back run off the bottom, and the line at the corner reports the limit as though it were
+ * the size of the repository.
+ */
+{
+  const walksBefore = posted.filter((m) => m.type === 'done').length;
+
+  settings.set('weft.maxCommits', 3);
+  await messageHandler({ type: 'refresh' });
+
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length === walksBefore) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+
+  const capped = posted.filter((m) => m.type === 'done').pop();
+
+  console.log('');
+  console.log('capped at 3    :', capped?.total, 'commits | truncated:', capped?.truncated);
+
+  if (capped?.total !== 3) {
+    problems.push(`a walk capped at 3 returned ${capped?.total} commits`);
+  }
+
+  if (capped?.truncated !== true) {
+    problems.push('a walk that stopped at the limit did not say so');
+  }
+
+  const before = posted.filter((m) => m.type === 'done').length;
+
+  settings.delete('weft.maxCommits');
+  await messageHandler({ type: 'refresh' });
+
+  const whole = Date.now() + 20_000;
+  while (Date.now() < whole && posted.filter((m) => m.type === 'done').length === before) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+
+  const full = posted.filter((m) => m.type === 'done').pop();
+
+  console.log('uncapped       :', full?.total, 'commits | truncated:', full?.truncated);
+
+  if (full?.truncated !== false) {
+    problems.push('a walk that reached the end of the history claimed it was cut short');
+  }
+}
+
+/*
  * Every path that runs git has to stand back for a write in flight.
  *
  * Not a preference. git replaces a file by renaming a lock over it, and Windows refuses that
@@ -3180,6 +3231,9 @@ if (disposeHandler !== null) {
   const guards = [
     ['src/panel.ts', /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.root\)/],
     ['src/blameAnnotations.ts', /this\.isBusy\(repo\.root\)/],
+    // And the one writer that was not a reader: auto-fetch prunes, so it belongs in the queue and
+    // not merely behind a look at it.
+    ['src/panel.ts', /autoFetch\(\): Promise<void> \{[\s\S]{0,1200}?lock\.run\(/],
   ];
 
   /*

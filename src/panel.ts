@@ -962,6 +962,9 @@ export class WeftPanel {
     const loader = new HistoryLoader(this.git, this.repo);
     const started = Date.now();
 
+    // Read once: the walk is bounded by it and the message at the end has to say whether it was.
+    const limit = config.get<number>('maxCommits', 250_000);
+
     // Only the newest stash is a ref, so the rest have to be named by SHA or the walk never sees
     // them. Cheap enough to re-read on every reload; a repository has a handful, not thousands.
     const stashList = await listStashes(this.git, this.repo).catch(() => []);
@@ -1030,8 +1033,14 @@ export class WeftPanel {
           }
         },
         {
-          batchSize: 500,
-          maxCommits: config.get<number>('maxCommits', 250_000),
+          /*
+           * Both from the settings, which is new for one of them: `pageSize` was declared in the
+           * manifest, described as the thing you wait for on open, and read by nothing at all.
+           * Its declared default was 2000 while the code had 500 written into it, so the number
+           * anybody read was not even the number in use.
+           */
+          batchSize: config.get<number>('pageSize', 500),
+          maxCommits: limit,
           firstParentOnly: this.firstParent,
           onlyHere: this.onlyHere,
           order: this.order,
@@ -1043,7 +1052,20 @@ export class WeftPanel {
       );
 
       if (!controller.signal.aborted) {
-        this.post({ type: 'done', total: loader.rowCount, elapsedMs: Date.now() - started });
+        /*
+         * Say when the walk was cut short.
+         *
+         * `--max-count` stops git at N and exits 0, so a truncated history is indistinguishable
+         * from a complete one: root commits missing, lanes that never close, and a number at the
+         * bottom that reads like the whole repository. Reaching the limit is what happened whether
+         * or not there was more, which is what the line says.
+         */
+        this.post({
+          type: 'done',
+          total: loader.rowCount,
+          elapsedMs: Date.now() - started,
+          truncated: loader.rowCount >= limit,
+        });
 
         /*
          * The walk finished and never produced it. Said out loud, because the reader clicked
@@ -1134,7 +1156,20 @@ ${BODY_MARKUP}
     }
 
     try {
-      await this.git.runNetwork(this.repo.root, ['fetch', '--all', '--prune', '--quiet']);
+      /*
+       * Inside the lock, because `--prune` deletes remote-tracking refs. This is a write.
+       *
+       * The check above is a courtesy - do not start one while the user is doing something - and
+       * on its own it is check-then-act: a checkout beginning a moment later saw nothing in its way
+       * and ran alongside a fetch rewriting refs underneath it. On Windows that is the
+       * `unable to write symref for HEAD` failure this extension already has a remedy for.
+       *
+       * A fetch somebody asked for has always queued behind the lock. One nobody asked for has no
+       * business being the exception.
+       */
+      await WeftPanel.lock.run(this.repo.root, () =>
+        this.git.runNetwork(this.repo.root, ['fetch', '--all', '--prune', '--quiet']),
+      );
     } catch (err) {
       output?.warn(`auto-fetch failed: ${err instanceof Error ? err.message : String(err)}`);
     }

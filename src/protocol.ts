@@ -90,7 +90,13 @@ export type HostMessage =
       readonly rows: readonly Row[];
       readonly delta: GraphDelta;
     }
-  | { readonly type: 'done'; readonly total: number; readonly elapsedMs: number }
+  | {
+      readonly type: 'done';
+      readonly total: number;
+      readonly elapsedMs: number;
+      /** The walk stopped at `weft.maxCommits` rather than at the end of the history. */
+      readonly truncated: boolean;
+    }
   /**
    * What is in the working tree, sent on every reload. Zero files means there is nothing to show a
    * row for, which is the ordinary state of a repository nobody is in the middle of editing.

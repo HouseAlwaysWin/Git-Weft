@@ -117,6 +117,28 @@
   it. This was harmless until `91c7ef5`: the message that triggers it had never been arriving, and
   fixing that subscription switched it on.
 
+- **Two settings that were not settings.** `weft.pageSize` was offered in the Settings UI with a
+  range, a default of 2000 and a description saying it was what you wait for on open - and read by
+  nothing at all; the number in use was 500, written into the code. `weft.maxCommits` was the other
+  way round: read, with a default of 250,000, and declared nowhere, so it never appeared in the
+  Settings UI and writing it by hand earned an "Unknown Configuration Setting" squiggle for a
+  setting that worked. Both are real now, and `scripts/settings-check.mjs` runs with the tests to
+  keep them that way - every setting offered is read, every setting read is offered, and the
+  default in the manifest matches the fallback in the code.
+
+- **A history that stopped early says so.** `--max-count` stops git at the limit and exits 0, so a
+  truncated walk looked exactly like a complete one: the oldest commits simply absent, lanes that
+  would have closed further back running off the bottom, and a line in the corner reporting the
+  limit as though it were the size of the repository. It now reads *stopped at the limit*, and says
+  what that means on hover.
+
+- **A failed walk says what git said.** stderr was drained into nothing and the failure was raised
+  with an empty string for it, so every refusal read as the whole command line followed by
+  `failed (128): (no output)` - an unknown revision, an invalid pattern from the regex toggle, a
+  repository with no commits yet, all the same line. git's own message now comes with it, which
+  also gives the remedies something to match: `fatal: command line, '[unclosed': Unmatched [ or [^`
+  instead of nothing at all.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
