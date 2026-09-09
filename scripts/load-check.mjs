@@ -1726,6 +1726,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
  * only one, which is a row and not a group of one. The rule folds what it can prove and stops; past
  * that the reader says so, and saying so has to be undoable, because it is a judgement and
  * judgements are wrong sometimes.
+ *
+ * And a group is a label rather than a box: the same person is on two teams, so they are listed
+ * under both, and taking them out of one leaves the other alone.
  */
 {
   const provider = treeProviders.get('weft.authors');
@@ -1752,7 +1755,7 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   } else {
     const [first, second] = people;
 
-    provider.setGroup(provider.spellingsOf(second), first.author.name);
+    provider.addToGroup(provider.spellingsOf(second), first.author.name);
 
     const joined = await provider.getChildren();
     const group = joined.find((node) => node.author.name === first.author.name);
@@ -1771,7 +1774,83 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       problems.push('a group opened onto something other than its spellings');
     }
 
-    provider.setGroup(provider.spellingsOf(second), null);
+    // --- and into a second group, without leaving the first ---------------------------------
+
+    // Everyone in the first group, so that both groups hold the same two spellings and the tree
+    // has to draw each of them twice.
+    const inBoth = group === undefined ? [] : provider.spellingsOf(group);
+
+    provider.addToGroup(inBoth, 'Release Rota');
+
+    const both = await provider.getChildren();
+    const rota = both.find((node) => node.author.name === 'Release Rota');
+    const still = both.find((node) => node.author.name === first.author.name);
+
+    console.log(
+      'in two groups  :',
+      both.map((node) => `${node.author.name}[${node.author.members.length}]`).join(', '),
+    );
+
+    if (rota === undefined) {
+      problems.push('adding to a second group did not produce it');
+    }
+
+    if (still === undefined) {
+      problems.push('adding to a second group took the person out of the first');
+    }
+
+    const rotaMembers = rota === undefined ? [] : await provider.getChildren(rota);
+
+    if (rota !== undefined && rota.author.members.length !== inBoth.length) {
+      problems.push(
+        `the second group has ${rota.author.members.length} spellings, expected ${inBoth.length}`,
+      );
+    }
+
+    if (rotaMembers.length !== inBoth.length) {
+      problems.push(`the second group opened onto ${rotaMembers.length} spellings`);
+    }
+
+    // The row says where else the same person is listed, because the tree can only show one at once.
+    const elsewhere = rotaMembers.map((node) => provider.getTreeItem(node).description).join(' | ');
+
+    console.log('rota rows      :', elsewhere);
+
+    if (!elsewhere.includes(first.author.name)) {
+      problems.push('a spelling in two groups does not say so on either row');
+    }
+
+    /*
+     * The rows have to be told apart. A tree hands two rows with the same id to the same element,
+     * so a spelling listed under two groups would appear once and take its expansion with it.
+     */
+    const firstMembers = still === undefined ? [] : await provider.getChildren(still);
+    const ids = [...firstMembers, ...rotaMembers].map((node) => provider.getTreeItem(node).id);
+
+    if (new Set(ids).size !== ids.length) {
+      problems.push('the same spelling under two groups was given the same row id in both');
+    }
+
+    // --- out of one of them, which has to leave the other standing --------------------------
+
+    provider.removeFromGroup(inBoth, 'Release Rota');
+
+    const afterOne = await provider.getChildren();
+
+    console.log(
+      'left one group :',
+      afterOne.map((node) => node.author.name).join(', '),
+    );
+
+    if (afterOne.some((node) => node.author.name === 'Release Rota')) {
+      problems.push('leaving a group left it behind with nobody in it');
+    }
+
+    if (!afterOne.some((node) => node.author.name === first.author.name)) {
+      problems.push('leaving one group took the person out of the other as well');
+    }
+
+    provider.removeFromGroup(inBoth, first.author.name);
 
     const apart = await provider.getChildren();
 

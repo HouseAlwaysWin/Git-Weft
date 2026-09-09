@@ -659,12 +659,16 @@ function start(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('weft.showCurrentRefOnly', () => refs.followHead()),
 
     /*
-     * Put a spelling, or a whole person, with somebody else.
+     * Put a spelling, or a whole person, with somebody else - and in as many places as they belong.
      *
      * The spelling rule folds what it can prove - case and separators - and stops there, because a
      * list that quietly merges two people is worse than one that shows a person twice. Everything
      * past that is a judgement only the reader can make: `Lineric` and `lineric_lin` share a prefix
      * and nothing else, and whether they are one person is not in the repository.
+     *
+     * Adding rather than moving, because the same person is on the platform team and on the release
+     * rota. The groups they are already in are left off the list: joining one twice is not an
+     * option worth offering.
      */
     vscode.commands.registerCommand('weft.groupAuthor', async (node: unknown) => {
       const target = asAuthorNode(node);
@@ -674,14 +678,17 @@ function start(context: vscode.ExtensionContext): void {
       }
 
       const label = authors.labelOf(target);
-      const existing = authors.groupNames().filter((name) => name !== label);
+      const already = new Set(authors.groupsOf(target).map((name) => name.toLowerCase()));
+      const existing = authors
+        .groupNames()
+        .filter((name) => name !== label && !already.has(name.toLowerCase()));
 
       const picked = await vscode.window.showQuickPick(
         [
           { label: 'New group…', description: `under a name of its own`, group: null as string | null },
           ...existing.map((name) => ({ label: name, description: '', group: name as string | null })),
         ],
-        { title: `Group ${label} with…`, placeHolder: 'An existing person, or a new group' },
+        { title: `Add ${label} to…`, placeHolder: 'An existing person or group, or a new one' },
       );
 
       if (picked === undefined) {
@@ -700,19 +707,23 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      authors.setGroup(authors.spellingsOf(target), named.trim());
+      authors.addToGroup(authors.spellingsOf(target), named.trim());
     }),
 
     /*
-     * And out again. Out is not the same as alone: dropping the assignment hands the spelling back
-     * to the rule, which may well put it straight where it was. That is the right answer - this is
-     * an override, and removing one restores what was underneath rather than inventing a state.
+     * And out of the one that was right-clicked, which is not the same as out of all of them: a
+     * spelling shown under three groups has three rows, and taking it out of the one in front of
+     * you is what clicking that row means.
+     *
+     * Out of the last one is not the same as alone either. With no assignments left the spelling
+     * goes back to the rule, which may well put it straight where it was - that is the right
+     * answer, because a group is an override and removing one restores what was underneath.
      */
     vscode.commands.registerCommand('weft.ungroupAuthor', (node: unknown) => {
       const target = asAuthorNode(node);
 
       if (target !== undefined) {
-        authors.setGroup(authors.spellingsOf(target), null);
+        authors.removeFromGroup(authors.spellingsOf(target), authors.groupAt(target));
       }
     }),
 

@@ -130,12 +130,12 @@
       },
       {
         "command": "weft.groupAuthor",
-        "title": "Group With…",
+        "title": "Add to Group…",
         "category": "Git Weft"
       },
       {
         "command": "weft.ungroupAuthor",
-        "title": "Remove from Group",
+        "title": "Remove from This Group",
         "category": "Git Weft"
       },
       {

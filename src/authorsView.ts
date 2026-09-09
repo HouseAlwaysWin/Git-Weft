@@ -13,6 +13,12 @@
  * a plain row rather than a group of one. Where the spelling rule cannot tell - `Lineric` and
  * `lineric_lin` share a prefix and nothing that can be proved - the answer is a group made by hand,
  * and those are remembered per repository.
+ *
+ * **A group is a label, not a box.** Somebody is on the platform team and on the release rota, and
+ * being made to choose one of those is being asked the wrong question - so a spelling can be put in
+ * as many groups as it belongs to, and is listed under each. What it stops being is listed under
+ * the rule's answer: an assignment replaces that rather than adding to it, or the first person you
+ * grouped would appear twice.
  */
 
 import * as vscode from 'vscode';
@@ -20,7 +26,7 @@ import * as vscode from 'vscode';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import type { Author, AuthorIdentity } from './git/authors.ts';
-import { groupAuthors, listAuthors } from './git/authors.ts';
+import { fingerprint, groupAuthors, listAuthors, readGroupAssignments } from './git/authors.ts';
 import type { AuthorPick } from './git/search.ts';
 
 /** What the list is sorted by. */
@@ -36,8 +42,13 @@ interface GroupNode {
 interface MemberNode {
   readonly kind: 'member';
   readonly identity: AuthorIdentity;
-  /** Whether the group above it was made by hand, which is the only kind there is to leave. */
-  readonly custom: boolean;
+  /**
+   * The group it is being shown under, or null when the rule put it there.
+   *
+   * Carried on the node because the same spelling can be shown under several groups, and "take
+   * this one out" has to mean out of the one that was right-clicked rather than out of all of them.
+   */
+  readonly group: string | null;
 }
 
 export type AuthorNode = GroupNode | MemberNode;
@@ -70,8 +81,8 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
   /** Ticked spellings per repository, for the same two reasons the ref view keeps its own. */
   private readonly selectedByRepo = new Map<string, Set<string>>();
 
-  /** Spelling to the name of the group it was put in by hand. */
-  private custom = new Map<string, string>();
+  /** Spelling to the groups it was put in by hand, in the order they were added. */
+  private custom = new Map<string, string[]>();
 
   /**
    * Text narrowing the *listing*, which is a different job from the ticks.
@@ -171,7 +182,7 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
       ? node.author.members.map((identity) => ({
           kind: 'member' as const,
           identity,
-          custom: node.author.custom,
+          group: node.author.custom ? node.author.name : null,
         }))
       : [];
   }
@@ -239,6 +250,26 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     return this.authors.filter((author) => author.members.length > 1 || author.custom).map((author) => author.name);
   }
 
+  /** The groups a node is already in, so a picker does not offer somewhere it already is. */
+  groupsOf(node: AuthorNode): string[] {
+    const names = new Set<string>();
+
+    for (const spelling of this.spellingsOf(node)) {
+      // Through the same fallback `addToGroup` uses, so the picker does not offer somewhere the
+      // spelling already is on the strength of nobody having written it down yet.
+      for (const group of this.custom.get(spelling) ?? this.heldBy(spelling)) {
+        names.add(group);
+      }
+    }
+
+    return [...names];
+  }
+
+  /** Which group a right-click was in: a spelling's own row, or the group row itself. */
+  groupAt(node: AuthorNode): string | null {
+    return node.kind === 'member' ? node.group : node.author.custom ? node.author.name : null;
+  }
+
   /** The spellings a node stands for: one, or all of a group's. */
   spellingsOf(node: AuthorNode): string[] {
     return node.kind === 'member'
@@ -251,23 +282,78 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     return node.kind === 'member' ? node.identity.name : node.author.name;
   }
 
-  /**
-   * Put these spellings into a group, or take them out of one.
+/**
+   * Put these spellings in a group, keeping whatever groups they are already in.
    *
-   * Out is not the same as alone: dropping the assignment hands the spelling back to the rule that
-   * folds by case and separators, which may well put it straight back with the same people. That is
-   * the right answer - the hand-made group is an override, and removing an override restores what
-   * was underneath rather than inventing a third state.
+   * Adding rather than replacing is the whole of the difference: the same person is on more than
+   * one team, and a list that makes them choose is not describing the place they work.
    */
-  setGroup(spellings: readonly string[], group: string | null): void {
+  addToGroup(spellings: readonly string[], group: string): void {
+    const key = fingerprint(group);
+
     for (const spelling of spellings) {
-      if (group === null) {
-        this.custom.delete(spelling);
-      } else {
-        this.custom.set(spelling, group);
+      const already = this.custom.get(spelling) ?? [];
+      const from = already.length > 0 ? already : this.heldBy(spelling);
+
+      // By fingerprint, because `Backend` and `backend` are one group everywhere else here.
+      if (!from.some((name) => fingerprint(name) === key)) {
+        this.custom.set(spelling, [...from, group]);
+      } else if (from !== already) {
+        this.custom.set(spelling, from);
       }
     }
 
+    this.saveGroups();
+  }
+
+  /**
+   * The hand-made group a spelling is in without being named in it, if any.
+   *
+   * Group `lineric_lin` with `Lineric` and only one of the two is written down: the other is in that
+   * group because the group was named after it, which is the ordinary way to make one. Adding a
+   * label to the pair then wrote down the unnamed one for the first time - and writing down where
+   * it is going without writing down where it was would have taken it out of the group its own name
+   * had made, splitting the person somebody had just finished joining together.
+   *
+   * Only for hand-made groups. Being in the rule's own fold is exactly what an assignment replaces,
+   * so putting a person on a team takes their unlabelled row away, which is what it should do.
+   */
+  private heldBy(spelling: string): string[] {
+    const row = this.authors.find((author) =>
+      author.members.some((member) => member.name === spelling),
+    );
+
+    return row !== undefined && row.custom ? [row.name] : [];
+  }
+
+  /**
+   * Take these spellings out of one group, or out of every group when no group is named.
+   *
+   * Out of the last one is not the same as alone: with no assignments left the spelling goes back
+   * to the rule that folds by case and separators, which may well put it straight back with the
+   * same people. That is the right answer - a group is an override, and removing one restores what
+   * was underneath rather than inventing a third state.
+   */
+  removeFromGroup(spellings: readonly string[], group: string | null): void {
+    const key = group === null ? null : fingerprint(group);
+
+    for (const spelling of spellings) {
+      const left =
+        key === null
+          ? []
+          : (this.custom.get(spelling) ?? []).filter((name) => fingerprint(name) !== key);
+
+      if (left.length === 0) {
+        this.custom.delete(spelling);
+      } else {
+        this.custom.set(spelling, left);
+      }
+    }
+
+    this.saveGroups();
+  }
+
+  private saveGroups(): void {
     this.writeGroups();
     this.regroup();
     this.changed.fire(undefined);
@@ -278,9 +364,13 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     this.authors = groupAuthors(this.identities, this.custom);
   }
 
-  private readGroups(): Map<string, string> {
-    const stored = this.memento.get<Record<string, Record<string, string>>>(GROUPS_KEY, {});
-    return new Map(Object.entries(stored[this.repo?.root ?? ''] ?? {}));
+  private readGroups(): Map<string, string[]> {
+    const stored = this.memento.get<Record<string, Record<string, string | string[]>>>(
+      GROUPS_KEY,
+      {},
+    );
+
+    return readGroupAssignments(stored[this.repo?.root ?? ''] ?? {});
   }
 
   private writeGroups(): void {
@@ -288,7 +378,9 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
       return;
     }
 
-    const stored = { ...this.memento.get<Record<string, Record<string, string>>>(GROUPS_KEY, {}) };
+    const stored = {
+      ...this.memento.get<Record<string, Record<string, string | string[]>>>(GROUPS_KEY, {}),
+    };
 
     stored[this.repo.root] = Object.fromEntries(this.custom);
     void this.memento.update(GROUPS_KEY, stored);
@@ -338,7 +430,7 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
 
   getTreeItem(node: AuthorNode): vscode.TreeItem {
     return node.kind === 'member'
-      ? this.memberItem(node.identity, node.custom)
+      ? this.memberItem(node.identity, node.group)
       : this.groupItem(node.author);
   }
 
@@ -367,11 +459,21 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
       ...(ticked > 0 && ticked < author.members.length ? [`${ticked} ticked`] : []),
     ].join(' · ');
 
+    /*
+     * A person in two groups is counted by both of them, so the rows can add up to more than the
+     * history has. Said on the row it applies to rather than left for somebody to work out from
+     * two numbers that do not reconcile.
+     */
+    const shared = author.members.filter((member) => (this.custom.get(member.name) ?? []).length > 1);
+
     item.tooltip = [
       ...author.members.map((member) => `${member.name} — ${member.commits}`),
       ...author.emails.map((email) => `<${email}>`),
       `${author.commits} commits, across the whole history - the count takes no notice of what the graph is filtered to`,
       author.custom ? 'Grouped by hand' : 'Grouped by spelling',
+      ...(shared.length > 0
+        ? [`${shared.length} of these are in other groups too, which count them as well`]
+        : []),
       'Tick to show only these',
     ].join('\n');
 
@@ -393,26 +495,37 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     return item;
   }
 
-  private memberItem(identity: AuthorIdentity, custom: boolean): vscode.TreeItem {
+  private memberItem(identity: AuthorIdentity, group: string | null): vscode.TreeItem {
     const item = new vscode.TreeItem(identity.name, vscode.TreeItemCollapsibleState.None);
 
-    item.id = `spelling:${identity.name}`;
+    // The group is in the id because the same spelling appears under every group it is in, and two
+    // rows sharing an id is one row as far as the tree is concerned.
+    item.id = `spelling:${group ?? ''}:${identity.name}`;
+
+    const elsewhere = (this.custom.get(identity.name) ?? []).filter(
+      (name) => group === null || fingerprint(name) !== fingerprint(group),
+    );
+
     item.description = [
       `${identity.commits}`,
       ...(identity.emails.length > 1 ? [`${identity.emails.length} emails`] : []),
+      // Where else this same person is listed, on the row, because the tree cannot show it twice
+      // at once and a count that appears in two places should say that it does.
+      ...(elsewhere.length > 0 ? [`also in ${elsewhere.join(', ')}`] : []),
     ].join(' · ');
 
     item.tooltip = [
       identity.name,
       ...identity.emails.map((email) => `<${email}>`),
       `${identity.commits} commits under this spelling`,
+      ...(elsewhere.length > 0 ? [`Also in ${elsewhere.join(', ')}`] : []),
     ].join('\n');
 
     item.checkboxState = this.selected.has(identity.name)
       ? vscode.TreeItemCheckboxState.Checked
       : vscode.TreeItemCheckboxState.Unchecked;
 
-    item.contextValue = custom ? 'weftAuthorSpellingCustom' : 'weftAuthorSpelling';
+    item.contextValue = group === null ? 'weftAuthorSpelling' : 'weftAuthorSpellingCustom';
     item.iconPath = new vscode.ThemeIcon('mention');
     return item;
   }

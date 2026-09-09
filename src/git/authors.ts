@@ -13,6 +13,10 @@
  * - `groupAuthors` decides which of those spellings are one person. That is a judgement, it can be
  *   overruled by hand, and it has nothing to do with git - so it does not live behind a process.
  *
+ * A hand-made group is a label rather than a box: one person is on the platform team and on the
+ * release rota, and being asked to pick one of those is being asked the wrong question. So a
+ * spelling carries any number of group names, and appears under each of them.
+ *
  * **What the counts cover:** `--all` walks every ref, back to the root commit. It is the whole
  * history and takes no notice of what the graph is currently narrowed to - a date range, a search,
  * a branch unticked - so the number beside a name does not move when those do.
@@ -118,15 +122,42 @@ export async function listAuthors(git: Git, repo: RepoInfo): Promise<AuthorIdent
 }
 
 /**
+ * The groups a repository's spellings were put in, in whichever shape they were remembered.
+ *
+ * A spelling used to be in one group, and one group was stored as one string. It is a list now. The
+ * old shape is read rather than rewritten on sight, because somebody's assignments are not worth
+ * losing to a version they happened to skip, and because a shape this small is cheaper to keep
+ * reading than to migrate carefully.
+ */
+export function readGroupAssignments(
+  stored: Readonly<Record<string, string | readonly string[]>>,
+): Map<string, string[]> {
+  return new Map(
+    Object.entries(stored).map(([spelling, groups]) => [
+      spelling,
+      typeof groups === 'string' ? [groups] : [...groups],
+    ]),
+  );
+}
+
+/**
  * Fold spellings into people.
  *
- * `custom` overrules the spelling rule: it maps a spelling to the name of the group it belongs in,
- * which is how `Lineric` and `lineric_lin` become one person, and how a name the rule swept in can
- * be taken back out again by being given a group of its own.
+ * `custom` overrules the spelling rule: it maps a spelling to the groups it belongs in, which is how
+ * `Lineric` and `lineric_lin` become one person, and how a name the rule swept in can be taken back
+ * out again by being given a group of its own.
+ *
+ * More than one group, because a person is not on one team. A spelling that has been put somewhere
+ * by hand appears under each place it was put and nowhere else - the assignment replaces what the
+ * rule would have done with it, rather than adding to it, or grouping anybody would list them twice.
+ *
+ * Which means the counts across rows can add up to more than the history has: two groups sharing a
+ * person each count that person's commits. That is what a label does, and the alternative is a row
+ * that says a number no tick of it would produce.
  */
 export function groupAuthors(
   identities: readonly AuthorIdentity[],
-  custom: ReadonlyMap<string, string> = new Map(),
+  custom: ReadonlyMap<string, readonly string[]> = new Map(),
 ): Author[] {
   const folded = new Map<
     string,
@@ -134,31 +165,47 @@ export function groupAuthors(
   >();
 
   for (const identity of identities) {
-    const named = custom.get(identity.name);
+    const named = custom.get(identity.name) ?? [];
 
     /*
-     * The group's name goes through the same fingerprint as a spelling would.
+     * Where this spelling is listed, by key and by the name to show: the groups it was put in, or
+     * its own spelling when it was put in none.
      *
-     * Otherwise "group this with Weft Test" files it under `Weft Test` while Weft Test itself is
-     * filed under `wefttest`, and the two never meet - which looks exactly like the assignment
-     * having been ignored. Naming an existing person is the ordinary way to use this, so the two
-     * keys have to be the same kind of thing.
+     * The group's name goes through the same fingerprint as a spelling would. Otherwise "group this
+     * with Weft Test" files it under `Weft Test` while Weft Test itself is filed under `wefttest`,
+     * and the two never meet - which looks exactly like the assignment having been ignored. Naming
+     * an existing person is the ordinary way to use this, so the two keys have to be the same kind
+     * of thing.
+     *
+     * Keyed, so that a spelling put in both `Backend` and `backend` lands in one row rather than
+     * being counted twice into the same one.
      */
-    const key = fingerprint(named ?? identity.name);
-    const entry = folded.get(key) ?? { name: named ?? null, members: [], emails: [], commits: 0 };
+    const places = new Map<string, string | null>();
 
-    // A hand-made group keeps the name it was given, whichever spelling arrives first.
-    entry.name = named ?? entry.name;
-    entry.members.push(identity);
-    entry.commits += identity.commits;
-
-    for (const email of identity.emails) {
-      if (!entry.emails.includes(email)) {
-        entry.emails.push(email);
+    if (named.length === 0) {
+      places.set(fingerprint(identity.name), null);
+    } else {
+      for (const name of named) {
+        places.set(fingerprint(name), name);
       }
     }
 
-    folded.set(key, entry);
+    for (const [key, name] of places) {
+      const entry = folded.get(key) ?? { name, members: [], emails: [], commits: 0 };
+
+      // A hand-made group keeps the name it was given, whichever spelling arrives first.
+      entry.name = name ?? entry.name;
+      entry.members.push(identity);
+      entry.commits += identity.commits;
+
+      for (const email of identity.emails) {
+        if (!entry.emails.includes(email)) {
+          entry.emails.push(email);
+        }
+      }
+
+      folded.set(key, entry);
+    }
   }
 
   return [...folded.values()]

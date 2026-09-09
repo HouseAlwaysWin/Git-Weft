@@ -144,6 +144,10 @@ Working:
   three names in it. Right-click to group two the rule will not join, or to take one back out;
   those are remembered per repository. Ticking the person ticks every spelling, and a spelling
   can be ticked on its own
+- A group is a label rather than a box. Somebody on the platform team and on the release rota is in
+  both, listed under each and saying on the row where else they appear; removing them from one
+  leaves the other alone. Two groups sharing a person each count that person's commits, because
+  each of them would walk those commits - any other number would be one no tick of the row produces
 - Sorted by commits or by name. Several addresses, or several spellings of one
   name - `Sean Lin`, `sean_lin`, `SEAN_LIN` - are one row and one count, with every spelling shown
   on it. Ticking that row names all of them to `git log`, so what it counted is what the graph

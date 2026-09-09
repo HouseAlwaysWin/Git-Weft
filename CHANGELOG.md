@@ -66,6 +66,27 @@
   and the search have to name the same lanes in the same order, for every viewport the history has,
   because a graph quietly missing lanes still looks like a graph.
 
+- **An author can be in more than one group.** A group was a box, so putting somebody on the
+  platform team took them off the release rota - which is not a question anybody should have been
+  asked. It is a label now: **Add to Group…** adds one without removing the others, a spelling is
+  listed under every group it is in and says on its row where else it appears, and **Remove from
+  This Group** takes it out of the one that was right-clicked rather than out of all of them.
+
+  Two things follow, and both are the answer rather than the price of it. The counts across rows
+  can add up to more than the history has, because two groups sharing a person each count that
+  person's commits - and each would walk them, so a row saying anything else would be a number no
+  tick of it could produce. And a spelling put somewhere by hand is listed there and nowhere else:
+  an assignment replaces what the spelling rule would have done with it rather than adding to it,
+  or the first person you grouped would appear twice.
+
+  One exception, which is the flow that made it necessary. Joining `Lineric` and `lineric_lin`
+  under the name `Lineric` writes only one of them down - the other is in that group because the
+  group was named after it. Adding a label to the pair now writes the unnamed one down as being in
+  both, rather than moving it out of the group its own name had just made.
+
+  Groups saved by 0.6.0 are read as they were written; nobody loses the grouping they have already
+  done.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

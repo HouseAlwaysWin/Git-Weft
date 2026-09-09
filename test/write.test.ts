@@ -32,7 +32,7 @@ import {
   workAtRisk,
 } from '../src/git/repoState.ts';
 import { Remedy, mapGitError } from '../src/git/errors.ts';
-import { groupAuthors, listAuthors } from '../src/git/authors.ts';
+import { groupAuthors, listAuthors, readGroupAssignments } from '../src/git/authors.ts';
 import { blameFile } from '../src/git/blame.ts';
 import type { ActionUi, Target } from '../src/actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from '../src/actions/registry.ts';
@@ -407,7 +407,7 @@ test('a group made by hand joins spellings the rule will not', async () => {
   commitAs(dir, 'lineric_lin', 'lin@example.invalid', 'long.txt');
 
   const identities = await listAuthors(git, await open(dir));
-  const custom = new Map([['Lineric', 'Lineric Lin'], ['lineric_lin', 'Lineric Lin']]);
+  const custom = new Map([['Lineric', ['Lineric Lin']], ['lineric_lin', ['Lineric Lin']]]);
 
   const grouped = groupAuthors(identities, custom).filter((author) => author.custom);
 
@@ -418,6 +418,106 @@ test('a group made by hand joins spellings the rule will not', async () => {
     ['Lineric', 'lineric_lin'],
     'with both spellings kept, because --author still needs each of them',
   );
+});
+
+test('one person can be in more than one group at a time', async () => {
+  /*
+   * Somebody is on the platform team and on the release rota, and a list that makes them pick one
+   * is not describing the place they work. So a spelling carries as many group names as it needs
+   * and is listed under each of them.
+   *
+   * Which means the counts overlap: both rows count the same commits, because both rows would walk
+   * them. The alternative is a row whose number no tick of it would produce.
+   */
+  const dir = makeRepo();
+
+  commitAs(dir, 'Winni_Lee', 'winni@example.invalid', 'a.txt');
+  commitAs(dir, 'Wei_Pan', 'wei@example.invalid', 'b.txt');
+
+  const identities = await listAuthors(git, await open(dir));
+
+  const grouped = groupAuthors(
+    identities,
+    new Map([
+      ['Winni_Lee', ['Platform', 'Release Rota']],
+      ['Wei_Pan', ['Platform']],
+    ]),
+  );
+
+  const platform = grouped.find((author) => author.name === 'Platform');
+  const rota = grouped.find((author) => author.name === 'Release Rota');
+
+  assert.deepEqual(
+    (platform?.members ?? []).map((member) => member.name).sort(),
+    ['Wei_Pan', 'Winni_Lee'],
+    'the team has both of them',
+  );
+
+  assert.deepEqual(
+    (rota?.members ?? []).map((member) => member.name),
+    ['Winni_Lee'],
+    'and the rota has the one who is on it',
+  );
+
+  // Listed where they were put, and nowhere else: an assignment replaces what the rule would have
+  // done with a spelling rather than adding to it, or grouping anybody would list them twice.
+  assert.equal(
+    grouped.filter((author) => author.members.some((member) => member.name === 'Winni_Lee')).length,
+    2,
+    'in exactly the two groups they were put in',
+  );
+
+  assert.equal(
+    (platform?.commits ?? 0) + (rota?.commits ?? 0) > (platform?.commits ?? 0),
+    true,
+    'and both rows count the commits they would walk, overlap included',
+  );
+});
+
+test('a group named twice over is one group, not two', async () => {
+  // The same fold that makes `Sean Lin` and `sean_lin` one person: a group is named by a person,
+  // and people do not type a name the same way twice.
+  const dir = makeRepo();
+
+  commitAs(dir, 'Gaga_Liu', 'gaga@example.invalid', 'a.txt');
+  commitAs(dir, 'Corey_Lai', 'corey@example.invalid', 'b.txt');
+
+  const identities = await listAuthors(git, await open(dir));
+
+  const grouped = groupAuthors(
+    identities,
+    new Map([
+      ['Gaga_Liu', ['Backend']],
+      ['Corey_Lai', ['backend']],
+    ]),
+  );
+
+  const backend = grouped.filter((author) => author.custom);
+
+  assert.equal(backend.length, 1, 'one row, whichever way it was typed');
+  assert.equal(backend[0]?.members.length, 2);
+});
+
+test('the groups remembered by an older version are still read', async () => {
+  /*
+   * A spelling used to be in one group, and one group was stored as one string. Reading the old
+   * shape as if it were the new one gives a group per letter - so it is read as what it is, and
+   * nobody loses the grouping they did last week.
+   */
+  assert.deepEqual(
+    [...readGroupAssignments({ Lineric: 'Lineric Lin', lineric_lin: 'Lineric Lin' })],
+    [
+      ['Lineric', ['Lineric Lin']],
+      ['lineric_lin', ['Lineric Lin']],
+    ],
+  );
+
+  assert.deepEqual(
+    [...readGroupAssignments({ Winni_Lee: ['Platform', 'Release Rota'] })],
+    [['Winni_Lee', ['Platform', 'Release Rota']]],
+  );
+
+  assert.deepEqual([...readGroupAssignments({})], []);
 });
 
 test('a group made by hand can take a spelling back out of one the rule made', async () => {
@@ -434,7 +534,7 @@ test('a group made by hand can take a spelling back out of one the rule made', a
     'the rule puts them together',
   );
 
-  const apart = groupAuthors(identities, new Map([['max_chiue', 'Somebody Else']]));
+  const apart = groupAuthors(identities, new Map([['max_chiue', ['Somebody Else']]]));
 
   assert.deepEqual(
     apart.filter((a) => a.members.some((m) => m.name.toLowerCase() === 'max_chiue')).map((a) => a.name).sort(),
