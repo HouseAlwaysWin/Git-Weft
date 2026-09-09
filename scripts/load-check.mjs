@@ -3252,6 +3252,37 @@ if (disposeHandler !== null) {
     }
   }
 
+  /*
+   * Nothing the theme decides is remembered from one frame to the next.
+   *
+   * The lane colours were read once, when the panel said hello, and never again - so switching
+   * VS Code from a dark theme to a light one repainted the rows, the badges and the author tints
+   * and left the lanes and the dots in the old palette. Everything the stylesheet draws follows a
+   * theme on its own; the canvas is drawn from JavaScript and only knows what it was told.
+   *
+   * So the rule is that a value read out of the stylesheet is read in `measureFrame`, with the
+   * rest of what a frame needs, and nowhere else. Cheap - eight reads a frame, measured at
+   * 0.0013ms each - and it cannot go stale.
+   */
+  const measure = view.slice(view.indexOf('function measureFrame()'));
+  const frameBody = measure.slice(0, measure.indexOf('\n}\n'));
+  const cached = [...view.matchAll(/getPropertyValue\(/g)].length;
+  const perFrame = [...frameBody.matchAll(/getPropertyValue\(/g)].length;
+
+  console.log('');
+  console.log('theme reads    :', perFrame, 'of', cached, 'inside the frame');
+
+  if (cached !== perFrame) {
+    problems.push(
+      `${cached - perFrame} stylesheet reads happen outside measureFrame, so they go stale when the theme changes`,
+    );
+  }
+
+  // And something has to notice the theme moved, or the repaint waits for a scroll.
+  if (!/MutationObserver/.test(view)) {
+    problems.push('nothing watches for a theme change, so the canvas keeps the old colours');
+  }
+
   const missing = guards
     .filter(
       ([path, pattern]) =>

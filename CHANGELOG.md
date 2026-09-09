@@ -139,6 +139,20 @@
   also gives the remedies something to match: `fatal: command line, '[unclosed': Unmatched [ or [^`
   instead of nothing at all.
 
+- **The lanes follow the theme.** The palette was read once, when the panel said hello, and never
+  again - so switching VS Code from a dark theme to a light one repainted the rows, the ref badges
+  and the author tints and left the lanes and the dots in the colours of the theme you had left.
+  Half-updated, which reads as broken rather than as stale: the hollow merge dots took the new
+  background inside the old strokes. The colours are read with everything else a frame reads now,
+  and a change of theme asks for a repaint rather than waiting for a scroll to cause one.
+
+- **Keys belong to whatever has focus.** Down in the branch quick-switch moved the highlight in its
+  list *and* moved the selection in the graph and opened the details pane; Home in a text box
+  jumped the commit list to the top while the caret stayed put. The three dropdowns had it worst -
+  cancelling their default meant the arrow keys could no longer change what they were set to. The
+  search box had always stopped this for itself; every box gets it now, including the ones added
+  later.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
