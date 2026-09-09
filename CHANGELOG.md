@@ -187,6 +187,20 @@
   why nobody had seen it - but holding a sha and a subject per commit costs 900 bytes a row where
   flattened copies of the same two strings cost 205. Written down where the next cache will find it.
 
+- **A group the rule made can be taken apart.** It folds by case and separators - `Max_Chiue` and
+  `max_chiue` - because nine times in ten that is one person who configured git on two machines.
+  The tenth time it is two people, and the list had no way of being told: right-clicking a group the
+  rule had folded offered *Add to Group…* and nothing else, so the only thing you could do about a
+  wrong fold was make it wronger.
+
+  **Ungroup** now says so, on a whole group or on one spelling inside it - which is the case where
+  three of four really are the same person - and **Group by Spelling Again** hands it back, because
+  a correction that cannot be undone is a worse guess than the rule's.
+
+  A row in the author list has four states now, and the menu is driven entirely by which one it is
+  in, so a state with no entry of its own is a row whose only useful action is missing. That is what
+  this was. Every state is checked against the menus with the tests.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

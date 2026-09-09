@@ -148,8 +148,9 @@ Working:
   a filter you cannot see is one you forget is on
 - One row per person in **Authors**, opening onto the spellings it is made of - `Sean Lin`,
   `sean_lin`, `SEAN_LIN` are one row and three rows inside it, rather than one row with all
-  three names in it. Right-click to group two the rule will not join, or to take one back out;
-  those are remembered per repository. Ticking the person ticks every spelling, and a spelling
+  three names in it. Right-click to group two the rule will not join, to take one back out, or to
+  ungroup two it folded together that are not one person after all - and to hand that decision back
+  to the rule later. All of it remembered per repository. Ticking the person ticks every spelling, and a spelling
   can be ticked on its own
 - A group is a label rather than a box. Somebody on the platform team and on the release rota is in
   both, listed under each and saying on the row where else they appear; removing them from one

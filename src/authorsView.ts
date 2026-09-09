@@ -19,6 +19,10 @@
  * as many groups as it belongs to, and is listed under each. What it stops being is listed under
  * the rule's answer: an assignment replaces that rather than adding to it, or the first person you
  * grouped would appear twice.
+ *
+ * **And the rule's own groups come apart.** It folds by case and separators because that is nearly
+ * always right; when it is not, `Ungroup` says so and the spellings are listed on their own. There
+ * is a way back - the rule is a good guess, and undoing a correction should not mean retyping it.
  */
 
 import * as vscode from 'vscode';
@@ -327,6 +331,34 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
   }
 
   /**
+   * Keep these spellings out of everything, including the fold the rule would put them in.
+   *
+   * For the tenth time in ten, when `Max_Chiue` and `max_chiue` turn out to be two people. The rule
+   * has no idea and cannot be given one; all it can be given is an exception.
+   */
+  setApart(spellings: readonly string[]): void {
+    for (const spelling of spellings) {
+      this.custom.set(spelling, []);
+    }
+
+    this.saveGroups();
+  }
+
+  /** And back again, because a correction that cannot be undone is a worse guess than the rule's. */
+  letTheRuleDecide(spellings: readonly string[]): void {
+    for (const spelling of spellings) {
+      this.custom.delete(spelling);
+    }
+
+    this.saveGroups();
+  }
+
+  /** Whether a spelling is being kept out of the fold by hand rather than by the rule. */
+  private isApart(name: string): boolean {
+    return this.custom.get(name)?.length === 0;
+  }
+
+  /**
    * Take these spellings out of one group, or out of every group when no group is named.
    *
    * Out of the last one is not the same as alone: with no assignments left the spelling goes back
@@ -470,7 +502,13 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
       ...author.members.map((member) => `${member.name} — ${member.commits}`),
       ...author.emails.map((email) => `<${email}>`),
       `${author.commits} commits, across the whole history - the count takes no notice of what the graph is filtered to`,
-      author.custom ? 'Grouped by hand' : 'Grouped by spelling',
+      author.custom
+        ? 'Grouped by hand'
+        : several
+          ? 'Grouped by spelling - Ungroup if they are not one person'
+          : this.isApart(author.members[0]?.name ?? '')
+            ? 'Kept apart by hand'
+            : 'Grouped by spelling',
       ...(shared.length > 0
         ? [`${shared.length} of these are in other groups too, which count them as well`]
         : []),
@@ -490,7 +528,18 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
         ? vscode.TreeItemCheckboxState.Checked
         : vscode.TreeItemCheckboxState.Unchecked;
 
-    item.contextValue = author.custom ? 'weftAuthorGroupCustom' : 'weftAuthorGroup';
+    /*
+     * Four states, because each one has a different thing worth offering: a group made by hand can
+     * be dissolved, one the rule made can be taken apart, one taken apart by hand can be handed
+     * back to the rule, and a name that matched nobody has nothing to undo.
+     */
+    item.contextValue = author.custom
+      ? 'weftAuthorGroupCustom'
+      : several
+        ? 'weftAuthorGroupFolded'
+        : this.isApart(author.members[0]?.name ?? '')
+          ? 'weftAuthorGroupApart'
+          : 'weftAuthorGroup';
     item.iconPath = new vscode.ThemeIcon('account');
     return item;
   }

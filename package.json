@@ -263,6 +263,16 @@
         "title": "Close Line History",
         "category": "Git Weft",
         "icon": "$(close)"
+      },
+      {
+        "command": "weft.splitAuthor",
+        "title": "Ungroup — These Are Not One Person",
+        "category": "Git Weft"
+      },
+      {
+        "command": "weft.regroupAuthor",
+        "title": "Group by Spelling Again",
+        "category": "Git Weft"
       }
     ],
     "menus": {
@@ -367,6 +377,14 @@
         {
           "command": "weft.clearLineHistory",
           "when": "weft.lineHistory"
+        },
+        {
+          "command": "weft.splitAuthor",
+          "when": "false"
+        },
+        {
+          "command": "weft.regroupAuthor",
+          "when": "false"
         }
       ],
       "editor/context": [
@@ -477,6 +495,16 @@
           "command": "weft.showAllRefs",
           "when": "view == weft.refs && viewItem =~ /^weftRef/",
           "group": "filter@2"
+        },
+        {
+          "command": "weft.splitAuthor",
+          "when": "view == weft.authors && (viewItem == 'weftAuthorGroupFolded' || viewItem == 'weftAuthorSpelling')",
+          "group": "group@3"
+        },
+        {
+          "command": "weft.regroupAuthor",
+          "when": "view == weft.authors && viewItem == 'weftAuthorGroupApart'",
+          "group": "group@3"
         }
       ],
       "view/title": [

@@ -785,6 +785,37 @@ function start(context: vscode.ExtensionContext): void {
       }
     }),
 
+    /*
+     * The rule was wrong about these two.
+     *
+     * It folds by case and separators - `Max_Chiue` and `max_chiue` - because nine times in ten
+     * that is one person who has configured git twice. The tenth time it is two people, and until
+     * now the list had no way to be told: the group it made offered nothing but "add to a group",
+     * and adding both to one would have said the opposite of what was meant.
+     *
+     * On a whole group it takes all of them apart; on one spelling inside it, just that one, which
+     * is the case where three of four really are the same person.
+     */
+    vscode.commands.registerCommand('weft.splitAuthor', (node: unknown) => {
+      const target = asAuthorNode(node);
+
+      if (target !== undefined) {
+        authors.setApart(authors.spellingsOf(target));
+      }
+    }),
+
+    /*
+     * And back to the rule, which is where undoing a correction should land - not on a third state
+     * that has to be undone in turn. The rule is a guess, and it is usually right.
+     */
+    vscode.commands.registerCommand('weft.regroupAuthor', (node: unknown) => {
+      const target = asAuthorNode(node);
+
+      if (target !== undefined) {
+        authors.letTheRuleDecide(authors.spellingsOf(target));
+      }
+    }),
+
     vscode.commands.registerCommand('weft.sortAuthorsByName', () => authors.setOrder('name')),
     vscode.commands.registerCommand('weft.sortAuthorsByCommits', () => authors.setOrder('commits')),
 

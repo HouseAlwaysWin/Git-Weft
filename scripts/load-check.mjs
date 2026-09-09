@@ -1933,6 +1933,31 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     if (apart.length !== people.length) {
       problems.push(`ungrouping left ${apart.length} people, expected ${people.length}`);
     }
+
+    /*
+     * And the rule's own answer can be overruled the other way.
+     *
+     * Four states, each with one thing worth offering, and the menu is driven entirely by which of
+     * them a row is in - so a row in the wrong state is a row whose only useful action is missing.
+     * Which is what happened: a group the *rule* folded offered nothing but "add to a group".
+     */
+    const before = provider.getTreeItem(first).contextValue;
+
+    provider.setApart(provider.spellingsOf(first));
+    const kept = provider.getTreeItem((await provider.getChildren())[0]).contextValue;
+
+    provider.letTheRuleDecide(provider.spellingsOf(first));
+    const back = provider.getTreeItem((await provider.getChildren())[0]).contextValue;
+
+    console.log('row states     :', `${before} -> ${kept} -> ${back}`);
+
+    if (kept !== 'weftAuthorGroupApart') {
+      problems.push(`a spelling kept apart by hand is a ${kept}, so nothing offers to undo it`);
+    }
+
+    if (back !== before) {
+      problems.push(`handing a spelling back to the rule left it a ${back}, not a ${before}`);
+    }
   }
 }
 
@@ -3369,6 +3394,58 @@ if (disposeHandler !== null) {
   // And something has to notice the theme moved, or the repaint waits for a scroll.
   if (!/MutationObserver/.test(view)) {
     problems.push('nothing watches for a theme change, so the canvas keeps the old colours');
+  }
+
+  /*
+   * Every row in the author list can be undone from the row itself.
+   *
+   * The list has four states and the right-click menu is driven entirely by which one a row is in,
+   * so a state nobody wrote a menu entry for is a row whose only useful action is missing. That is
+   * exactly what happened: a group the *rule* folded - two spellings it decided were one person -
+   * offered "Add to Group…" and nothing else, so being wrong about a fold was not something the
+   * list could be told.
+   *
+   * The `when` clauses are matched the way VS Code matches them: a literal `viewItem == 'x'`, or a
+   * regular expression tested against the value.
+   */
+  const contextMenus = manifest.contributes.menus['view/item/context'] ?? [];
+
+  const offers = (value) =>
+    contextMenus
+      .filter((entry) => {
+        const when = entry.when ?? '';
+
+        if (!when.includes('weft.authors')) {
+          return false;
+        }
+
+        const pattern = /viewItem =~ \/([^/]+)\//.exec(when);
+
+        return pattern === null
+          ? when.includes(`viewItem == '${value}'`) || when.includes(`viewItem == ${value}`)
+          : new RegExp(pattern[1]).test(value);
+      })
+      .map((entry) => entry.command);
+
+  const states = [
+    ['weftAuthorGroupCustom', 'weft.ungroupAuthor'],
+    ['weftAuthorGroupFolded', 'weft.splitAuthor'],
+    ['weftAuthorGroupApart', 'weft.regroupAuthor'],
+    ['weftAuthorSpelling', 'weft.splitAuthor'],
+    ['weftAuthorSpellingCustom', 'weft.ungroupAuthor'],
+  ];
+
+  console.log('');
+  console.log('author rows    :', states.map(([value]) => `${value.replace('weftAuthor', '')}`).join(', '));
+
+  for (const [value, wanted] of states) {
+    const menu = offers(value);
+
+    if (!menu.includes(wanted)) {
+      problems.push(
+        `a ${value} row offers ${menu.join(', ') || 'nothing'}, so ${wanted} is out of reach from it`,
+      );
+    }
   }
 
   const missing = guards

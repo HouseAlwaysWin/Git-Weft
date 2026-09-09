@@ -32,6 +32,7 @@ import {
   workAtRisk,
 } from '../src/git/repoState.ts';
 import { Remedy, mapGitError } from '../src/git/errors.ts';
+import type { Author } from '../src/git/authors.ts';
 import { groupAuthors, listAuthors, readGroupAssignments } from '../src/git/authors.ts';
 import { blameFile } from '../src/git/blame.ts';
 import type { ActionUi, Target } from '../src/actions/registry.ts';
@@ -496,6 +497,52 @@ test('a group named twice over is one group, not two', async () => {
 
   assert.equal(backend.length, 1, 'one row, whichever way it was typed');
   assert.equal(backend[0]?.members.length, 2);
+});
+
+test('the rule can be told it was wrong about two spellings', async () => {
+  /*
+   * It folds by case and separators, which is right nine times in ten: `Max_Chiue` and
+   * `max_chiue` are one person who configured git on two machines. The tenth time they are two
+   * people, and the list had no way of being told - the group the rule made offered nothing but
+   * "add to a group", and adding both to one would have said the opposite of what was meant.
+   *
+   * No groups at all is the third answer, and it is not the same as no assignment: no assignment
+   * means "the rule decides", and the rule is exactly what is being overruled.
+   */
+  const dir = makeRepo();
+
+  commitAs(dir, 'Max_Chiue', 'max@example.invalid', 'upper.txt');
+  commitAs(dir, 'max_chiue', 'max@example.invalid', 'lower.txt');
+
+  const identities = await listAuthors(git, await open(dir));
+  const named = (list: readonly Author[]): Author[] =>
+    list.filter((one) => one.name.toLowerCase() === 'max_chiue');
+
+  assert.equal(named(groupAuthors(identities)).length, 1, 'the rule folds them to begin with');
+
+  const apart = groupAuthors(
+    identities,
+    new Map<string, string[]>([
+      ['Max_Chiue', []],
+      ['max_chiue', []],
+    ]),
+  );
+
+  assert.equal(named(apart).length, 2, 'and comes apart when it is told to');
+  assert.deepEqual(named(apart).map((one) => one.members.length), [1, 1]);
+
+  assert.ok(
+    named(apart).every((one) => !one.custom),
+    'kept apart by hand is not the same as put together by hand, and the row should not say it is',
+  );
+
+  // One of the two, for the group of four where three of them really are the same person.
+  const one = groupAuthors(identities, new Map<string, string[]>([['max_chiue', []]]));
+
+  assert.equal(named(one).length, 2, 'taking one spelling out leaves the rest folded');
+
+  // And back: an empty entry is an override, and removing an override restores what was underneath.
+  assert.equal(named(groupAuthors(identities, new Map())).length, 1);
 });
 
 test('the groups remembered by an older version are still read', async () => {

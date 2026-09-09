@@ -17,6 +17,12 @@
  * release rota, and being asked to pick one of those is being asked the wrong question. So a
  * spelling carries any number of group names, and appears under each of them.
  *
+ * And no names at all is the third answer: the rule folded two spellings together and it was wrong
+ * about them. `Max_Chiue` and `max_chiue` are one person nine times out of ten, which is why the
+ * rule folds them - but the tenth time they are two, and there has to be a way to say so. An empty
+ * list of groups means exactly that: leave this spelling out of everything, including the fold it
+ * would otherwise be in.
+ *
  * **What the counts cover:** `--all` walks every ref, back to the root commit. It is the whole
  * history and takes no notice of what the graph is currently narrowed to - a date range, a search,
  * a branch unticked - so the number beside a name does not move when those do.
@@ -155,6 +161,15 @@ export function readGroupAssignments(
  * person each count that person's commits. That is what a label does, and the alternative is a row
  * that says a number no tick of it would produce.
  */
+/**
+ * The key for a spelling kept out of the fold.
+ *
+ * A fingerprint is letters and digits, so nothing it produces can start with a NUL - which makes
+ * this a namespace of its own and `Max_Chiue` and `max_chiue` two rows rather than one, even
+ * though every other rule here says they are the same name.
+ */
+const APART = '\u0000';
+
 export function groupAuthors(
   identities: readonly AuthorIdentity[],
   custom: ReadonlyMap<string, readonly string[]> = new Map(),
@@ -165,7 +180,7 @@ export function groupAuthors(
   >();
 
   for (const identity of identities) {
-    const named = custom.get(identity.name) ?? [];
+    const named = custom.get(identity.name);
 
     /*
      * Where this spelling is listed, by key and by the name to show: the groups it was put in, or
@@ -182,8 +197,11 @@ export function groupAuthors(
      */
     const places = new Map<string, string | null>();
 
-    if (named.length === 0) {
+    if (named === undefined) {
       places.set(fingerprint(identity.name), null);
+    } else if (named.length === 0) {
+      // Said out loud: not in any group, and not in the one the rule would have folded it into.
+      places.set(`${APART}${identity.name}`, null);
     } else {
       for (const name of named) {
         places.set(fingerprint(name), name);
