@@ -35,6 +35,17 @@
   returns Ali's commits though nobody in that repository is called `zz`. The button widened the
   search while its label said it narrowed it, which is worse than not being there.
 
+- **The uncommitted row keeps up with the working tree again** where the repository's folder has
+  more than one name. Saving a file moves nothing inside `.git`, which is all Weft watches itself,
+  so it hears about it from the built-in git extension instead - and it found the right repository
+  to listen to by comparing two paths as text. One directory has several spellings:
+  `C:\Users\MARTIN~1\...` and `C:\Users\Martin_Wang\...` are the same folder, and a junction or a
+  symlink parts them just as well. Both sides are resolved before they are compared now.
+
+  Nothing about this looked like a bug, which is why it stood for four days with a test pointing
+  straight at it: the subscription simply never happened, and a stale row says nothing. It is also
+  the last red in `npm test`, which now passes end to end.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

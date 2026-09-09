@@ -425,7 +425,17 @@ const vscodeStub = {
               getAPI: () => ({
                 repositories: [
                   {
-                    rootUri: uri(repoPath.replace(/\\/g, '/')),
+                    /*
+                     * The same directory, spelled differently on purpose.
+                     *
+                     * Weft's root comes from `git rev-parse --show-toplevel` and this one does not,
+                     * which is the whole reason the two have to be compared as paths rather than as
+                     * text. On this machine `mkdtemp` already hands back `C:/Users/MARTIN~1/...`
+                     * where git hands back `C:/Users/Martin_Wang/...` - but 8.3 short names are a
+                     * Windows accident, so the divergence is made deliberate here as well and the
+                     * assertion means the same thing on every machine.
+                     */
+                    rootUri: uri(repoPath.replace(/\\/g, '/') + '/.git/..'),
                     state: { onDidChange: repositoryState.event },
                   },
                 ],

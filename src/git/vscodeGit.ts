@@ -10,6 +10,8 @@
  * through this module ends in "then there is one fewer trigger", never in an error.
  */
 
+import { realpathSync } from 'node:fs';
+
 import * as vscode from 'vscode';
 
 interface Repository {
@@ -36,6 +38,33 @@ async function api(): Promise<GitApi | null> {
   } catch {
     // Disabled, or the shape moved. Either way there is nothing to subscribe to.
     return null;
+  }
+}
+
+/**
+ * One directory, spelled the way the filesystem spells it.
+ *
+ * This is the one place in Weft where two producers of a path meet: a root here came from
+ * `git rev-parse --show-toplevel`, and the git extension's came from its own resolution. One
+ * directory has more than one name - `C:\Users\MARTIN~1\...` and `C:\Users\Martin_Wang\...` are
+ * the same folder, and 8.3 short names are handed out by plenty of things that make paths - so
+ * comparing the two as text says they are different.
+ *
+ * Measured: `mkdtemp` returns the short form and `--show-toplevel` the long one for the very same
+ * directory. Junctions and symlinks part the same way, which is why both sides are resolved rather
+ * than one being normalised towards the other.
+ *
+ * A silent failure, and the module's own promise is what hid it: every path through here ends in
+ * one fewer trigger rather than an error, so the subscription simply never happened and the
+ * working-tree row sat there stale with nothing to say it should not have.
+ */
+function canonical(path: string): string {
+  try {
+    return realpathSync.native(path).replace(/\\/g, '/').toLowerCase();
+  } catch {
+    // Gone, or a filesystem without a real path to give. The spelling as handed over is what is
+    // left, and it is what this compared before.
+    return path.replace(/\\/g, '/').toLowerCase();
   }
 }
 
@@ -104,7 +133,7 @@ export function watchWorkingTree(root: string, onChange: () => void): { dispose(
       return;
     }
 
-    const wanted = root.replace(/\\/g, '/').toLowerCase();
+    const wanted = canonical(root);
 
     /*
      * Guarded, because this runs outside the `try` above: an event handler is called later, by
@@ -114,7 +143,7 @@ export function watchWorkingTree(root: string, onChange: () => void): { dispose(
      */
     const watch = (repository: Repository): void => {
       try {
-        if (repository.rootUri.fsPath.replace(/\\/g, '/').toLowerCase() === wanted) {
+        if (canonical(repository.rootUri.fsPath) === wanted) {
           add(repository.state.onDidChange(onChange));
         }
       } catch {
