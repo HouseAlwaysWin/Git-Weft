@@ -9,6 +9,7 @@ import {
   TOGGLES,
   authorArgs,
   escapeBasicRegex,
+  fileHistorySearch,
   filterArgs,
   foldCase,
   looksLikeCommitId,
@@ -283,6 +284,27 @@ test('a path filter goes last, behind --', () => {
 
   assert.deepEqual(args, ['--', 'src/app.ts']);
   assert.equal(args[args.length - 2], '--', 'git reads anything before -- as a revision');
+});
+
+test("a file's history is the file, not whatever it was copied from", () => {
+  /*
+   * `--follow` is not only about renames. git turns copy detection on for it, so it looks for a
+   * source among every file in the commit that added the path rather than only among the ones that
+   * went away - and a file made by copying its neighbour is followed onto the neighbour, which is
+   * still sitting there.
+   *
+   * Measured on a service file scaffolded from the module next door: 69 commits with `--follow`
+   * where the path itself had 61, and the eight extra belonged to two other modules, back to a
+   * file with a different name in a different folder. Nothing on screen said so.
+   */
+  const search = fileHistorySearch('src/app.ts');
+
+  assert.equal(search.follow, false, 'a history of the wrong file still looks like a history');
+  assert.equal(search.mode, SearchMode.Path);
+  assert.deepEqual(searchArgs(search), ['--', ':(icase)src/app.ts']);
+
+  // The switch stays for somebody who knows their file was moved, and still means what it meant.
+  assert.deepEqual(searchArgs({ ...search, follow: true }), ['--follow', '--', 'src/app.ts']);
 });
 
 test('a query that looks like a flag stays one argument', () => {

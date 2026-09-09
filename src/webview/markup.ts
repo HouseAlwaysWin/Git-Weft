@@ -72,7 +72,7 @@ export const BODY_MARKUP = `<header id="header">
         <option value="author" title="Who wrote the commit. Matches the name or the email address, so a domain finds everyone at one company.">author</option>
         <option value="committer" title="Who committed it, which is the same person as the author until a commit is rebased, cherry-picked, or applied from a patch by somebody else. On a repository where one person lands everyone else&#39;s work, this is how you find what they landed.">committer</option>
         <option value="content" title="Not the message - the files. Finds commits whose diff added or removed this text, which is how you ask when a function first appeared or when a string was deleted. No other mode can answer that.">content</option>
-        <option value="path" title="Commits that touched this path. The follow switch keeps the history going past a rename, so it does not stop where the file was moved.">path</option>
+        <option value="path" title="Commits that touched this path. The follow switch carries the history past a rename - and past a copy, so read what it says before trusting it.">path</option>
       </select>
       <span id="search-field">
         <input id="search-input" type="search" placeholder="Search or paste a hash" spellcheck="false">
@@ -81,7 +81,7 @@ export const BODY_MARKUP = `<header id="header">
           <button class="toggle" type="button" data-toggle="regex" title="Read the query as a regular expression">.*</button>
           <button class="toggle" type="button" data-toggle="allTerms" title="Require every word, not any one of them">all</button>
           <button class="toggle" type="button" data-toggle="invert" title="Show the commits that do not match">not</button>
-          <button class="toggle" type="button" data-toggle="follow" title="Follow the file through renames, so its history does not stop where it was moved. git will not take a case-insensitive path this way, so matching becomes exact.">follow</button>
+          <button class="toggle" type="button" data-toggle="follow" title="Carry the history past a rename, so it does not stop where the file was moved. Off by default, because git looks for copies as well: a file scaffolded by copying its neighbour is followed into the neighbour's history, and nothing says so. git will not take a case-insensitive path this way either, so matching becomes exact.">follow</button>
         </span>
       </span>
     </span>

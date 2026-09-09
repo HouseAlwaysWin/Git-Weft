@@ -38,8 +38,9 @@ Working:
 - Click or arrow-key a commit for its message and metadata; what it changed lands in the **Commit
   Files** section in Source Control, as a folded tree or a flat list
 - One file's history: right-click it in **Commit Files** for **Show File History**, and the graph
-  narrows to that path with renames followed - so it does not stop where the file was moved. The
-  path search has a `follow` switch of its own for a path you type
+  narrows to that path. Renames are not followed unless you ask: `--follow` detects copies as well,
+  so a file scaffolded by copying its neighbour is followed into the neighbour's history without
+  saying so. The `follow` switch is there for a file you know was moved
 - The branch button in the header lists every branch: click a name to check it out, or use the
   ticks to choose which branches the graph draws. The ticks are the same ones as in **Branches &
   Tags**, not a second copy. Local and Remote roll up, and each heading has a tick for all of
@@ -107,7 +108,7 @@ Working:
   waiting for the page that carries it if it is forty thousand rows down. `weft.inlineBlame`
   turns it off
 - **Show File History** on any file - in the Explorer, on a tab, inside an editor, or in the
-  changed-files list - narrows the graph to the commits that touched it, following renames
+  changed-files list - narrows the graph to the commits that touched that path
 - **Toggle File Blame**, on the editor’s right-click menu, puts every line’s author and date in
   a column down the left. Off unless asked for, and per file: it moves the code right and gives
   the eye a second column, which is worth it while reading a file’s history and in the way while

@@ -374,6 +374,33 @@ function basicRegexToJs(pattern: string, fold: boolean): RegExp | null {
 }
 
 /**
+ * What **Show File History** asks for: this path, and nothing else switched on.
+ *
+ * Following renames is deliberately off, which is not what the name of the switch would suggest.
+ * `--follow` turns on git's *copy* detection as well - it looks for a source among every file in
+ * the commit that added the path, not only among the ones that went away - so a file made by
+ * copying its neighbour is followed onto a neighbour that is still sitting there.
+ *
+ * Measured, on a service file scaffolded from the module next door: `--follow` gave 69 commits
+ * where the path itself had 61, and the eight extra were two other modules' histories, back to a
+ * file with a different name in a different folder. Nothing on screen said so, which is the part
+ * that makes it worth turning off - a history of the wrong file still looks like a history.
+ *
+ * The switch stays, for somebody who knows their file was moved and wants to say so.
+ */
+export function fileHistorySearch(path: string): Search {
+  return {
+    query: path,
+    mode: SearchMode.Path,
+    regex: false,
+    caseSensitive: false,
+    allTerms: false,
+    invert: false,
+    follow: false,
+  };
+}
+
+/**
  * Whether a query is a commit id rather than something to grep for.
  *
  * Typing a hash into a search box should jump to that commit, not run a substring match over every

@@ -21,7 +21,7 @@ import type { CommitInfo, CommitOrder, RefEntry } from '../protocol.ts';
 import type { DateRange } from '../git/dates.ts';
 import type { Upstream } from '../git/repoState.ts';
 import type { Search, SearchMode, SearchToggle } from '../git/search.ts';
-import { TOGGLES, looksLikeCommitId } from '../git/search.ts';
+import { TOGGLES, fileHistorySearch, looksLikeCommitId } from '../git/search.ts';
 import { describeAge } from '../git/blame.ts';
 import type { MenuItem, Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
@@ -2995,11 +2995,15 @@ function currentRange(): DateRange | null {
  * be case-insensitive.
  */
 function showHistory(path: string): void {
-  searchMode.value = 'path';
-  searchInput.value = path;
+  // What it asks for is decided in `search.ts`, where it can be tested. Following renames is off,
+  // and the reason is measured there.
+  const wanted = fileHistorySearch(path);
+
+  searchMode.value = wanted.mode;
+  searchInput.value = wanted.query;
 
   for (const toggle of Object.keys(searchOptions) as SearchToggle[]) {
-    searchOptions[toggle] = toggle === 'follow';
+    searchOptions[toggle] = wanted[toggle];
   }
 
   dateRange.value = '';

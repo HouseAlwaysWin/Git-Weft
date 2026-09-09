@@ -87,6 +87,20 @@
   Groups saved by 0.6.0 are read as they were written; nobody loses the grouping they have already
   done.
 
+- **Show File History shows that file's history**, and not the history of whatever it was copied
+  from. It was asking git to follow renames, and `--follow` is not only about renames: git turns
+  copy detection on for it, looking for a source among every file in the commit that added the
+  path rather than only among the ones that went away. A file scaffolded by copying its neighbour
+  is therefore followed onto the neighbour - which is still sitting there beside it.
+
+  Measured on `wor600.service.ts`, a service file started from the module next door: 69 commits
+  with following on where the path itself had 61, and the eight extra belonged to two other
+  modules, back through `wou065.service.ts` to `apr090.service.ts` - a different name in a
+  different folder, three years earlier. Nothing on screen said so, which is what makes it worth
+  turning off rather than explaining: a history of the wrong file still looks like a history.
+
+  The **follow** switch is still there for a file you know was moved, and now says what it does.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
