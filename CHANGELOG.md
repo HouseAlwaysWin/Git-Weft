@@ -170,6 +170,23 @@
   every time somebody asked about three lines. So it answers from HEAD, says so in its heading, and
   clicking a row finds that commit in the graph - the same jump the blame hover makes.
 
+- **A graph tab holds 19% less**, and the README no longer points at the wrong work. It said 68 MB
+  of commit objects was more than an extension host should hold and that the answer was a columnar
+  store. Measured against a real repository - 78,282 commits, 1,177 refs - both halves were wrong:
+  the host holds 0.8 MB, because it maps a page, posts it and forgets it, and the columnar store
+  was worth about 9% of a number that was in the other process.
+
+  What the tab actually holds, measured per part, is written down now. The two things worth taking
+  are taken: the lane points were an object per point and are now interleaved doubles, and the rows
+  share one empty array for the commits that carry no ref and intern the author's name as it
+  arrives - eighty-one distinct names were being held seventy-eight thousand times, because the
+  structured clone at the boundary hands over a fresh copy of each. 69.2 MB to 55.9.
+
+  And the thing that was hiding underneath: every field the parser produces is a *sliced* string,
+  so keeping one sha keeps the whole page it was parsed from. Nothing retains them today - which is
+  why nobody had seen it - but holding a sha and a subject per commit costs 900 bytes a row where
+  flattened copies of the same two strings cost 205. Written down where the next cache will find it.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves

@@ -14,6 +14,13 @@
  *
  * Kept out of the view because a `document` is not needed to answer any of it, and because an
  * optimisation nobody can run against the old one is not one anybody should trust.
+ *
+ * **The points are numbers, not objects.** A lane arrives as a list of `{x, y}`, and a tab holds
+ * every lane for its whole life: 186,723 points on that same history, at sixty-odd bytes each once
+ * V8 has given every one of them a header and a map pointer. Interleaved into a plain array of
+ * doubles they are sixteen bytes a point, and V8 keeps such an array unboxed - measured, the lanes
+ * went from 17.0 MB to a fraction of it. The shape is the only thing that changed; `push` still
+ * appends, and the draw loop reads pairs instead of properties.
  */
 
 import type { PathDelta } from './layout.ts';
@@ -22,7 +29,8 @@ import type { Point } from './model.ts';
 /** One lane, and the two rows a frame asks about it. */
 export interface LanePath {
   readonly color: number;
-  readonly points: readonly Point[];
+  /** Interleaved `x, y, x, y…`, so a point is two entries and `length` is twice the count. */
+  readonly points: readonly number[];
   /** The row it opens on, which never moves. */
   readonly from: number;
   /** The row it reaches so far, which grows as the walk hands over more of it. */
@@ -38,7 +46,7 @@ export interface LanePath {
 }
 
 interface Mutable extends LanePath {
-  points: Point[];
+  points: number[];
   to: number;
 }
 
@@ -64,14 +72,18 @@ export class LaneStore {
       const last = path.points[path.points.length - 1];
 
       if (existing !== undefined) {
-        existing.points.push(...path.points);
+        append(existing.points, path.points);
         existing.to = last?.y ?? existing.to;
         continue;
       }
 
+      const points: number[] = [];
+
+      append(points, path.points);
+
       const lane: Mutable = {
         color: path.color,
-        points: [...path.points],
+        points,
         from: path.points[0]?.y ?? 0,
         to: last?.y ?? 0,
         opened: this.order.length,
@@ -102,8 +114,8 @@ export class LaneStore {
     for (let i = 0; i < below; i++) {
       const lane = this.order[i] as Mutable;
 
-      // A lane of one point draws nothing; it has only just opened.
-      if (lane.to >= topRow && lane.points.length > 1) {
+      // A lane of one point draws nothing; it has only just opened. Two entries is one point.
+      if (lane.to >= topRow && lane.points.length > 2) {
         on.push(lane);
       }
     }
@@ -152,3 +164,10 @@ export class LaneStore {
 }
 
 const byOpened = (a: LanePath, b: LanePath): number => a.opened - b.opened;
+
+/** Flatten a page's worth of points onto the end of a lane. */
+function append(points: number[], arriving: readonly Point[]): void {
+  for (const point of arriving) {
+    points.push(point.x, point.y);
+  }
+}

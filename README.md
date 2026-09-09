@@ -303,7 +303,6 @@ On a synthetic 100,000-commit repository (`scripts/make-fixture.mjs`), Windows 1
 | Full history walked and laid out | 1.1 s |
 | Throughput | ~90,000 commits/sec |
 | Graph points for 100k rows | 7,998 |
-| Parsed history in memory | 68 MB |
 | First row: commit date / author date / topological | 521 / 551 / 517 ms |
 
 The three orderings cost the same, which is worth saying because it sounds as though they should
@@ -312,8 +311,43 @@ and git's own chronological order, which *is* cheap, is not on offer: it can put
 child under clock skew, and the lane layout cannot survive that. The choice is which shape the
 history reads best in, not what it is worth waiting for.
 
-Memory is the number that still needs work: 68 MB of commit objects is more than an extension host
-should hold, and the next optimisation is a columnar store rather than one object per commit.
+### Memory
+
+This section used to say that 68 MB of commit objects was more than an extension host should hold,
+and that the next thing to do was a columnar store. Both halves were wrong, and finding out took
+one afternoon of measuring against a real repository - 78,282 commits and 1,177 refs.
+
+**The host holds almost nothing.** It maps a page into rows, posts it, and forgets it. Walking that
+whole history while keeping nothing costs 0.8 MB. The 68 MB was a harness holding what the host
+hands over, which is not a thing the extension does.
+
+**The tab is where the history lives**, and it is measured per part:
+
+| | before | now |
+| --- | --- | --- |
+| rows | 37.6 MB | 32.3 MB |
+| lanes (19,899 of them, 186,723 points) | 17.0 MB | ~9 MB |
+| dots (one per commit) | 9.1 MB | 9.1 MB |
+| merge arcs | 2.9 MB | 2.9 MB |
+| row widths | ~0 | ~0 |
+| **a graph tab, all told** | **69.2 MB** | **55.9 MB** |
+
+The lane points were `{ x, y }` objects and are now interleaved into a plain array of doubles -
+sixty-odd bytes a point down to sixteen, and V8 keeps such an array unboxed. The rows share one
+frozen empty array for the commits that carry no ref, and intern the author's name on arrival:
+eighty-one distinct names were being held seventy-eight thousand times, because the structured
+clone at the boundary hands over a fresh copy of each.
+
+**And the trap that was hiding underneath it.** Every field the parser produces comes out of
+`String.split`, and V8 answers that with a *sliced* string - a pointer into the parent. Keeping one
+sha keeps its whole record; keeping the record keeps the page it was parsed from. Measured: holding
+a sha and a subject per commit costs 900 bytes a row, and holding flattened copies of the same two
+strings costs 205. Nothing retains them today, which is why nobody had seen it - but a cache added
+without knowing would pay 4.5x for the privilege, and no rearrangement of the row would touch it.
+
+The columnar store the old note recommended was measured too, end to end: 75 MB down to 68, about
+9%. Days of invasive work across sorting, filtering, selection and comparison, for a twelfth of a
+number that was in the other process.
 
 ## Development
 

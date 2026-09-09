@@ -214,6 +214,44 @@ test('a frame finds the same lanes walking every one of them would have', () => 
   assert.ok(store.size > 50, `only ${store.size} lanes, which is not enough to be worth searching`);
 });
 
+test('a lane keeps the layout own points, two numbers at a time', () => {
+  /*
+   * The points are interleaved into a plain array of doubles rather than kept as objects: a tab
+   * holds every lane for its whole life, and 186,723 of { x, y } is 17 MB of V8 object headers on
+   * a real repository. The saving is worthless if the pairs come apart, and coming apart draws a
+   * graph - just not this one - so the flattening is checked against what the layout said.
+   */
+  const commits = branchy(120);
+  const state = new LayoutState();
+  const store = new LaneStore();
+  const arrived = new Map<number, Point[]>();
+
+  for (let i = 0; i < commits.length; i += 25) {
+    const delta = appendCommits(state, commits.slice(i, i + 25));
+
+    store.add(delta.paths);
+
+    for (const path of delta.paths) {
+      const points = arrived.get(path.id) ?? [];
+      points.push(...path.points);
+      arrived.set(path.id, points);
+    }
+  }
+
+  const flat = [...arrived.values()].map((points) => points.flatMap((p) => [p.x, p.y]));
+  const held = store.visible(-1, commits.length + 1).map((lane) => [...lane.points]);
+
+  assert.ok(held.length > 3, `only ${held.length} lanes, which proves little`);
+
+  for (const points of held) {
+    assert.equal(points.length % 2, 0, 'a lane ended on half a point');
+    assert.ok(
+      flat.some((one) => one.length === points.length && one.every((n, i) => n === points[i])),
+      'a lane holds points the layout never produced',
+    );
+  }
+});
+
 test('a lane store forgets everything when the graph is reloaded', () => {
   // The view clears it on every reset, and a stale lane would be drawn at a row that now belongs
   // to a different commit.
