@@ -109,6 +109,12 @@ Working:
   turns it off
 - **Show File History** on any file - in the Explorer, on a tab, inside an editor, or in the
   changed-files list - narrows the graph to the commits that touched that path
+- **Show Line History**, on the editor’s right-click menu: the commits that touched the selected
+  lines, in a section of its own beside the graph. Not the file’s history narrowed down - a commit
+  that changed a different part of the same file is not in it, and a line that moved is followed to
+  where it moved. It answers from HEAD, because `git log -L` walks from one commit and “the history
+  of these lines” is a different question on a different branch. Click a row to find that commit in
+  the graph
 - **Toggle File Blame**, on the editor’s right-click menu, puts every line’s author and date in
   a column down the left. Off unless asked for, and per file: it moves the code right and gives
   the eye a second column, which is worth it while reading a file’s history and in the way while

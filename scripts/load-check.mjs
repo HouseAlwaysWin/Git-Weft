@@ -225,7 +225,7 @@ const editorDocument = {
 
 const activeEditor = {
   document: editorDocument,
-  selection: { active: { line: 0 } },
+  selection: { active: { line: 0 }, start: { line: 0 }, end: { line: 0 } },
   setDecorations: (_type, ranges) => decorations.push(ranges),
 };
 
@@ -3160,6 +3160,94 @@ if (disposeHandler !== null) {
 
   if (!cleared) {
     problems.push('Toggle File Blame a second time did not take the column away');
+  }
+}
+
+/*
+ * The history of a few lines, in its own section.
+ *
+ * `git log -L` walks from exactly one commit - two refs are "More than one commit to dig from" -
+ * so this can never be the graph's walk with a filter on it, and the ref list must never reach its
+ * command line. Which is why it is a list beside the graph rather than a mode inside it, and why
+ * the two are joined by a click rather than by state.
+ */
+{
+  const provider = treeProviders.get('weft.lineHistory');
+
+  if (provider === undefined) {
+    problems.push('no line history section was contributed');
+  } else {
+    const empty = provider.getChildren();
+
+    activeEditor.selection = { active: { line: 0 }, start: { line: 0 }, end: { line: 0 } };
+    await commands.get('weft.showLineHistory')();
+
+    const found = provider.getChildren();
+    const first = found[0];
+
+    console.log('');
+    console.log(
+      'line history   :',
+      `${found.length} commits touched line 1 of f1.txt`,
+      '| before asking:',
+      empty.length,
+    );
+
+    if (empty.length !== 0) {
+      problems.push('the line history section had commits in it before anybody asked');
+    }
+
+    if (found.length === 0) {
+      problems.push('asking for the history of a line that has one came back empty');
+    }
+
+    if (contextKeys.get('weft.lineHistory') !== true) {
+      problems.push('the line history section stayed hidden after it was asked a question');
+    }
+
+    if (first !== undefined) {
+      const item = provider.getTreeItem(first);
+
+      console.log('  row          :', `${item.label} — ${item.description}`);
+
+      if (item.command?.command !== 'weft.revealCommit') {
+        problems.push(`a line history row runs ${item.command?.command}, not weft.revealCommit`);
+      }
+
+      // The click, end to end: the graph has to answer with that commit and not another.
+      const before = posted.filter((m) => m.type === 'reveal').length;
+      await commands.get(item.command.command)(...item.command.arguments);
+
+      const deadline = Date.now() + 20_000;
+      while (
+        Date.now() < deadline &&
+        posted.filter((m) => m.type === 'reveal').length === before
+      ) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+
+      const revealed = posted.filter((m) => m.type === 'reveal').pop();
+
+      console.log('  clicked      :', revealed?.sha?.slice(0, 8), 'revealed in the graph');
+
+      if (revealed?.sha !== first.sha) {
+        problems.push(
+          `clicking a line history row revealed ${revealed?.sha?.slice(0, 8)}, not ${first.sha.slice(0, 8)}`,
+        );
+      }
+    }
+
+    await commands.get('weft.clearLineHistory')();
+
+    console.log('  closed       :', provider.getChildren().length, 'rows left');
+
+    if (provider.getChildren().length !== 0) {
+      problems.push('closing the line history section left its rows behind');
+    }
+
+    if (contextKeys.get('weft.lineHistory') !== false) {
+      problems.push('closing the line history section left it on screen');
+    }
   }
 }
 

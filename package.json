@@ -252,6 +252,17 @@
         "command": "weft.pushForce",
         "title": "Force Push (with lease)",
         "category": "Git Weft"
+      },
+      {
+        "command": "weft.showLineHistory",
+        "title": "Show Line History",
+        "category": "Git Weft"
+      },
+      {
+        "command": "weft.clearLineHistory",
+        "title": "Close Line History",
+        "category": "Git Weft",
+        "icon": "$(close)"
       }
     ],
     "menus": {
@@ -348,6 +359,14 @@
         {
           "command": "weft.manageRemotes",
           "when": "weft.graphVisible"
+        },
+        {
+          "command": "weft.showLineHistory",
+          "when": "weft.hasRepository"
+        },
+        {
+          "command": "weft.clearLineHistory",
+          "when": "weft.lineHistory"
         }
       ],
       "editor/context": [
@@ -360,6 +379,11 @@
           "command": "weft.showFileHistory",
           "when": "editorTextFocus && resourceScheme == file && weft.hasRepository",
           "group": "navigation@101"
+        },
+        {
+          "command": "weft.showLineHistory",
+          "when": "editorTextFocus && resourceScheme == file && weft.hasRepository",
+          "group": "navigation@102"
         }
       ],
       "explorer/context": [
@@ -540,6 +564,11 @@
           "command": "weft.filesAsTree",
           "when": "view == weft.files && !weft.filesAsTree",
           "group": "navigation@1"
+        },
+        {
+          "command": "weft.clearLineHistory",
+          "when": "view == weft.lineHistory",
+          "group": "navigation@1"
         }
       ]
     },
@@ -637,6 +666,14 @@
           "contextualTitle": "Weft",
           "visibility": "collapsed",
           "when": "weft.hasRepository"
+        },
+        {
+          "id": "weft.lineHistory",
+          "name": "Line History",
+          "icon": "media/weft.svg",
+          "contextualTitle": "Weft",
+          "visibility": "visible",
+          "when": "weft.lineHistory"
         }
       ]
     }

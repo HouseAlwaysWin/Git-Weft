@@ -12,6 +12,8 @@ import type { AuthorNode } from './authorsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
 import { BlameAnnotations } from './blameAnnotations.ts';
+import { LineHistoryProvider } from './lineHistoryView.ts';
+import { lineHistory } from './git/lineHistory.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
 
 let output: vscode.LogOutputChannel | undefined;
@@ -221,6 +223,15 @@ function start(context: vscode.ExtensionContext): void {
   const files = new FilesProvider(context.globalState);
   const filesView = vscode.window.createTreeView('weft.files', { treeDataProvider: files });
 
+  /*
+   * The lines somebody asked about. Its own section rather than the graph narrowed down, because
+   * `git log -L` walks from one commit and cannot be the graph's walk with a filter on it.
+   */
+  const lines = new LineHistoryProvider();
+  const linesView = vscode.window.createTreeView('weft.lineHistory', { treeDataProvider: lines });
+
+  lines.attach(linesView);
+
   files.attach(filesView);
   setCommitFiles({
     show: (repo, details) => files.setCommit(repo, details),
@@ -375,6 +386,53 @@ function start(context: vscode.ExtensionContext): void {
         filters,
       ).revealCommit(sha);
     }),
+
+    /*
+     * The history of the lines in front of you.
+     *
+     * The question blame raises and does not answer: blame says who touched a line last, this says
+     * who touched it before that. From the selection, or from the line the cursor is on when there
+     * is no selection - which is the same gesture the inline blame already answers about.
+     */
+    vscode.commands.registerCommand('weft.showLineHistory', async () => {
+      const editor = vscode.window.activeTextEditor;
+
+      if (editor === undefined || editor.document.uri.scheme !== 'file') {
+        return;
+      }
+
+      const path = editor.document.uri.fsPath;
+      const repo = await discover(git, dirname(path)).catch(() => null);
+
+      if (repo === null) {
+        void vscode.window.showInformationMessage('Weft: that file is not in a git repository.');
+        return;
+      }
+
+      // Editors count from zero and `-L` counts from one, which is a difference worth making in
+      // one place rather than at both ends of it.
+      const range = {
+        path: await repoRelative(git, path),
+        from: editor.selection.start.line + 1,
+        to: editor.selection.end.line + 1,
+      };
+
+      try {
+        lines.show(repo.root, range, await lineHistory(git, repo, range));
+        await vscode.commands.executeCommand('weft.lineHistory.focus');
+      } catch (err) {
+        /*
+         * Said out loud rather than left as an empty list. A range past the end of the file, or a
+         * file git has never heard of, is a `fatal:` with a reason in it - and since the walk
+         * stopped discarding what git says, the reason is worth showing.
+         */
+        void vscode.window.showWarningMessage(
+          `Weft: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('weft.clearLineHistory', () => lines.clear()),
 
     vscode.commands.registerCommand('weft.toggleFileBlame', () => blame.toggleFile()),
 

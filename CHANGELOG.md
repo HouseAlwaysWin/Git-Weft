@@ -153,6 +153,23 @@
   search box had always stopped this for itself; every box gets it now, including the ones added
   later.
 
+- **Show Line History**, on the editor's right-click menu: the commits that touched the lines you
+  have selected, or the line the cursor is on. The question blame raises and does not answer -
+  blame says who touched a line last, this says who touched it before that, and what they were
+  doing at the time.
+
+  Not the file's history narrowed down. git re-derives the range at every step, so a commit that
+  changed a different part of the same file is not in the answer, a line that moved within the file
+  is followed to where it moved, and a rename is crossed by the lines themselves rather than by a
+  similarity score - which is the trap `--follow` fell into.
+
+  It gets a section of its own in Source Control rather than taking the graph over, and that is
+  forced rather than preferred: `git log -L` digs from exactly one commit, and says so twice -
+  two refs are *More than one commit to dig from*, and the shape the graph uses to exclude refs is
+  *No commit specified?*. Answering in the graph would have meant standing the branch ticks down
+  every time somebody asked about three lines. So it answers from HEAD, says so in its heading, and
+  clicking a row finds that commit in the graph - the same jump the blame hover makes.
+
 ## 0.6.0
 
 - **Authors is two levels, and the groups can be made by hand.** A person who spells themselves
