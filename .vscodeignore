@@ -10,6 +10,8 @@ esbuild.mjs
 .gitattributes
 .gitignore
 *.vsix
+docs/**
+!docs/images/**
 dist/**
 !dist/extension.js
 !dist/main.js

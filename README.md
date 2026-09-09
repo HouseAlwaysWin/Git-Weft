@@ -2,198 +2,40 @@
 
 A Git commit graph for VS Code, fast on large repositories.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/graph-dark.png">
+  <img alt="A commit graph with several branches open at once, merges crossing between lanes, ref badges, and a details pane below" src="docs/images/graph-light.png">
+</picture>
+
 Weft is an independent extension, written from scratch. It is not a fork of, and shares no code
 with, any other graph extension.
 
-## Status
+**Early, but in daily use.** Reading is complete; writing is arriving one tier at a time.
 
-Early, but in daily use. Reading is complete; writing is arriving one tier at a time.
+## What it does
 
-Working:
+- **A graph that stays fast on a big repository.** A 100,000-commit history is walked and laid out
+  in about a second, the first rows paint while git is still walking, and a frame takes under a
+  millisecond to draw. Numbers, and how they were taken, in [the design notes](https://github.com/HouseAlwaysWin/Git-Weft/blob/main/docs/design.md).
+- **Opens on the branch you are on.** A clone with fourteen hundred refs would otherwise spend
+  seconds drawing a graph so wide that the branch you came to look at is one lane among hundreds.
+  Tick more in **Branches & Tags**, or from the graph's own header.
+- **Search pushed down into `git log`** - by message, author, committer, diff content or path -
+  so a query on a large history costs a walk rather than a walk plus a filter. Paste a hash and it
+  goes there instead.
+- **Blame where you are reading.** Who last changed the line the cursor is on, at the end of that
+  line; the whole file's authors in a column when you ask; and **Show Line History** for the commits
+  that touched the lines you have selected.
+- **Write actions from the graph** - checkout, branch, merge, rebase, cherry-pick, revert, reset,
+  stash, tags, remotes, fetch, pull, push. Anything that could destroy uncommitted work names the
+  files it would destroy before asking, and nothing passes `--force` by default.
+- **Authors folded into people.** `Sean Lin`, `sean_lin` and `SEAN_LIN` are one row and one count,
+  with the spellings inside it. Where the rule cannot tell, group them by hand - or ungroup two it
+  folded that turn out to be two people.
+- **Ordinary clones, bare repositories, linked worktrees, submodules**, and more than one repository
+  in a workspace - one graph per repository, each its own tab.
 
-- Commit graph with branches, merges, tags, remotes and HEAD
-- Ordinary clones, bare repositories, linked worktrees and submodules
-- More than one repository in a workspace: opening the graph asks which, one graph per repository,
-  each its own tab. **Branches & Tags** and **Authors** follow whichever graph you are looking at,
-  and remember what you had ticked in the others
-- Streaming load: the first rows paint while git is still walking
-- Virtualized rendering: a 20,000-row history keeps 31 row elements in the DOM, and a frame of the
-  graph is measured rather than assumed - 0.7ms at the median on 78,000 commits and 1,177 refs,
-  1.5ms at the ninetieth, 2.7ms at its worst
-- A row for the working tree when there is one, above the history and hanging off HEAD by a dashed
-  line, with what is staged, unstaged and untracked. Click it and the same **Commit Files** section
-  lists them; click a file and the diff is HEAD against the file as it is on disk. It keeps up with
-  the tree as you save, without re-walking the history to do it
-- Where the branch stands against the one it tracks, and how old that answer is:
-  `main ↑2 ↓1 fetched 3h ago` beside the title. The age is not decoration - see the design note
-- Right-click a local branch or a tag in **Branches & Tags** to delete it. A remote branch gets a
-  separate entry, **Delete on Remote...**, because it is a push to a server rather than a change to
-  this clone - the confirmation says which remote, what stops being reachable there, which local
-  branches are left tracking nothing, and that there is no reflog on the far end
-- Order the walk by commit date, author date, or topologically - the dropdown beside the search.
-  Topological keeps a branch's commits together instead of interleaving them by date, which on a
-  history with concurrent branches is a different graph within a handful of rows
-- Fetch on a timer if you want one (`weft.autoFetchMinutes`, off by default). Weft also picks up
-  fetches it did not run, including VS Code's own `git.autofetch`: the watcher sees the refs move
-- Click or arrow-key a commit for its message and metadata; what it changed lands in the **Commit
-  Files** section in Source Control, as a folded tree or a flat list
-- One file's history: right-click it in **Commit Files** for **Show File History**, and the graph
-  narrows to that path. Renames are not followed unless you ask: `--follow` detects copies as well,
-  so a file scaffolded by copying its neighbour is followed into the neighbour's history without
-  saying so. The `follow` switch is there for a file you know was moved
-- The branch button in the header lists every branch: click a name to check it out, or use the
-  ticks to choose which branches the graph draws. The ticks are the same ones as in **Branches &
-  Tags**, not a second copy. Local and Remote roll up, and each heading has a tick for all of
-  them - which acts on what the filter box has left listed, so narrowing and then unticking hides
-  exactly what you can see
-- Right-click to copy: a commit's hash or subject, a branch or tag's name - and its full ref name,
-  which is the one git resolves rather than the one you read. Files in **Commit Files** copy their
-  path either way round, relative or absolute
-- Compare two commits: right-click one for **Select for Compare**, then another for **Compare
-  with …** - the two steps VS Code's own file compare uses, and ctrl-click does the same pair
-  without the menu. The Commit Files section fills with what they differ by, and the pane says how
-  far apart they are: a count for each side, because two commits picked off a graph are not always
-  one behind the other. The marked commit stays named in the title bar and one click goes back to
-  it, because the two commits worth comparing are rarely both on screen - and the mark is held by
-  hash, so searching for the far one does not throw it away. Escape drops both
-- Click a file there to open it in VS Code's own diff editor, renames included
-- Search by message, author, committer, diff content (`-G`) or path, pushed down into `git log`.
-  Match case, regular expression, all-words and invert are switches inside the box, each offered
-  only in the modes where git can honour it - and text is the default, so `v0.4.1` no longer
-  quietly also matches `v0X4Y1`. Paste a hash instead and it selects that commit rather than
-  grepping for it, and whatever matched is marked in the row
-- Author mode and the **Authors** ticks narrow each other rather than adding up. Two controls, one
-  `git log` flag, and git reads several `--author` as "any of these" - so ticking one person and
-  typing another used to hand back both. Typing now picks out the ticked people the query also
-  matches, read in git's regex dialect rather than JavaScript's, and matching nobody means nobody
-  rather than everybody
-- A **first parent** switch: walk the mainline and leave out what was merged into it, which also
-  takes the merge arcs with it rather than leaving them pointing at rows that are no longer there
-- A date filter beside the search: today, the last 7, 30 or 365 days, or a custom range. It narrows
-  the walk like every other filter here, and combines with them - "what did Ada touch today" is one
-  question. It compares git's committer date rather than the author date the column shows, which is
-  the same thing except for rewritten history
-- One button drops every filter at once - the search, the date range, and the branch and author
-  ticks in Source Control - and it is on screen only while there is something to drop. The sort is
-  left alone: it hides nothing, and it has a way back of its own
-- Auto-refresh: commit from a terminal and the graph reloads itself
-- Right-click to act: checkout (branch, remote branch, or a commit detached), create and rename
-  branches, create lightweight or annotated tags, delete branches and tags
-- Merge and rebase, with a banner while either is unfinished: Continue, Skip, Abort, and the
-  conflicted files as links into VS Code's merge editor
-- Cherry-pick, revert, and reset (soft, mixed or hard) from any commit
-- Stashes appear in the graph, with apply, pop and drop on the row and a Stash Changes command
-- Column headers, and a click on one sorts by description, author, date or commit. A sorted list is
-  flat: a lane's Y coordinate is a row index, so in any order but git's the lines would join commits
-  that are no longer neighbours. A third click puts the graph back
-- A graph opens on the branch you are on, and a checkout takes it with you. Everything else is
-  unticked until you say otherwise: a clone with fourteen hundred refs spends seconds walking all
-  of them to draw a graph so wide that the branch you came to look at is one lane among hundreds.
-  **Show All Branches & Tags** is one click away, and between checkouts the ticks are yours - the
-  first one you move stops the default applying, and Clear Filters hands it back. Switching branch
-  starts again from the new one, hand-picked set included: a graph still drawing the branch you
-  left is drawing the wrong thing
-- Three buttons for the three answers worth one click - everything, nothing, and the branch you are
-  on - over the branch list and again in the graph's own header. Ticking three refs out of fourteen
-  hundred starts by unticking the rest, which is not something anybody does a box at a time
-- A box in the header switches branches: type a name, arrows to aim, Return or a click to check
-  out - it asks first, and says how long since that branch moved - and Escape to give it up. Its list is plain - one row, one thing, and clicking it goes there.
-  The button beside it is the other question, and keeps its own list of ticks: which branches the
-  graph should draw
-- Who last changed the line the cursor is on, greyed at the end of it, with the commit’s
-  subject and how long ago. One line rather than all of them: the file still looks like a file.
-  It blames the buffer, not what is on disk, so unsaved edits do not shift every annotation
-  below them onto the wrong line - and the line you just typed says so. Hover it for the sha and
-  the date, and for **Show in the graph**: a graph beside the file with the cursor on that commit,
-  waiting for the page that carries it if it is forty thousand rows down. `weft.inlineBlame`
-  turns it off
-- **Show File History** on any file - in the Explorer, on a tab, inside an editor, or in the
-  changed-files list - narrows the graph to the commits that touched that path
-- **Show Line History**, on the editor’s right-click menu: the commits that touched the selected
-  lines, in a section of its own beside the graph. Not the file’s history narrowed down - a commit
-  that changed a different part of the same file is not in it, and a line that moved is followed to
-  where it moved. It answers from HEAD, because `git log -L` walks from one commit and “the history
-  of these lines” is a different question on a different branch. Click a row to find that commit in
-  the graph
-- **Toggle File Blame**, on the editor’s right-click menu, puts every line’s author and date in
-  a column down the left. Off unless asked for, and per file: it moves the code right and gives
-  the eye a second column, which is worth it while reading a file’s history and in the way while
-  writing it. The two annotations share one blame, so having both on costs one `git blame`
-- **only here** walks what the ticked branches have and no other ref does. Ticking a branch narrows
-  where git starts, not what it reaches - a branch cut off a trunk with three hundred others merged
-  into it still reaches all of them, which is not what "show me this branch" looks like it means
-- Two filters in the Source Control sidebar: untick branches, remotes or tags to keep them out of
-  the walk, and tick authors to show only theirs. Both narrow what `git log` walks rather than
-  hiding rows
-- Right-click a branch there to check it out, or to **Show Only This** - unticking narrows the tips
-  git walks *from*, so hiding one branch changes nothing while its commits are still reachable from
-  another, which for a merged branch is always
-- The text filter over that list is a way to find a ref, not a way to filter the graph, and the
-  message under it says so with the numbers: `Listing 1 of 24 refs matching "claude/". Nothing is
-  unticked, so the graph still walks all 24.` One button applies the listing to the graph when that
-  is what you meant
-- Branches & Tags sorts by name or by most recently moved - alphabetical to find a name you know,
-  by date to see which of a hundred and fifty branches anybody is still working on
-- Every branch says how long since it last moved, wherever it is listed - the switch box, the
-  header list, and Branches & Tags. Which of a hundred and fifty branches are still alive is the
-  question a list of names cannot answer, and it matters most just before you switch to one
-- A text filter for the branch list itself, for repositories with more refs than fit on screen,
-  and a button that lists only what is ticked - on a clone with fourteen hundred refs the ticks
-  are what you are looking at, and finding them again is otherwise a scroll past everything else.
-  Both narrow the listing and leave the graph alone
-- **Authors** has the same filter the branch list has, for the same reason: on a repository with
-  two hundred contributors, finding the one you want is what stands between you and ticking them.
-  Narrow to a name, a surname or a company's email domain, then one button shows the graph exactly
-  the people left listed. What you typed stays beside the section's title while it applies, because
-  a filter you cannot see is one you forget is on
-- One row per person in **Authors**, opening onto the spellings it is made of - `Sean Lin`,
-  `sean_lin`, `SEAN_LIN` are one row and three rows inside it, rather than one row with all
-  three names in it. Right-click to group two the rule will not join, to take one back out, or to
-  ungroup two it folded together that are not one person after all - and to hand that decision back
-  to the rule later. All of it remembered per repository. Ticking the person ticks every spelling, and a spelling
-  can be ticked on its own
-- A group is a label rather than a box. Somebody on the platform team and on the release rota is in
-  both, listed under each and saying on the row where else they appear; removing them from one
-  leaves the other alone. Two groups sharing a person each count that person's commits, because
-  each of them would walk those commits - any other number would be one no tick of the row produces
-- Sorted by commits or by name. Several addresses, or several spellings of one
-  name - `Sean Lin`, `sean_lin`, `SEAN_LIN` - are one row and one count, with every spelling shown
-  on it. Ticking that row names all of them to `git log`, so what it counted is what the graph
-  walks. Names that differ by more than case and separators are left alone, and a shared address
-  merges nothing: one service account is a dozen people. The count covers the whole history back to
-  the root commit and does not move when the graph is narrowed to a date range or a branch
-- Each author gets their own colour, derived from the name so it never shifts as pages stream in
-- **Git Weft: Manage Remotes...** in the command palette lists what each remote points at, and
-  adds, renames, repoints or removes one. Adding fetches it; removing says how many
-  remote-tracking branches go with it
-- Merging asks how only when there is something to ask: a branch that is strictly behind can
-  fast-forward or take a merge commit, and one that has diverged can only do the latter, so it is
-  not offered a choice of one. **Squash** is its own entry rather than a third option, because it
-  declines to join the histories at all - it stages the changes and leaves the commit to Source
-  Control, and says up front that git will still call the branch unmerged afterwards
-- Fetch, pull and push, using whatever credential helper is already set up - Weft never asks for
-  a password and never stores one. Pull asks whether to merge or rebase only when the histories
-  have actually diverged, and force push is `--force-with-lease` after a fetch, never `--force`
-- The lanes get at most a third of the panel until you say otherwise, and a grip of their own to say
-  it with. A history with thirty concurrent branches wants three hundred and sixty pixels of graph,
-  which on a side panel is the whole width - and the subject column, which is what people came to
-  read, becomes `feat(s…`. Given less room the lanes are drawn closer together rather than cut off:
-  a graph missing its right-hand branches is a graph lying about the history. What they ask for is
-  what the rows on screen need, not what the widest row in the history needed - the widest row in a
-  repository with a hundred branches is almost never the one you are reading, and paying its width
-  everywhere means a column that is mostly blank and lanes squeezed for no reason
-- The Date column shows the day, and the time as well once it is dragged wide enough to hold it -
-  the format follows the width rather than a setting, because widening that column is already the
-  gesture for "these two are on the same day and I need to tell them apart". The whole timestamp
-  with its offset is on hover at any width
-- Drag the line between two column headings to resize a column, double-click it to put the width
-  back, and right-click the headings to switch Author, Date or Commit off. Description stays: it is
-  the `1fr` the others leave their space to, and the column people came to read. All of it is
-  remembered across panel reloads
-- Draggable split between the graph and the details pane, remembered across panel reloads
-
-Anything that could destroy uncommitted work names the files it would destroy before asking, and
-nothing passes `--force` by default.
+Everything else it does is [in the full list](https://github.com/HouseAlwaysWin/Git-Weft/blob/main/docs/features.md).
 
 ## Where to find it
 
@@ -203,158 +45,29 @@ The graph opens as an editor tab. Three ways in:
 - The branch icon in the **Source Control** title bar
 - **Weft: Open Git Graph** in the command palette
 
-Weft has no Activity Bar icon of its own. Its three sections - **Commit Files**, **Branches &
-Tags** and **Authors** - live in **Source Control**, under the changes list: collapsed until you
-want them, and absent altogether in a workspace with no repository. Unticking a ref there narrows
+Weft has no Activity Bar icon of its own. Its sections - **Commit Files**, **Branches & Tags**,
+**Authors**, and **Line History** once you have asked for one - live in **Source Control**, under
+the changes list: collapsed until you want them, and absent altogether in a workspace with no
+repository. Unticking a ref there narrows
 what `git log` walks, so a repository carrying two hundred `origin/dependabot/*` branches stops
 paying for them.
 
-## Design notes
+## Install
 
-**The layout is resumable.** Lane assignment is a single forward pass, so its entire continuation is
-`{open lanes, colour queue, row index}`. Holding that in a `LayoutState` means page N+1 is laid out
-without touching a row of pages 1..N — which is what makes a large repository viable, and has the
-side effect that a commit's colour never changes once assigned.
+Download the `.vsix` from [Releases](https://github.com/HouseAlwaysWin/Git-Weft/releases), then in
+VS Code: **Extensions** → **…** → **Install from VSIX…**. Or from a terminal:
 
-**Lanes are polylines that only turn.** A lane running straight for a thousand rows costs two
-points. Measured on a 100k-commit repository: 100,000 rows of graph, 7,998 points.
+```
+code --install-extension git-weft-<version>.vsix
+```
 
-**The network actions are not the ones Source Control already has.** They look like duplicates and
-are not: `git.fetchOnPull` is off by default, so the built-in pull fetches only the branch it is
-about to merge and leaves the rest of the graph as stale as it found it. Weft's fetches the whole
-remote, then re-reads the counts before deciding anything. `git.rebaseWhenSync` is off too, so a
-divergence becomes a merge commit without being mentioned; Weft asks, and says what rebase does to
-the hashes before it does it. Behind but not ahead is `merge --ff-only`, so there is no accidental
-merge commit at all. The buttons are the duplication; the behaviour is the reason.
-
-**A remote-tracking ref is a local pointer.** `origin/main` moves when something fetches and at no
-other time, so every ahead/behind count is a statement about the last fetch rather than about now.
-Three hours offline and `↓0` still means "nothing had arrived three hours ago" - which read without
-a timestamp means "you are up to date", and that is the whole way a graph misleads about a remote.
-So the age travels with the counts and stays on screen when they are zero, because zero is the
-number most likely to be believed. `FETCH_HEAD`'s mtime is the answer, and costs one `stat`.
-
-Acting on those counts is a separate problem, and solved separately: pull fetches the whole remote
-first and then *re-reads* the counts before deciding anything, because the ones it was given are
-stale by definition.
-
-**The working tree is watched by someone else.** `RepoWatcher` watches `.git`, which is where a ref
-moving shows up and is deliberately not where a file being saved does - watching a whole worktree
-means an event per keystroke of an editor's autosave. So the working-tree row listens to the
-built-in git extension instead, which is already running `git status` on its own debounce. What it
-triggers is one `git status`, not a reload: saving a file changes nothing a walk would produce
-differently, and re-walking would be paying for the whole graph to move one row's worth of text.
-
-**The working tree is a row, not a commit.** It is built in the view rather than sent by the host,
-and deliberately kept out of the lane layout: a lane point's Y *is* a commit's row index, so a row
-that appears and disappears as files are saved would renumber every one of them and force a
-re-layout of the whole history. Instead it takes display position zero and the canvas shifts down
-by one - one number, no re-layout, and a dashed line to say that nothing up there is reachable yet.
-
-**The pane is for the commit, the sidebar is for its files.** The details pane is wide and short;
-a file list is narrow and tall. Ten files in a 200px strip under a 20,000-row history was the wrong
-shape for both, so the list is a tree view now - which also means folding, status colours and
-one-click opening come from VS Code rather than from three hundred lines of webview.
-
-**The checkboxes are Weft's, not VS Code's.** A tree view manages checkbox state itself unless
-told otherwise, and what it means by a ticked parent is "every child is ticked" - which it will
-enforce at the next render. Weft means something else by a ticked group: "some of these are
-showing". The two disagreeing looked like unticking a branch putting its own tick straight back on,
-and the fix is one flag saying who owns them.
-
-**`--follow` will not take a pathspec with magic in it.** `git log --follow -- ':(icase)src/x.ts'`
-is not a quieter answer, it is `fatal: pathspec magic not supported by --follow`, and it takes the
-whole walk with it - which matters because a path search is case-insensitive by default, so the
-obvious combination is the broken one. Following renames therefore matches the path exactly, and
-the case switch is shown locked on rather than offering something git will refuse.
-
-**git's date flags need spelling out.** A bare `--since=2026-07-24` is not midnight: approxidate
-fills the unspecified fields from the current clock, so run at 20:08 it means that evening - and
-answers differently an hour later. Measured, it returned one commit from a day that held twelve.
-`--until=<day>` likewise means *before* that day. Both bounds are sent with an explicit time, and
-the lower one as `--since-as-filter` where git is new enough (2.37): plain `--since` stops walking
-at the first commit older than the cutoff, which hides newer commits behind an older one in a
-history whose dates are not monotonic. That gives up the early exit, which streaming makes
-affordable - rows still appear as they are found.
-
-**git's regexes are basic ones, not the ones you think in.** `--grep`, `--author` and `-G` are
-POSIX *basic* regular expressions, where `+ ? ( ) { } |` are literal until you escape them - `\+`
-is the one-or-more operator. Escaping a name the JavaScript way turns `C++` into a pattern meaning
-something else and `A|B` into two different people, so the escape is one named function with the
-dialect written down beside it. `--fixed-strings` would do the job, and is not used: it is a global
-flag, so it would also reach the `--author` arguments the Authors sidebar contributes.
-
-**Y is measured in rows, not pixels.** A point at `y` is drawn at `y * rowHeight - scrollTop`, so
-the canvas stays locked to the row text and changing the row height needs no re-layout. It is also
-why sorting hides the graph rather than redrawing it: reorder the rows and the text slides out from
-under lines that are still where the layout put them.
-
-**One streaming `git log`, not paged calls.** Paging with `--skip=N` makes git re-walk N commits per
-page, which is quadratic across a full scroll; separate calls can also straddle a ref update and
-produce a history that contradicts itself. One long-lived process walks a single consistent
-snapshot and the graph paints as records arrive.
-
-## Measurements
-
-On a synthetic 100,000-commit repository (`scripts/make-fixture.mjs`), Windows 11, git 2.55:
-
-| | |
-| --- | --- |
-| First page on screen | 622 ms |
-| Full history walked and laid out | 1.1 s |
-| Throughput | ~90,000 commits/sec |
-| Graph points for 100k rows | 7,998 |
-| First row: commit date / author date / topological | 521 / 551 / 517 ms |
-
-The three orderings cost the same, which is worth saying because it sounds as though they should
-not. All three make git read the history before it emits a row, so none of them is the cheap one -
-and git's own chronological order, which *is* cheap, is not on offer: it can put a parent before its
-child under clock skew, and the lane layout cannot survive that. The choice is which shape the
-history reads best in, not what it is worth waiting for.
-
-### Memory
-
-This section used to say that 68 MB of commit objects was more than an extension host should hold,
-and that the next thing to do was a columnar store. Both halves were wrong, and finding out took
-one afternoon of measuring against a real repository - 78,282 commits and 1,177 refs.
-
-**The host holds almost nothing.** It maps a page into rows, posts it, and forgets it. Walking that
-whole history while keeping nothing costs 0.8 MB. The 68 MB was a harness holding what the host
-hands over, which is not a thing the extension does.
-
-**The tab is where the history lives**, and it is measured per part:
-
-| | before | now |
-| --- | --- | --- |
-| rows | 37.6 MB | 32.3 MB |
-| lanes (19,899 of them, 186,723 points) | 17.0 MB | ~9 MB |
-| dots (one per commit) | 9.1 MB | 9.1 MB |
-| merge arcs | 2.9 MB | 2.9 MB |
-| row widths | ~0 | ~0 |
-| **a graph tab, all told** | **69.2 MB** | **55.9 MB** |
-
-The lane points were `{ x, y }` objects and are now interleaved into a plain array of doubles -
-sixty-odd bytes a point down to sixteen, and V8 keeps such an array unboxed. The rows share one
-frozen empty array for the commits that carry no ref, and intern the author's name on arrival:
-eighty-one distinct names were being held seventy-eight thousand times, because the structured
-clone at the boundary hands over a fresh copy of each.
-
-**And the trap that was hiding underneath it.** Every field the parser produces comes out of
-`String.split`, and V8 answers that with a *sliced* string - a pointer into the parent. Keeping one
-sha keeps its whole record; keeping the record keeps the page it was parsed from. Measured: holding
-a sha and a subject per commit costs 900 bytes a row, and holding flattened copies of the same two
-strings costs 205. Nothing retains them today, which is why nobody had seen it - but a cache added
-without knowing would pay 4.5x for the privilege, and no rearrangement of the row would touch it.
-
-The columnar store the old note recommended was measured too, end to end: 75 MB down to 68, about
-9%. Days of invasive work across sorting, filtering, selection and comparison, for a twelfth of a
-number that was in the other process.
+Requires VS Code 1.100 or later, and git on your `PATH`.
 
 ## Development
 
-Building, testing and the preview harness are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Building, testing and the preview harness are in [CONTRIBUTING.md](https://github.com/HouseAlwaysWin/Git-Weft/blob/main/CONTRIBUTING.md).
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE), and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the lane
+MIT. See [LICENSE](https://github.com/HouseAlwaysWin/Git-Weft/blob/main/LICENSE), and [THIRD-PARTY-NOTICES.md](https://github.com/HouseAlwaysWin/Git-Weft/blob/main/THIRD-PARTY-NOTICES.md) for the lane
 layout algorithm's attribution.
