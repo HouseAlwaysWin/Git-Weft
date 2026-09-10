@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **The button that opens the graph says something while it works.** Between clicking it in Source
+  Control and the tab appearing there is a repository to find and a ref list to read, and none of
+  it had anywhere to show: the graph's own progress bar is inside the webview, and the webview is
+  what is being waited for. A spinner in the status bar covers the gap now, naming what it is doing.
+
+  It is also a shorter gap. Discovery ran once per candidate folder, one after another - and the
+  candidates are usually the same repository arrived at three ways, since the built-in git extension
+  knows it, it is the workspace folder, and the open file is inside it. Measured on a
+  78,000-commit repository: 500ms for three, 236ms when they go at once, for the same answer in the
+  same order.
+
 - **A graph that is still loading says so.** Opening a large repository showed an empty pane and a
   word in a 0.9em grey at the far right of the header - which is where you look for it once you
   already know it is there. There is a progress bar across the top of the rows now, the one VS Code

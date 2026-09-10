@@ -73,23 +73,61 @@ function candidateFolders(): string[] {
  * the answer, which is a great deal of damage for a path that was only ever a guess.
  */
 async function findRepositories(git: Git): Promise<RepoInfo[]> {
+  const folders = candidateFolders();
+
+  /*
+   * All of them at once, rather than one after another.
+   *
+   * The candidates are usually the same repository arrived at three ways - the built-in git
+   * extension knows it, it is the workspace folder, and the open file is inside it - and each one
+   * costs four `rev-parse` calls whether or not it lands somewhere already found. Measured on a
+   * 78,000-commit repository: 176ms each, so three candidates were half a second of waiting before
+   * anything appeared, for one answer.
+   *
+   * Nothing is spawned in a storm doing this: `Git` caps how many processes it runs at once and
+   * queues the rest.
+   */
+  const settled = await Promise.all(
+    folders.map((folder) =>
+      discover(git, folder).catch((err: unknown) => {
+        output?.debug(
+          `not a usable folder: ${folder} (${err instanceof Error ? err.message : String(err)})`,
+        );
+
+        return null;
+      }),
+    ),
+  );
+
   const found = new Map<string, RepoInfo>();
 
-  for (const folder of candidateFolders()) {
-    try {
-      const repo = await discover(git, folder);
-
-      // Keyed by root: several candidate folders can sit inside one repository, and the first one
-      // that resolved is the one whose position in the list means something.
-      if (repo !== null && !found.has(repo.root)) {
-        found.set(repo.root, repo);
-      }
-    } catch (err) {
-      output?.debug(`not a usable folder: ${folder} (${err instanceof Error ? err.message : String(err)})`);
+  // Keyed by root: several candidate folders can sit inside one repository, and the first one that
+  // resolved is the one whose position in the list means something. In candidate order, not in the
+  // order they happened to finish, or the head of the list would be whichever git answered first.
+  for (const repo of settled) {
+    if (repo !== null && !found.has(repo.root)) {
+      found.set(repo.root, repo);
     }
   }
 
   return [...found.values()];
+}
+
+/**
+ * Something on screen while a command works before it has anything to show.
+ *
+ * The graph opens from a button in Source Control, and between the click and the tab there is
+ * discovery and a ref list - a moment on a small repository, and long enough on a large or a cold
+ * one to look like the button did nothing. The tab's own progress bar cannot help: it is inside the
+ * webview, and the webview is what is being waited for.
+ *
+ * `Window` rather than a notification, which is the status bar's spinner: this is the wait before a
+ * thing appears, not an operation somebody should be told about.
+ */
+function whileOpening<T>(title: string, work: () => Promise<T>): Promise<T> {
+  return Promise.resolve(
+    vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title }, work),
+  );
 }
 
 async function findRepository(git: Git): Promise<RepoInfo | null> {
@@ -314,7 +352,9 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const found = await findRepositories(git);
+      const found = await whileOpening('Weft: looking for a repository…', () =>
+        findRepositories(git),
+      );
 
       /*
        * Which repository, when there is more than one.
@@ -337,8 +377,11 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      await refs.setRepository(repo);
-      authors.setRepository(repo);
+      // The ref list is read here rather than by the panel, so it has to be waited for here too.
+      await whileOpening(`Weft: opening ${basename(repo.root)}…`, async () => {
+        await refs.setRepository(repo);
+        authors.setRepository(repo);
+      });
 
       WeftPanel.show(
         context.extensionUri,

@@ -637,12 +637,30 @@ for (const id of treeViews.keys()) {
   }
 }
 
+const progressBefore = progressTitles.length;
+
 await commands.get('weft.openGraph')();
 
 if (panelCreated === null) {
   problems.push('weft.openGraph did not create a webview panel');
 } else {
   console.log('panel          :', panelCreated.viewType, '/', panelCreated.title);
+}
+
+/*
+ * And it said so while it worked.
+ *
+ * Between the click and the tab there is discovery and a ref list. The graph's own progress bar
+ * cannot cover that - it lives in the webview, and the webview is the thing being waited for - so
+ * the only thing on screen is whatever this command puts there. Half a second of nothing looks
+ * exactly like a button that did not work.
+ */
+const opening = progressTitles.slice(progressBefore).filter((title) => typeof title === 'string');
+
+console.log('while opening  :', opening.join(' | ') || '(silence)');
+
+if (opening.length === 0) {
+  problems.push('opening the graph reported nothing while it worked');
 }
 
 // The webview announces itself once its script loads; that is what starts the history walk.
