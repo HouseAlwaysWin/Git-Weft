@@ -20,6 +20,7 @@ import * as contextMenu from './contextMenu.ts';
 import * as columns from './columns.ts';
 import * as filterBar from './filterBar.ts';
 import * as detailsPane from './detailsPane.ts';
+import * as headerStatus from './headerStatus.ts';
 import type { LocalItem } from './contextMenu.ts';
 import { span } from './dom.ts';
 import type { Marking } from './highlight.ts';
@@ -28,11 +29,10 @@ import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
 import { DotKind } from '../graph/model.ts';
 import type { CommitOrder, RefEntry } from '../protocol.ts';
-import type { Upstream } from '../git/repoState.ts';
 import type { SearchMode, SearchToggle } from '../git/search.ts';
 import { looksLikeCommitId } from '../git/search.ts';
 import { describeAge } from '../git/blame.ts';
-import type { MenuItem, Target } from '../actions/registry.ts';
+import type { Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
 import { authorHue } from './authorColor.ts';
 import type { Sort, SortColumn } from './sort.ts';
@@ -59,6 +59,17 @@ branches.connect({ post: (message) => vscode.postMessage(message), remember: () 
 contextMenu.connect({
   post: (message) => vscode.postMessage(message),
   localItems: (target) => localMenuItems(target),
+});
+
+/**
+ * What the header says about what is going on. It never reads a row, so what is on screen and what
+ * is narrowing it both have to be asked for.
+ */
+headerStatus.connect({
+  post: (message) => vscode.postMessage(message),
+  redraw: () => schedule(),
+  showing: () => view.length,
+  filtered: () => !clearFiltersEl.hidden,
 });
 
 /** The pane along the bottom. What is in it is the host's answer; where the rows are is here. */
@@ -116,13 +127,10 @@ const LANE_SLACK = 36;
 const header = document.getElementById('header') as HTMLElement;
 const titleEl = document.getElementById('title') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
-const progressEl = document.getElementById('progress') as HTMLElement;
-const emptyEl = document.getElementById('empty') as HTMLElement;
 const columnsEl = document.getElementById('columns') as HTMLElement;
 const clearSortEl = document.getElementById('clear-sort') as HTMLButtonElement;
 const clearFiltersEl = document.getElementById('clear-filters') as HTMLButtonElement;
 const compareMarkEl = document.getElementById('compare-mark') as HTMLButtonElement;
-const upstreamEl = document.getElementById('upstream') as HTMLElement;
 const refPresets = document.getElementById('ref-presets') as HTMLElement;
 const firstParentEl = document.getElementById('first-parent') as HTMLButtonElement;
 const onlyHereEl = document.getElementById('only-here') as HTMLButtonElement;
@@ -256,13 +264,6 @@ let highlight: Marking = { pattern: null, field: null };
  * row for, which is the ordinary state of a repository nobody is halfway through editing.
  */
 let working = { total: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, branch: null as string | null };
-
-/** The last thing the host said about the remote, kept so the age beside it can keep counting. */
-let remote: { upstream: Upstream | null; branch: string | null; fetchedAt: number | null } = {
-  upstream: null,
-  branch: null,
-  fetchedAt: null,
-};
 
 /**
  * Walk only the mainline.
@@ -571,80 +572,6 @@ function settle(row: Row): Row {
   };
 }
 
-/**
- * Whether a walk is in flight, and how long before saying so.
- *
- * Not immediately. Most reloads finish in tens of milliseconds - a tick moved, a file was saved -
- * and a bar that appears and vanishes inside one blink is worse than no bar: it reads as a glitch
- * rather than as progress. A walk that is going to take four seconds has still said so within a
- * quarter of one.
- */
-const BUSY_AFTER_MS = 250;
-
-let busy = false;
-
-/** Whether the delay has passed, so the bar and the sentence appear together or not at all. */
-let saying = false;
-
-/** What git said, when the last walk did not finish. Cleared by the reset that starts the next. */
-let walkError: string | null = null;
-let busyTimer = 0;
-
-function setBusy(on: boolean): void {
-  busy = on;
-  window.clearTimeout(busyTimer);
-
-  if (!on) {
-    saying = false;
-    progressEl.hidden = true;
-    updateEmpty();
-    return;
-  }
-
-  saying = false;
-  progressEl.hidden = true;
-  updateEmpty();
-
-  busyTimer = window.setTimeout(() => {
-    saying = busy;
-    progressEl.hidden = !busy;
-    updateEmpty();
-  }, BUSY_AFTER_MS);
-}
-
-/**
- * The sentence in the middle of an empty pane.
- *
- * Three states look identical without it and mean completely different things: still walking,
- * finished with nothing to show, and narrowed to nothing by a filter somewhere else. The status
- * line says which, in a grey 0.9em at the far right of the header - which is where you look for it
- * once you already know it is there.
- */
-function updateEmpty(): void {
-  if (view.length > 0) {
-    emptyEl.hidden = true;
-    return;
-  }
-
-  // Nothing at all while a quick reload is in flight: the rows are cleared before the new ones
-  // arrive, and a sentence that appears for a tenth of a second is a flicker, not an explanation.
-  emptyEl.hidden = busy && !saying;
-
-  /*
-   * A walk that failed leaves exactly the same empty pane as a repository with nothing in it, and
-   * saying the second when the first happened is worse than saying nothing: the reader goes looking
-   * for commits that are there. git's own words, which are worth the room now that the streaming
-   * path keeps them.
-   */
-  emptyEl.textContent = busy
-    ? 'Walking the history…'
-    : walkError !== null
-      ? walkError
-      : !clearFiltersEl.hidden
-        ? 'No commits match the filters. Clear Filters puts them all back.'
-        : 'Nothing to draw. This repository has no commits yet.';
-}
-
 /** Rebuild only the row elements the viewport can actually show. */
 function renderRows(indent: number, first: number, last: number): void {
   const frag = document.createDocumentFragment();
@@ -943,85 +870,6 @@ function refFullName(kind: string, name: string): string {
   }
 }
 
-const operationEl = document.getElementById('operation') as HTMLElement;
-
-/**
- * The banner for whatever git is halfway through.
- *
- * It is deliberately loud and deliberately at the top: an unfinished rebase changes what every
- * other action means, and a graph that draws history without mentioning it is how someone ends up
- * several commands deep in a state they did not know they were in.
- *
- * Conflicted files are listed and clickable. Weft does not resolve them - VS Code's merge editor
- * is better at that than anything that would fit here - so clicking one hands it over.
- */
-function renderOperation(
-  operation: string,
-  description: string,
-  conflicted: readonly string[],
-  controls: readonly MenuItem[],
-): void {
-  if (operation === 'none') {
-    operationEl.hidden = true;
-    operationEl.replaceChildren();
-    schedule();
-    return;
-  }
-
-  const headline = document.createElement('div');
-  headline.className = 'operation-headline';
-  headline.append(span('operation-what', `You are in the middle of ${description}.`));
-
-  const buttons = document.createElement('span');
-  buttons.className = 'operation-controls';
-
-  for (const control of controls) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = control.label;
-    button.className = control.destructive ? 'destructive' : '';
-
-    if (control.disabledReason === null) {
-      button.addEventListener('click', () =>
-        vscode.postMessage({ type: 'runAction', id: control.id, target: { kind: 'repo' } }),
-      );
-    } else {
-      button.disabled = true;
-      button.title = control.disabledReason;
-    }
-
-    buttons.append(button);
-  }
-
-  headline.append(buttons);
-  operationEl.replaceChildren(headline);
-
-  if (conflicted.length > 0) {
-    const list = document.createElement('div');
-    list.className = 'operation-conflicts';
-    list.append(
-      span(
-        'operation-conflicts-heading',
-        `${conflicted.length} ${conflicted.length === 1 ? 'file needs' : 'files need'} resolving:`,
-      ),
-    );
-
-    for (const path of conflicted) {
-      const entry = document.createElement('span');
-      entry.className = 'operation-conflict';
-      entry.textContent = path;
-      entry.title = `Open ${path} in the merge editor`;
-      entry.addEventListener('click', () => vscode.postMessage({ type: 'openConflict', path }));
-      list.append(entry);
-    }
-
-    operationEl.append(list);
-  }
-
-  operationEl.hidden = false;
-  schedule();
-}
-
 /** Put text on the clipboard. The host owns the clipboard; the view knows what is worth putting on it. */
 function copyItem(label: string, text: string): LocalItem {
   return { label, group: 'copy', run: () => vscode.postMessage({ type: 'copy', text }) };
@@ -1166,6 +1014,9 @@ function applyDelta(delta: GraphDelta): void {
   painter.add(delta);
 }
 
+/** Kept between frames, because a file being saved should not cost a re-sort. See `SortCache`. */
+const sortCache = new SortCache<Row>();
+
 /**
  * Put the rows in the order the header asks for, and tell the rest of the view about it.
  *
@@ -1173,9 +1024,6 @@ function applyDelta(delta: GraphDelta): void {
  * selected commit is followed by identity rather than by position. Losing it would be a real loss:
  * the details pane below is showing it.
  */
-/** Kept between frames, because a file being saved should not cost a re-sort. See `SortCache`. */
-const sortCache = new SortCache<Row>();
-
 function applyView(): void {
   const keepUncommitted = selected >= 0 && view[selected]?.uncommitted === true;
   const keep = selected < 0 ? undefined : view[selected]?.sha;
@@ -1279,8 +1127,7 @@ function reset(): void {
   complete = false;
   working = { total: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, branch: null };
   painter.clear();
-  remote = { upstream: null, branch: null, fetchedAt: null };
-  upstreamEl.hidden = true;
+  headerStatus.reset();
   laneNeed = 0;
   selected = -1;
   spacer.style.height = '0px';
@@ -1288,8 +1135,7 @@ function reset(): void {
   detailsPane.forget();
   header.classList.remove('error');
   statusEl.textContent = 'loading…';
-  walkError = null;
-  setBusy(true);
+  headerStatus.setBusy(true);
   document.body.classList.remove('flat');
   updateColumns();
 }
@@ -1331,7 +1177,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       applyDelta(message.delta);
       spacer.style.height = `${view.length * rowHeight}px`;
       statusEl.textContent = `${rows.length.toLocaleString()} commits…`;
-      updateEmpty();
+      headerStatus.refresh();
       schedule();
       break;
 
@@ -1345,13 +1191,16 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
         branch: message.branch,
       };
 
-      remote = { upstream: message.upstream, branch: message.branch, fetchedAt: message.fetchedAt };
-      renderRemote();
+      headerStatus.fromRemote({
+        upstream: message.upstream,
+        branch: message.branch,
+        fetchedAt: message.fetchedAt,
+      });
       applyView();
       break;
 
     case 'done':
-      setBusy(false);
+      headerStatus.setBusy(false);
 
       // An empty result is a real answer, not a blank screen waiting for more.
       statusEl.textContent =
@@ -1414,7 +1263,12 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'operation':
-      renderOperation(message.operation, message.description, message.conflicted, message.controls);
+      headerStatus.operation(
+        message.operation,
+        message.description,
+        message.conflicted,
+        message.controls,
+      );
       break;
 
     case 'reloading':
@@ -1423,8 +1277,8 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
 
     case 'error':
       // A walk that failed is a walk that stopped, or the bar runs for the rest of the session.
-      walkError = message.message;
-      setBusy(false);
+      headerStatus.failed(message.message);
+      headerStatus.setBusy(false);
       statusEl.textContent = message.message;
       header.classList.add('error');
       break;
@@ -1462,85 +1316,6 @@ function refreshHighlight(): void {
     schedule();
   }
 }
-
-/** `3h`, `12m`, `just now` - short enough to sit next to two numbers without becoming a sentence. */
-function ago(since: number): string {
-  const minutes = Math.floor((Date.now() - since) / 60_000);
-
-  if (minutes < 1) {
-    return 'just now';
-  }
-
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-
-  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
-}
-
-/**
- * Where the branch stands against the one it tracks, and how old that answer is.
- *
- * The age is not decoration. `origin/main` is a local pointer that only a fetch moves, so every
- * count here is a statement about the last fetch rather than about now - `↓0` after three hours
- * offline means "nothing had arrived three hours ago", and read without the timestamp it means
- * "you are up to date". That is the whole way a graph misleads about a remote, and it is why this
- * stays on screen when the counts are zero: the zero is the number most likely to be believed.
- */
-function renderRemote(): void {
-  const { upstream, branch, fetchedAt } = remote;
-
-  if (upstream === null && fetchedAt === null) {
-    upstreamEl.hidden = true;
-    return;
-  }
-
-  // Not the branch name: the button beside this says it, and on `claude/changelog-v0.52.0` having
-  // it twice was most of why the row would not fit. (It was also picking up `.branch-name` from the
-  // menu rows, `flex: 1 1 auto` and all, and growing to fill whatever was left.)
-  const parts: HTMLElement[] = [];
-
-  if (upstream?.gone === true) {
-    // The ref's name is in the tooltip; on the line it would only push the branch out of sight.
-    parts.push(span('gone', 'upstream gone'));
-  } else if (upstream !== null) {
-    if (upstream.ahead > 0) {
-      parts.push(span('ahead', `↑${upstream.ahead}`));
-    }
-
-    if (upstream.behind > 0) {
-      parts.push(span('behind', `↓${upstream.behind}`));
-    }
-  }
-
-  parts.push(span('fetched', fetchedAt === null ? 'never fetched' : `fetched ${ago(fetchedAt)}`));
-
-  upstreamEl.replaceChildren(...parts);
-
-  const standing =
-    upstream === null
-      ? 'This branch tracks nothing.'
-      : upstream.gone
-        ? `${branch ?? 'HEAD'} tracks ${upstream.ref}, which no longer exists on the remote.`
-        : `${branch ?? 'HEAD'} is ${upstream.ahead} ahead of and ${upstream.behind} behind ${upstream.ref}.`;
-
-  upstreamEl.title =
-    fetchedAt === null
-      ? `${standing}\n\nNothing has been fetched yet, so the remote's position is unknown.`
-      : `${standing}\n\nTrue as of the last fetch, ${ago(fetchedAt)}. A remote-tracking ref only moves when something fetches.`;
-
-  upstreamEl.hidden = false;
-}
-
-// The age has to keep counting on its own: with no fetch and no reload, nothing else would ever
-// come along to correct "just now" into the hour it has since become.
-window.setInterval(() => {
-  if (!upstreamEl.hidden) {
-    renderRemote();
-  }
-}, 30_000);
 
 function updateFirstParent(): void {
   firstParentEl.classList.toggle('on', firstParent);
