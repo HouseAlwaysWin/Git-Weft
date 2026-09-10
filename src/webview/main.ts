@@ -16,6 +16,8 @@
 import type { GraphDelta } from '../graph/layout.ts';
 import { GraphPainter, LANE_COLORS } from './graph.ts';
 import * as branches from './branchMenu.ts';
+import * as contextMenu from './contextMenu.ts';
+import type { LocalItem } from './contextMenu.ts';
 import { span } from './dom.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
@@ -48,6 +50,12 @@ const painter = new GraphPainter();
 
 /** The branch dropdown and the quick-switch box beside it. See `branchMenu.ts`. */
 branches.connect({ post: (message) => vscode.postMessage(message), remember: () => saveViewState() });
+
+/** The right-click menu. What the view answers itself stays here; the element is the module's. */
+contextMenu.connect({
+  post: (message) => vscode.postMessage(message),
+  localItems: (target) => localMenuItems(target),
+});
 
 /**
  * How much room has to go unwanted before the lanes give it back, in pixels.
@@ -729,7 +737,7 @@ function renderRows(indent: number, first: number, last: number): void {
       badge.title = refFullName(ref.kind, ref.name);
       badge.addEventListener('contextmenu', (event) => {
         event.stopPropagation();
-        openMenu(event, {
+        contextMenu.request(event, {
           kind: 'ref',
           refName: refFullName(ref.kind, ref.name),
           label: ref.name,
@@ -786,7 +794,7 @@ function renderRows(indent: number, first: number, last: number): void {
     });
 
     el.addEventListener('contextmenu', (event) =>
-      openMenu(
+      contextMenu.request(
         event,
         // A stash row is a commit underneath, but the actions worth offering are entirely different.
         row.stash === undefined
@@ -1042,42 +1050,6 @@ function renderOperation(
   schedule();
 }
 
-let menuEl: HTMLElement | null = null;
-
-/*
- * The branch menu in the header.
- *
- * Every ref the sidebar knows about, with the tick that decides whether the graph draws it and a
- * name that checks it out. Both were already possible - the ticks in Branches & Tags, and Checkout
- * from a badge - but both needed the sidebar open, or the branch to be sitting on a row that
- * happens to be on screen. Neither is true when the branch you want is the one you cannot see.
- *
- * The list is whatever the host last sent. Nothing is cached across repositories and nothing is
- * computed here: the ticks are the sidebar's state, and a toggle goes straight back to it.
- */
-function closeMenu(): void {
-  menuEl?.remove();
-  menuEl = null;
-}
-
-/**
- * Right-click asks the host what is on the menu rather than deciding here: availability depends on
- * repository state - mid-rebase, already checked out, a dirty tree - that the webview has no view
- * of. One round trip per right-click is cheap; a menu that offers an action which then fails is not.
- */
-function openMenu(event: MouseEvent, target: Target): void {
-  event.preventDefault();
-  closeMenu();
-  vscode.postMessage({ type: 'requestMenu', target, x: event.clientX, y: event.clientY });
-}
-
-/** A menu entry the view answers itself, grouped like the host's so the rules land in the same places. */
-interface LocalItem {
-  readonly label: string;
-  readonly group: string;
-  readonly run: () => void;
-}
-
 /** Put text on the clipboard. The host owns the clipboard; the view knows what is worth putting on it. */
 function copyItem(label: string, text: string): LocalItem {
   return { label, group: 'copy', run: () => vscode.postMessage({ type: 'copy', text }) };
@@ -1140,118 +1112,6 @@ function localMenuItems(target: Target): LocalItem[] {
     { label: 'Select for Compare', group: 'compare', run: () => markForCompare(sha) },
     ...copies,
   ];
-}
-
-function renderMenu(target: Target, items: readonly MenuItem[], x: number, y: number): void {
-  closeMenu();
-
-  const local = localMenuItems(target);
-
-  if (items.length === 0 && local.length === 0) {
-    return;
-  }
-
-  /*
-   * Copying goes to the bottom, everything else the view answers stays on top.
-   *
-   * Nobody opens a branch's menu to copy its name - they open it to check the branch out, and
-   * Checkout being third meant reading past two things to reach the one thing. Comparing is not
-   * the same case: it is a real answer to "what do I want to do with this commit", and on a commit
-   * it is the first one.
-   */
-  const leading = local.filter((item) => item.group !== 'copy');
-  const trailing = local.filter((item) => item.group === 'copy');
-
-  const menu = document.createElement('div');
-  menu.className = 'menu';
-  menu.setAttribute('role', 'menu');
-
-  /** Whether anything is on the menu yet, so a rule is only ever drawn between two things. */
-  let drawn = false;
-  let lastGroup: string | null = null;
-
-  const rule = (): void => {
-    const line = document.createElement('div');
-
-    line.className = 'menu-separator';
-    menu.append(line);
-  };
-
-  const appendLocal = (entries: readonly LocalItem[]): void => {
-    for (const item of entries) {
-      // A rule between groups, and between these and whatever was already on the menu.
-      if (drawn && item.group !== lastGroup) {
-        rule();
-      }
-
-      drawn = true;
-      lastGroup = item.group;
-
-      const el = document.createElement('div');
-
-      el.className = 'menu-item';
-      el.setAttribute('role', 'menuitem');
-      // textContent, like the host's own items: `menu-label` is not a class this stylesheet has.
-      el.textContent = item.label;
-      el.addEventListener('click', () => {
-        closeMenu();
-        item.run();
-      });
-
-      menu.append(el);
-    }
-  };
-
-  appendLocal(leading);
-
-  let previousGroup: string | null = null;
-
-  for (const item of items) {
-    // A rule between groups, so "Delete" never sits flush against "Checkout" and gets hit by
-    // someone aiming one row higher.
-    if (drawn && item.group !== previousGroup) {
-      rule();
-    }
-
-    drawn = true;
-    previousGroup = item.group;
-    lastGroup = item.group;
-
-    const el = document.createElement('div');
-    el.className = item.destructive ? 'menu-item destructive' : 'menu-item';
-    el.setAttribute('role', 'menuitem');
-    el.textContent = item.label;
-
-    if (item.disabledReason === null) {
-      el.addEventListener('click', () => {
-        closeMenu();
-        vscode.postMessage({ type: 'runAction', id: item.id, target });
-      });
-    } else {
-      // Greyed out with the reason attached, rather than hidden: an action that vanishes leaves the
-      // user wondering whether they misremembered it.
-      el.classList.add('disabled');
-      el.append(span('menu-reason', item.disabledReason));
-    }
-
-    menu.append(el);
-  }
-
-  appendLocal(trailing);
-
-  showMenuAt(menu, x, y);
-}
-
-/** Put a built menu on screen at the pointer, pulled back inside the window if it would hang off. */
-function showMenuAt(menu: HTMLElement, x: number, y: number): void {
-  document.body.append(menu);
-  menuEl = menu;
-
-  const box = menu.getBoundingClientRect();
-  const left = Math.min(x, window.innerWidth - box.width - 4);
-  const top = Math.min(y, window.innerHeight - box.height - 4);
-  menu.style.left = `${Math.max(4, left)}px`;
-  menu.style.top = `${Math.max(4, top)}px`;
 }
 
 /**
@@ -1895,7 +1755,7 @@ columnsEl.addEventListener('dblclick', (event) => {
 
 /** Right-clicking the header offers the columns; Description is listed but never switchable. */
 function openColumnMenu(event: MouseEvent): void {
-  closeMenu();
+  contextMenu.close();
 
   const menu = document.createElement('div');
   menu.className = 'menu';
@@ -1911,7 +1771,7 @@ function openColumnMenu(event: MouseEvent): void {
 
     if (run !== null) {
       el.addEventListener('click', () => {
-        closeMenu();
+        contextMenu.close();
         run();
       });
     }
@@ -1942,7 +1802,7 @@ function openColumnMenu(event: MouseEvent): void {
   reset.setAttribute('role', 'menuitem');
   reset.textContent = 'Reset columns';
   reset.addEventListener('click', () => {
-    closeMenu();
+    contextMenu.close();
 
     for (const column of FIXED_COLUMNS) {
       columnState[column.key] = { hidden: false };
@@ -1953,7 +1813,7 @@ function openColumnMenu(event: MouseEvent): void {
   });
 
   menu.append(reset);
-  showMenuAt(menu, event.clientX, event.clientY);
+  contextMenu.showAt(menu, event.clientX, event.clientY);
 }
 
 columnsEl.addEventListener('contextmenu', (event) => {
@@ -2137,7 +1997,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'menu':
-      renderMenu(message.target, message.items, message.x, message.y);
+      contextMenu.render(message.target, message.items, message.x, message.y);
       break;
 
     case 'operation':
@@ -2162,15 +2022,13 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
 });
 
 viewport.addEventListener('scroll', () => {
-  closeMenu();
+  contextMenu.close();
   schedule();
 }, { passive: true });
 
-window.addEventListener('blur', closeMenu);
+window.addEventListener('blur', () => contextMenu.close());
 document.addEventListener('mousedown', (event) => {
-  if (menuEl !== null && !menuEl.contains(event.target as Node)) {
-    closeMenu();
-  }
+  contextMenu.closeIfOutside(event.target as Node);
 
   const target = event.target as Node;
 
@@ -2703,8 +2561,8 @@ document.addEventListener('keydown', (event) => {
       return;
     }
 
-    if (menuEl !== null) {
-      closeMenu();
+    if (contextMenu.isOpen()) {
+      contextMenu.close();
       event.preventDefault();
       return;
     }

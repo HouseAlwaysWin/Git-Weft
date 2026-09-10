@@ -33,6 +33,17 @@ let post: (message: WebviewMessage) => void = () => undefined;
 /** Called when a group is rolled up or down, because remembering that is the view's job. */
 let remember: () => void = () => undefined;
 
+/*
+ * The branch menu in the header.
+ *
+ * Every ref the sidebar knows about, with the tick that decides whether the graph draws it and a
+ * name that checks it out. Both were already possible - the ticks in Branches & Tags, and Checkout
+ * from a badge - but both needed the sidebar open, or the branch to be sitting on a row that
+ * happens to be on screen. Neither is true when the branch you want is the one you cannot see.
+ *
+ * The list is whatever the host last sent. Nothing is cached across repositories and nothing is
+ * computed here: the ticks are the sidebar's state, and a toggle goes straight back to it.
+ */
 let refEntries: readonly RefEntry[] = [];
 let headBranch: string | null = null;
 let branchGroupsClosed = new Set<string>();
