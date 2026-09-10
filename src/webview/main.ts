@@ -24,7 +24,7 @@ import * as headerStatus from './headerStatus.ts';
 import type { LocalItem } from './contextMenu.ts';
 import { span } from './dom.ts';
 import type { Marking } from './highlight.ts';
-import { marking, same } from './highlight.ts';
+import { appendMarked, marking, same } from './highlight.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
 import { DotKind } from '../graph/model.ts';
@@ -932,46 +932,6 @@ function localMenuItems(target: Target): LocalItem[] {
     { label: 'Select for Compare', group: 'compare', run: () => markForCompare(sha) },
     ...copies,
   ];
-}
-
-/**
- * Append text with the search's matches marked.
- *
- * Every row on screen matched - git only walked the ones that did - so this is not about *whether*
- * a row matched but about where, which is the question a forty-character subject actually raises.
- */
-function appendMarked(target: HTMLElement, text: string, pattern: RegExp | null): void {
-  if (pattern === null) {
-    target.textContent = text;
-    return;
-  }
-
-  pattern.lastIndex = 0;
-  let cut = 0;
-
-  for (const match of text.matchAll(pattern)) {
-    if (match.index === undefined || match[0].length === 0) {
-      continue;
-    }
-
-    if (match.index > cut) {
-      target.append(text.slice(cut, match.index));
-    }
-
-    target.append(span('hit', match[0]));
-    cut = match.index + match[0].length;
-  }
-
-  if (cut === 0) {
-    // No match here after all: a pattern JavaScript reads differently from git, or a hit in the
-    // body rather than the subject. Either way the plain text is the honest answer.
-    target.textContent = text;
-    return;
-  }
-
-  if (cut < text.length) {
-    target.append(text.slice(cut));
-  }
 }
 
 /**
