@@ -14,6 +14,7 @@
  */
 
 import type { Git } from './exec.ts';
+import { until } from './exec.ts';
 import type { RepoInfo } from './discovery.ts';
 
 export interface Stash {
@@ -35,9 +36,15 @@ const FIELD = '\x00';
  */
 const FORMAT = '--format=%x1e%H%x00%gd%x00%gs';
 
-export async function listStashes(git: Git, repo: RepoInfo): Promise<Stash[]> {
+export async function listStashes(
+  git: Git,
+  repo: RepoInfo,
+  signal?: AbortSignal,
+): Promise<Stash[]> {
   // A repository with no stashes has no refs/stash at all, and `stash list` exits 0 with nothing.
-  const out = await git.runRead(repo.root, ['stash', 'list', FORMAT]).catch(() => '');
+  const out = await git
+    .runRead(repo.root, ['stash', 'list', FORMAT], until(signal))
+    .catch(() => '');
 
   return out
     .split(RECORD)

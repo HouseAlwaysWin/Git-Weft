@@ -21,6 +21,17 @@
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
+/**
+ * `GitRunOptions` that carries a signal, or that carries nothing.
+ *
+ * `exactOptionalPropertyTypes` makes an absent property and a property set to `undefined` two
+ * different types, so a caller that may or may not have been given a signal cannot simply write
+ * `{ signal }`. One place to get that right rather than at every call site.
+ */
+export function until(signal?: AbortSignal): GitRunOptions {
+  return signal === undefined ? {} : { signal };
+}
+
 export interface GitRunOptions {
   /** Abort the process when this fires - used when the user scrolls past a pending page. */
   readonly signal?: AbortSignal;

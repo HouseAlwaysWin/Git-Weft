@@ -967,7 +967,7 @@ export class WeftPanel {
 
     // Only the newest stash is a ref, so the rest have to be named by SHA or the walk never sees
     // them. Cheap enough to re-read on every reload; a repository has a handful, not thousands.
-    const stashList = await listStashes(this.git, this.repo).catch(() => []);
+    const stashList = await listStashes(this.git, this.repo, controller.signal).catch(() => []);
     const stashes = new Map(stashList.map((stash) => [stash.sha, stash.name]));
 
     /*
@@ -979,9 +979,16 @@ export class WeftPanel {
       this.dates?.since == null ? false : await this.git.atLeast(2, 37),
     );
 
-    // Before the history, not after: if git is mid-rebase the user should be told that while the
-    // walk is still running, not once it finishes.
-    await readRepoState(this.git, this.repo)
+    /*
+     * Alongside the history, not before it.
+     *
+     * This feeds one thing - the banner that says git is mid-rebase - and the comment here used to
+     * say the reader should be told "while the walk is still running, not once it finishes".
+     * Awaiting it did the opposite: the banner arrived before the walk *started*, and the walk
+     * started 809ms late, because `git status` on a 38,000-file worktree is the slowest thing
+     * either of them does. Firing it and posting when it lands is what that sentence describes.
+     */
+    void readRepoState(this.git, this.repo, controller.signal)
       .then((state) => this.postOperation(state))
       .catch(() => undefined);
 

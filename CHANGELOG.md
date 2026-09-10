@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **The graph stops spending four times longer getting ready than working.** Measured on a
+  78,282-commit repository with 1,177 refs and 38,696 tracked files: 1,875 ms of preamble before
+  `git log` was invoked at all, against 462 ms to walk the entire history.
+
+  Two things were in the way, and neither needed to be. Reading the repository's state - which feeds
+  one thing, the banner saying git is mid-rebase - was awaited, and on a worktree that size its
+  `git status` alone is 809 ms. The comment there said the reader should be told "while the walk is
+  still running, not once it finishes"; awaiting it did the opposite. It is fired now and posts when
+  it lands, which is what that sentence describes.
+
+  And the stash probes, which decide whether a stash hangs off anything being drawn, were asked one
+  after another. They are independent questions, and on Windows spawning git costs more than
+  answering: 649 ms for three. Asked together they are 272 ms. One command for all of them would be
+  better still and there is no correct one - `rev-list --no-walk` is documented to stop meaning
+  anything once a range is given, and measured, it walked 63,130 commits and answered the wrong
+  question.
+
+  The preamble is about 690 ms now. It is also cancellable at last: none of it took the abort
+  signal, so a superseded reload - ticking a second branch while the first is still loading - ran
+  every bit of it to completion before noticing.
+
 - **The button that opens the graph says something while it works.** Between clicking it in Source
   Control and the tab appearing there is a repository to find and a ref list to read, and none of
   it had anywhere to show: the graph's own progress bar is inside the webview, and the webview is

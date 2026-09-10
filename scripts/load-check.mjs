@@ -3360,11 +3360,42 @@ if (disposeHandler !== null) {
  */
 {
   const guards = [
-    ['src/panel.ts', /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.root\)/],
-    ['src/blameAnnotations.ts', /this\.isBusy\(repo\.root\)/],
+    [
+      'src/panel.ts',
+      /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.root\)/,
+      'reads the working tree without standing back for a write in flight',
+    ],
+    [
+      'src/blameAnnotations.ts',
+      /this\.isBusy\(repo\.root\)/,
+      'blames a file without standing back for a write in flight',
+    ],
     // And the one writer that was not a reader: auto-fetch prunes, so it belongs in the queue and
     // not merely behind a look at it.
-    ['src/panel.ts', /autoFetch\(\): Promise<void> \{[\s\S]{0,1200}?lock\.run\(/],
+    [
+      'src/panel.ts',
+      /autoFetch\(\): Promise<void> \{[\s\S]{0,1200}?lock\.run\(/,
+      'fetches - which prunes, and is a write - outside the queue',
+    ],
+
+    /*
+     * Nothing may hold the walk while it asks a question the walk does not need.
+     *
+     * `readRepoState` feeds the mid-operation banner and nothing else, and awaiting it put a
+     * `git status` - 809ms on a 38,000-file worktree - between the reader and their first row. The
+     * stash probes were the same mistake in a loop: three independent questions asked one after
+     * another, 649ms of process startup, against a walk of the whole history that takes 462ms.
+     */
+    [
+      'src/panel.ts',
+      /void readRepoState\(/,
+      'holds the walk for a git status the walk does not need',
+    ],
+    [
+      'src/git/history.ts',
+      /async function stashesInWalk[\s\S]{0,2200}?Promise\.all\(/,
+      'asks the stash probes one after another, ahead of the first row',
+    ],
   ];
 
   /*
@@ -3466,21 +3497,21 @@ if (disposeHandler !== null) {
     }
   }
 
-  const missing = guards
-    .filter(
-      ([path, pattern]) =>
-        !pattern.test(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')),
-    )
-    .map(([path]) => path);
+  const missing = guards.filter(
+    ([path, pattern]) =>
+      !pattern.test(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')),
+  );
 
   console.log('');
   console.log(
-    'write-lock     :',
-    missing.length === 0 ? 'every reader stands back' : `UNGUARDED: ${missing.join(', ')}`,
+    'git manners    :',
+    missing.length === 0
+      ? `${guards.length} shapes held`
+      : `UNGUARDED: ${missing.map(([path]) => path).join(', ')}`,
   );
 
-  for (const path of missing) {
-    problems.push(`${path} runs git without standing back for a write in flight`);
+  for (const [path, , complaint] of missing) {
+    problems.push(`${path} ${complaint}`);
   }
 }
 

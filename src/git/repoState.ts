@@ -16,6 +16,7 @@
 import { access, stat } from 'node:fs/promises';
 
 import type { Git } from './exec.ts';
+import { until } from './exec.ts';
 import type { RepoInfo } from './discovery.ts';
 
 export const Operation = {
@@ -305,17 +306,23 @@ export function parseBranchName(output: string): string | null {
   return name.length === 0 || name.includes(' ') ? null : name;
 }
 
-export async function readRepoState(git: Git, repo: RepoInfo): Promise<RepoState> {
+export async function readRepoState(
+  git: Git,
+  repo: RepoInfo,
+  signal?: AbortSignal,
+): Promise<RepoState> {
+  const at = until(signal);
+
   const [operation, status, head, branch, refs, remotes, fetchedAt] = await Promise.all([
     readOperation(repo.gitDir),
     // A bare repository has no working tree, so there is nothing to be dirty. `-b` costs nothing
     // and carries the upstream and the ahead/behind counts, which network actions need.
-    repo.isBare ? Promise.resolve('') : git.runRead(repo.root, ['status', '--porcelain', '-z', '-b']),
-    git.runRead(repo.root, ['rev-parse', 'HEAD']).catch(() => ''),
+    repo.isBare ? Promise.resolve('') : git.runRead(repo.root, ['status', '--porcelain', '-z', '-b'], at),
+    git.runRead(repo.root, ['rev-parse', 'HEAD'], at).catch(() => ''),
     // Empty output and a non-zero exit both mean "not on a branch"; -q keeps the noise down.
-    git.runRead(repo.root, ['symbolic-ref', '--short', '-q', 'HEAD']).catch(() => ''),
-    git.runRead(repo.root, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/tags']),
-    git.runRead(repo.root, ['remote']).catch(() => ''),
+    git.runRead(repo.root, ['symbolic-ref', '--short', '-q', 'HEAD'], at).catch(() => ''),
+    git.runRead(repo.root, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/tags'], at),
+    git.runRead(repo.root, ['remote'], at).catch(() => ''),
     lastFetch(repo),
   ]);
 
