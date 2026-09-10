@@ -89,7 +89,7 @@ export const BODY_MARKUP = `<header id="header">
   <div id="header-status">
     <span id="branch-menu">
       <button id="branch-button" type="button" aria-haspopup="true" aria-expanded="false"
-        title="Switch to a branch, or choose which branches the graph draws. The ticks are the same ones as in Branches &amp; Tags.">
+        title="Choose which branches the graph draws. The ticks are the same ones as in Branches &amp; Tags. To switch branch, use the box beside this one.">
         <span id="branch-current">no branch</span>
         <span class="chevron" aria-hidden="true">&#9662;</span>
       </button>

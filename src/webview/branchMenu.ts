@@ -34,12 +34,16 @@ let post: (message: WebviewMessage) => void = () => undefined;
 let remember: () => void = () => undefined;
 
 /*
- * The branch menu in the header.
+ * The branch menu in the header: which refs the graph draws.
  *
- * Every ref the sidebar knows about, with the tick that decides whether the graph draws it and a
- * name that checks it out. Both were already possible - the ticks in Branches & Tags, and Checkout
- * from a badge - but both needed the sidebar open, or the branch to be sitting on a row that
- * happens to be on screen. Neither is true when the branch you want is the one you cannot see.
+ * Every ref the sidebar knows about, with the tick that decides whether it is drawn. The same ticks
+ * as in Branches & Tags, reachable without the sidebar open - which matters because the branch you
+ * want to find is usually the one not on screen.
+ *
+ * It checks nothing out. It used to: the name beside each tick was a button that switched branch,
+ * so two different things sat one pixel apart and the destructive one had the bigger target and no
+ * confirmation - while the quick-switch box beside it, which is the same gesture done deliberately,
+ * asks first. A menu whose every other control filters is not where a checkout belongs.
  *
  * The list is whatever the host last sent. Nothing is cached across repositories and nothing is
  * computed here: the ticks are the sidebar's state, and a toggle goes straight back to it.
@@ -86,17 +90,28 @@ function branchRow(entry: RefEntry): HTMLElement {
     setRefsDrawn([entry.refName], draw.checked);
   });
 
+  /*
+   * The name is the tick's label, so clicking it is clicking the tick.
+   *
+   * A checkbox is a four-millimetre target next to a branch name that is thirty. Leaving the name
+   * inert meant the easy half of the row did nothing and the hard half did the thing you wanted -
+   * and for a while the easy half did something else entirely.
+   */
   const name = document.createElement('button');
   name.type = 'button';
   name.className = 'branch-name';
   name.textContent = entry.label;
-  name.title = entry.refName;
-
+  name.title = `${entry.refName}\n\n${draw.title}`;
   if (here) {
-    // Checking out the branch you are on does nothing, and offering it suggests otherwise.
     name.disabled = true;
   } else {
-    name.addEventListener('click', () => checkoutRef(entry));
+    name.addEventListener('click', () => {
+      post({
+        type: 'runAction',
+        id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
+        target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
+      });
+    });
   }
 
   row.append(draw, name);
@@ -261,13 +276,18 @@ function paintJumpPick(): void {
 }
 
 /**
- * Check one out, from wherever it was clicked.
+ * Check one out, from the quick-switch box - the one place here that switches branch.
+ *
+ * Always confirmed. Checking out rewrites the worktree, which on a large repository is a minute of
+ * files changing under whatever else is open, and it is refused outright on a dirty tree. The
+ * gesture that asks for it is a name typed into a box, which is one keystroke from a different
+ * branch with a similar name.
  *
  * A remote branch is a different action from a local one: it has to end on a local branch of that
  * name, creating and tracking one when there is none, because checking out the remote branch
  * itself detaches HEAD.
  */
-function checkoutRef(entry: RefEntry, confirm = false): void {
+function checkoutRef(entry: RefEntry): void {
   closeJumpMenu();
   closeBranchMenu();
   branchJump.value = '';
@@ -276,7 +296,7 @@ function checkoutRef(entry: RefEntry, confirm = false): void {
     type: 'runAction',
     id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
     target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
-    ...(confirm ? { confirm: true } : {}),
+    confirm: true,
   });
 }
 
@@ -328,7 +348,7 @@ function renderJumpMenu(): void {
       } else {
         // Asked about first: this row is one Return away from a checkout, and the box above it is
         // a text field - which is a keystroke somebody can arrive at while still typing.
-        row.addEventListener('click', () => checkoutRef(entry, true));
+        row.addEventListener('click', () => checkoutRef(entry));
       }
 
       jumpRows.append(row);

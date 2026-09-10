@@ -1281,12 +1281,7 @@ body.vscode-high-contrast.author-tint .row .author {
   cursor: pointer;
 }
 
-.branch-name:disabled {
-  cursor: default;
-  color: var(--vscode-descriptionForeground);
-}
-
-/* Where HEAD is. Not clickable, because checking out the branch you are on does nothing. */
+/* Where HEAD is. Still tickable: the branch you are on is one the graph can be told not to draw. */
 .branch-row.current .branch-name {
   font-weight: 600;
   color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--weft-fg));
