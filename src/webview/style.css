@@ -254,6 +254,73 @@ body.flat #graph {
   overflow: hidden;
 }
 
+/*
+ * That something is happening, across the top of the rows.
+ *
+ * The count in the header said "loading…" all along, in a 0.9em grey at the far right of the second
+ * row - which is where you look for it if you already know it is there. On a repository that takes
+ * four seconds to walk, what the reader sees is an empty pane and no reason to think it will fill.
+ *
+ * A bar rather than a spinner, because VS Code puts one exactly here for exactly this, and a reader
+ * who has seen it above an editor knows what it means without being told.
+ */
+#progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 2;
+  pointer-events: none;
+}
+
+#progress::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  animation: weft-progress 1.6s ease-in-out infinite;
+}
+
+@keyframes weft-progress {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(333%);
+  }
+}
+
+/* Something that does not move, for a reader who has asked for nothing that does. */
+@media (prefers-reduced-motion: reduce) {
+  #progress::before {
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+}
+
+/*
+ * And a sentence in the middle of the empty pane, which is the other half of the same problem: a
+ * walk that has not produced a row yet and a walk that finished with nothing look identical, and
+ * neither of them looks like anything.
+ */
+#empty {
+  position: absolute;
+  top: 40%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+  pointer-events: none;
+}
+
 #viewport {
   position: absolute;
   inset: 0;

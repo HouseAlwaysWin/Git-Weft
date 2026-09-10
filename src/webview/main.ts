@@ -56,6 +56,8 @@ const LANE_SLACK = 36;
 const header = document.getElementById('header') as HTMLElement;
 const titleEl = document.getElementById('title') as HTMLElement;
 const statusEl = document.getElementById('status') as HTMLElement;
+const progressEl = document.getElementById('progress') as HTMLElement;
+const emptyEl = document.getElementById('empty') as HTMLElement;
 const columnsEl = document.getElementById('columns') as HTMLElement;
 const clearSortEl = document.getElementById('clear-sort') as HTMLButtonElement;
 const clearFiltersEl = document.getElementById('clear-filters') as HTMLButtonElement;
@@ -613,6 +615,80 @@ function settle(row: Row): Row {
     author: seen ?? row.author,
     refs: row.refs.length === 0 ? NO_REFS : row.refs,
   };
+}
+
+/**
+ * Whether a walk is in flight, and how long before saying so.
+ *
+ * Not immediately. Most reloads finish in tens of milliseconds - a tick moved, a file was saved -
+ * and a bar that appears and vanishes inside one blink is worse than no bar: it reads as a glitch
+ * rather than as progress. A walk that is going to take four seconds has still said so within a
+ * quarter of one.
+ */
+const BUSY_AFTER_MS = 250;
+
+let busy = false;
+
+/** Whether the delay has passed, so the bar and the sentence appear together or not at all. */
+let saying = false;
+
+/** What git said, when the last walk did not finish. Cleared by the reset that starts the next. */
+let walkError: string | null = null;
+let busyTimer = 0;
+
+function setBusy(on: boolean): void {
+  busy = on;
+  window.clearTimeout(busyTimer);
+
+  if (!on) {
+    saying = false;
+    progressEl.hidden = true;
+    updateEmpty();
+    return;
+  }
+
+  saying = false;
+  progressEl.hidden = true;
+  updateEmpty();
+
+  busyTimer = window.setTimeout(() => {
+    saying = busy;
+    progressEl.hidden = !busy;
+    updateEmpty();
+  }, BUSY_AFTER_MS);
+}
+
+/**
+ * The sentence in the middle of an empty pane.
+ *
+ * Three states look identical without it and mean completely different things: still walking,
+ * finished with nothing to show, and narrowed to nothing by a filter somewhere else. The status
+ * line says which, in a grey 0.9em at the far right of the header - which is where you look for it
+ * once you already know it is there.
+ */
+function updateEmpty(): void {
+  if (view.length > 0) {
+    emptyEl.hidden = true;
+    return;
+  }
+
+  // Nothing at all while a quick reload is in flight: the rows are cleared before the new ones
+  // arrive, and a sentence that appears for a tenth of a second is a flicker, not an explanation.
+  emptyEl.hidden = busy && !saying;
+
+  /*
+   * A walk that failed leaves exactly the same empty pane as a repository with nothing in it, and
+   * saying the second when the first happened is worse than saying nothing: the reader goes looking
+   * for commits that are there. git's own words, which are worth the room now that the streaming
+   * path keeps them.
+   */
+  emptyEl.textContent = busy
+    ? 'Walking the history…'
+    : walkError !== null
+      ? walkError
+      : !clearFiltersEl.hidden
+        ? 'No commits match the filters. Clear Filters puts them all back.'
+        : 'Nothing to draw. This repository has no commits yet.';
 }
 
 /** Rebuild only the row elements the viewport can actually show. */
@@ -2498,6 +2574,8 @@ function reset(): void {
   currentDetails = null;
   header.classList.remove('error');
   statusEl.textContent = 'loading…';
+  walkError = null;
+  setBusy(true);
   document.body.classList.remove('flat');
   updateColumns();
 }
@@ -2539,6 +2617,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       applyDelta(message.delta);
       spacer.style.height = `${view.length * rowHeight}px`;
       statusEl.textContent = `${rows.length.toLocaleString()} commits…`;
+      updateEmpty();
       schedule();
       break;
 
@@ -2558,6 +2637,8 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'done':
+      setBusy(false);
+
       // An empty result is a real answer, not a blank screen waiting for more.
       statusEl.textContent =
         message.total === 0
@@ -2639,6 +2720,9 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'error':
+      // A walk that failed is a walk that stopped, or the bar runs for the rest of the session.
+      walkError = message.message;
+      setBusy(false);
       statusEl.textContent = message.message;
       header.classList.add('error');
       break;

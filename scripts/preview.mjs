@@ -148,6 +148,7 @@ const dark = {
   '--vscode-panel-border': '#2b2b2b',
   '--vscode-errorForeground': '#f14c4c',
   '--vscode-focusBorder': '#0078d4',
+  '--vscode-progressBar-background': '#0078d4',
   '--vscode-font-family': 'system-ui, sans-serif',
   '--vscode-font-size': '13px',
   '--vscode-editor-font-family': 'Consolas, monospace',

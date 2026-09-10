@@ -149,6 +149,8 @@ export const BODY_MARKUP = `<header id="header">
 <main id="main">
   <div id="viewport"><div id="spacer"></div><div id="rows"></div></div>
   <canvas id="graph"></canvas>
+  <div id="progress" hidden role="progressbar" aria-label="Walking the history"></div>
+  <p id="empty" hidden></p>
 </main>
 <div id="splitter" hidden role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
 <section id="details" hidden>

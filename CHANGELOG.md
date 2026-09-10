@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **A graph that is still loading says so.** Opening a large repository showed an empty pane and a
+  word in a 0.9em grey at the far right of the header - which is where you look for it once you
+  already know it is there. There is a progress bar across the top of the rows now, the one VS Code
+  puts in that exact place for that exact reason, and a sentence in the middle of the empty pane
+  saying what is being waited for.
+
+  Both wait a quarter of a second first. Most reloads finish in tens of milliseconds - a tick
+  moved, a file saved - and something that appears and vanishes inside one blink reads as a glitch
+  rather than as progress. A walk that is going to take four seconds has still said so almost at
+  once.
+
+  The empty pane now also tells three states apart that used to look identical: still walking,
+  narrowed to nothing by a filter, and a repository with no commits in it. A fourth, too - a walk
+  that failed puts git's own words in the middle of the pane, which used to claim the repository
+  had no commits while the header said otherwise.
+
 ## 0.7.0
 
 - **Show Line History**, on the editor's right-click menu: the commits that touched the lines you
