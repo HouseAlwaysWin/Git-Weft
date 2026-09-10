@@ -298,9 +298,20 @@ export class WeftPanel {
       column,
       {
         enableScripts: true,
-        // Deliberately off: retaining the context for a 100k-row graph keeps all of it resident
-        // while the tab is hidden. The graph reloads in under a second, so it is not worth the RAM.
-        retainContextWhenHidden: false,
+        /*
+         * On, and the comment it replaces is why: it said the graph "reloads in under a second, so
+         * it is not worth the RAM".
+         *
+         * Both halves were guesses. Measured on a 78,282-commit repository, a reload was 2.3
+         * seconds - and every switch away from the tab and back paid it, because VS Code tears the
+         * webview down when it is hidden and the script's first act on return is to ask for one.
+         * The RAM is 55.9 MB for that history, attributed per part in docs/design.md.
+         *
+         * A second and a half of blank pane on every tab switch, against 56 MB while the tab is
+         * open. It also keeps the scroll position, the selection and the details pane, which the
+         * reload threw away and never restored.
+         */
+        retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist')],
       },
     );

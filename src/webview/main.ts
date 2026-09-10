@@ -28,7 +28,7 @@ import type { MenuItem, Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
 import { authorHue } from './authorColor.ts';
 import type { Sort, SortColumn } from './sort.ts';
-import { FIRST_DIRECTION, sortRows } from './sort.ts';
+import { FIRST_DIRECTION, SortCache } from './sort.ts';
 
 interface VsCodeApi {
   postMessage(message: WebviewMessage): void;
@@ -2143,6 +2143,9 @@ function applyDelta(delta: GraphDelta): void {
  * selected commit is followed by identity rather than by position. Losing it would be a real loss:
  * the details pane below is showing it.
  */
+/** Kept between frames, because a file being saved should not cost a re-sort. See `SortCache`. */
+const sortCache = new SortCache<Row>();
+
 function applyView(): void {
   const keepUncommitted = selected >= 0 && view[selected]?.uncommitted === true;
   const keep = selected < 0 ? undefined : view[selected]?.sha;
@@ -2150,7 +2153,7 @@ function applyView(): void {
   // Where the selected commit sits in the history, rather than in the list: the uncommitted row
   // comes and goes above it, and that is not the row moving.
   const wasAt = selected < 0 ? -1 : selected - rowOffset();
-  const history = sort !== null && complete ? sortRows(rows, sort) : rows;
+  const history = sort !== null && complete ? sortCache.sorted(rows, sort) : rows;
 
   // Always at the top, whatever the sort: it has no date and no author to be ordered by, and it is
   // the one row that is about now rather than about the past.

@@ -354,8 +354,8 @@ const vscodeStub = {
         dispose() {},
       };
     },
-    createWebviewPanel: (viewType, title) => {
-      panelCreated = { viewType, title };
+    createWebviewPanel: (viewType, title, _column, options) => {
+      panelCreated = { viewType, title, options };
       return (panelObject = {
         active: true,
         webview: {
@@ -645,6 +645,20 @@ if (panelCreated === null) {
   problems.push('weft.openGraph did not create a webview panel');
 } else {
   console.log('panel          :', panelCreated.viewType, '/', panelCreated.title);
+
+  /*
+   * The webview has to survive being hidden.
+   *
+   * Without this VS Code tears it down on every tab switch, the script asks for the history again
+   * on the way back, and the reader waits out a whole reload - 2.3 seconds on a 78,000-commit
+   * repository - to return to a graph they were already looking at, with the scroll position and
+   * the selection gone.
+   */
+  console.log('  kept alive   :', panelCreated.options?.retainContextWhenHidden === true);
+
+  if (panelCreated.options?.retainContextWhenHidden !== true) {
+    problems.push('the graph is thrown away when its tab is hidden, so coming back re-walks');
+  }
 }
 
 /*

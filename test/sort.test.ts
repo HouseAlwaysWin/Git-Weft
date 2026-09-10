@@ -2,13 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { SortableRow } from '../src/webview/sort.ts';
-import { FIRST_DIRECTION, sortRows } from '../src/webview/sort.ts';
+import { FIRST_DIRECTION, SortCache, sortRows } from '../src/webview/sort.ts';
 
 function row(sha: string, author: string, date: string, subject = 'subject'): SortableRow {
   return { sha, author, date, subject };
 }
 
 const shas = (rows: readonly SortableRow[]): string[] => rows.map((r) => r.sha);
+
+/** A history of `n` rows, distinct in every column so any ordering is decidable. */
+function make(n: number): SortableRow[] {
+  return Array.from({ length: n }, (_, i) =>
+    row(
+      String(i).padStart(8, '0'),
+      ['Ada', 'Nils', 'Rui'][i % 3] as string,
+      new Date(1700000000000 + i * 60000).toISOString(),
+      `subject ${(i * 7919) % 100000}`,
+    ),
+  );
+}
 
 test('sorting leaves the graph order it was given untouched', () => {
   const rows = [row('c', 'Zoe', '2026-01-03'), row('a', 'Ada', '2026-01-01')];
@@ -85,4 +97,65 @@ test('a date column opens newest first - the order it already had in the graph',
   assert.equal(FIRST_DIRECTION.date, 'desc');
   assert.equal(FIRST_DIRECTION.author, 'asc');
   assert.equal(FIRST_DIRECTION.subject, 'asc');
+});
+
+test('a sort is not paid for twice', () => {
+  /*
+   * The view re-derives itself on every message about the working tree - every file saved - and
+   * sorting is the expensive half: measured on 78,000 rows, 333ms for Description, on the thread
+   * that is also drawing. Saving a file cannot reorder a history, so it must not cost a reorder.
+   *
+   * Identity is the assertion rather than equality: an equal array would mean it sorted again and
+   * happened to agree with itself.
+   */
+  const rows = make(2000);
+  const cache = new SortCache<SortableRow>();
+  const first = cache.sorted(rows, { column: 'subject', direction: 'asc' });
+
+  assert.equal(cache.sorted(rows, { column: 'subject', direction: 'asc' }), first, 'same question');
+
+  // A different question, every way there is to ask one.
+  assert.notEqual(
+    cache.sorted(rows, { column: 'subject', direction: 'desc' }),
+    first,
+    'the other direction is a different order',
+  );
+
+  assert.notEqual(
+    cache.sorted(rows, { column: 'author', direction: 'asc' }),
+    first,
+    'so is a different column',
+  );
+
+  const grown = [...rows];
+  const again = cache.sorted(grown, { column: 'subject', direction: 'asc' });
+
+  grown.push(...make(1));
+
+  assert.notEqual(
+    cache.sorted(grown, { column: 'subject', direction: 'asc' }),
+    again,
+    'a page arriving pushes onto the same array, and the length is what catches it',
+  );
+
+  /*
+   * And the one the length alone would miss: a reload replaces the array outright, and a different
+   * history of the same size would otherwise be served the previous one's order.
+   */
+  const replaced = make(2000).reverse();
+  const settled = cache.sorted(rows, { column: 'subject', direction: 'asc' });
+
+  assert.notEqual(
+    cache.sorted(replaced, { column: 'subject', direction: 'asc' }),
+    settled,
+    'a different array of the same length is a different history',
+  );
+
+  cache.clear();
+
+  assert.notEqual(
+    cache.sorted(rows, { column: 'subject', direction: 'asc' }),
+    cache.sorted(replaced, { column: 'subject', direction: 'asc' }),
+    'and clearing lets go of it',
+  );
 });

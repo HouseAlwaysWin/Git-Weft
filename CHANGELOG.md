@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Switching to another tab and back no longer re-walks the history.** VS Code tears a webview
+  down when its tab is hidden, and the graph's first act on the way back was to ask for the whole
+  history again - so returning to a graph you were already looking at cost a full reload, with the
+  scroll position, the selection and the details pane thrown away with it. The setting that caused
+  it was justified in a comment saying the graph "reloads in under a second, so it is not worth the
+  RAM"; measured on a 78,282-commit repository it was 2.3 seconds, and the RAM is 55.9 MB.
+
+  Keeping it alive means a hidden tab keeps hearing about the working tree, so the other half of
+  this had to come with it: re-deriving the view was re-sorting the entire history, 305 ms for
+  Description on 78,000 rows, on every file saved. It is remembered now - the same question asked a
+  hundred times more costs three ten-thousandths of a millisecond - and the remembering lives in
+  `sort.ts` where it can be tested without a browser, which is how the four ways of asking a
+  different question are pinned down.
+
 - **The graph stops spending four times longer getting ready than working.** Measured on a
   78,282-commit repository with 1,177 refs and 38,696 tracked files: 1,875 ms of preamble before
   `git log` was invoked at all, against 462 ms to walk the entire history.
