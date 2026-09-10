@@ -57,41 +57,6 @@ function branchMenuOpen(): boolean {
 }
 
 /**
- * What was drawn when the menu opened, which is what the top section holds.
- *
- * Not `entry.visible`, which is what the box shows. The two differ for as long as the menu stays
- * open, and deliberately: a tick reaches the host, which sends the list back, which redraws this
- * menu. Sectioning on the live value would lift the row out from under the pointer the moment it
- * was clicked, and ticking three branches would mean three times aiming at a list that had just
- * rearranged itself. So the row stays where it is and the box fills in; the next time the menu
- * opens, it is at the top.
- */
-let drawnAtOpen = new Set<string>();
-
-/** Every ref the freeze was taken from, so a list that has genuinely changed can be spotted. */
-let frozenRefs = new Set<string>();
-
-function freezeDrawn(): void {
-  frozenRefs = new Set(refEntries.map((entry) => entry.refName));
-  drawnAtOpen = new Set(refEntries.filter((entry) => entry.visible).map((entry) => entry.refName));
-}
-
-/**
- * Whether the freeze is about a different list than the one now in hand.
- *
- * A tick changes what is drawn and nothing else, and that is the case the freeze exists for. A
- * fetch, a new branch, a different repository changes who is in the list at all - and a freeze
- * taken over other refs would leave the new ones in whichever section they fell into by default.
- */
-function frozenStale(): boolean {
-  return (
-    frozenRefs.size !== refEntries.length ||
-    refEntries.some((entry) => !frozenRefs.has(entry.refName))
-  );
-}
-
-
-/**
  * Straight to the host, which owns the one hidden set.
  *
  * One message however many refs it is: the reload that follows sends the list back, so nothing here
@@ -231,8 +196,14 @@ function renderBranchMenu(): void {
    * repository with a hundred and fifty branches means finding three of them. Split by kind they
    * are three needles in two haystacks: tick a remote and it rises to the top of Remote, which is
    * below every local branch there is.
+   *
+   * Read from `visible` every time it draws, so it is never behind what it is describing. It was
+   * held still while the menu was open, so that a ticked row would not move out from under the
+   * pointer - and then it said one when two were drawn, which is the one thing this section must
+   * never do. The movement it was avoiding is small anyway: the row leaves its group and joins
+   * this one above, so everything below it shifts up by a row and down by a row.
    */
-  const drawn = matches.filter((entry) => drawnAtOpen.has(entry.refName));
+  const drawn = matches.filter((entry) => entry.visible);
 
   if (drawn.length > 0) {
     branchRows.append(branchGroupHeader('drawn', 'Drawn', drawn));
@@ -248,9 +219,7 @@ function renderBranchMenu(): void {
   // under their own heading rather than mixed in, because `origin/main` and `main` are different
   // things to switch to.
   for (const kind of ['local', 'remote'] as const) {
-    const group = matches.filter(
-      (entry) => entry.kind === kind && !drawnAtOpen.has(entry.refName),
-    );
+    const group = matches.filter((entry) => entry.kind === kind && !entry.visible);
 
     if (group.length === 0) {
       continue;
@@ -272,7 +241,6 @@ function renderBranchMenu(): void {
 
 function openBranchMenu(): void {
   branchFilter.value = '';
-  freezeDrawn();
   renderBranchMenu();
   branchList.hidden = false;
   branchButton.setAttribute('aria-expanded', 'true');
@@ -528,10 +496,6 @@ export function setRefs(entries: readonly RefEntry[], head: string | null): void
   headBranch = head;
 
   renderBranchButton();
-
-  if (frozenStale()) {
-    freezeDrawn();
-  }
 
   if (branchMenuOpen()) {
     renderBranchMenu();
