@@ -20,6 +20,8 @@ import * as contextMenu from './contextMenu.ts';
 import * as columns from './columns.ts';
 import type { LocalItem } from './contextMenu.ts';
 import { span } from './dom.ts';
+import type { Marking } from './highlight.ts';
+import { marking, same } from './highlight.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
 import { DotKind } from '../graph/model.ts';
@@ -230,10 +232,12 @@ let sort: Sort | null = null;
 let complete = false;
 
 /**
- * What to mark inside the rows, or null for nothing. Built from the search box, never from the
- * host: git has already narrowed the walk, so this is only about showing *where* a row matched.
+ * What to mark inside the rows and which column it goes in. See `highlight.ts`.
+ *
+ * Built from the search that was sent, never from the host: git has already narrowed the walk, so
+ * this is only about showing *where* a row matched.
  */
-let highlight: RegExp | null = null;
+let highlight: Marking = { pattern: null, field: null };
 
 /**
  * The working tree as the host last described it. `total` of zero means there is nothing to show a
@@ -699,14 +703,14 @@ function renderRows(indent: number, first: number, last: number): void {
     const subject = document.createElement('span');
     subject.className = 'subject';
     subject.title = row.subject;
-    appendMarked(subject, row.subject, searchMode.value === 'message' ? highlight : null);
+    appendMarked(subject, row.subject, highlight.field === 'subject' ? highlight.pattern : null);
     description.append(subject);
     el.append(description);
 
     const author = document.createElement('span');
     author.className = 'author';
     author.title = row.author;
-    appendMarked(author, row.author, searchMode.value === 'author' ? highlight : null);
+    appendMarked(author, row.author, highlight.field === 'author' ? highlight.pattern : null);
     // Only the hue: the stylesheet holds the lightness, so the tint follows the theme.
     author.style.setProperty('--weft-author-hue', `${authorHue(row.author)}`);
     el.append(author);
@@ -1758,54 +1762,10 @@ function queueSearch(): void {
   searchTimer = window.setTimeout(submitSearch, 300);
 }
 
-/**
- * The pattern to mark up inside the rows, or null when there is nothing to mark.
- *
- * Only for the two modes whose match is visible in a row: a `content` hit is inside a diff and a
- * `path` hit is inside a filename, and neither is on screen to highlight. Inverted search has
- * nothing to mark either - every row on screen is one that did *not* match.
- *
- * The dialect is a compromise. Text mode is exact, because the escape is ours on both sides; a
- * regular expression is git's BRE being read by JavaScript, which agrees on the common cases and
- * not on all of them. A highlight that misses is a hint that missed, so a pattern JavaScript
- * cannot parse simply turns the marking off rather than the search.
- */
-function highlightPattern(): RegExp | null {
-  const mode = currentMode();
-  const query = searchInput.value.trim();
-
-  if (query.length === 0 || searchOptions.invert) {
-    return null;
-  }
-
-  if (mode !== 'message' && mode !== 'author') {
-    return null;
-  }
-
-  // Through the same table the buttons come from, so the marking cannot claim to have split the
-  // query on words in a mode where git was never asked to.
-  const splitting = searchOptions.allTerms && applicable().includes('allTerms');
-  const terms = splitting ? query.split(/\s+/).filter((t) => t.length > 0) : [query];
-
-  if (terms.length === 0) {
-    return null;
-  }
-
-  const source = terms
-    .map((term) => (searchOptions.regex ? term : term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-    .join('|');
-
-  try {
-    return new RegExp(source, searchOptions.caseSensitive ? 'g' : 'gi');
-  } catch {
-    return null;
-  }
-}
-
 /** Re-read the search box into the row markup, without asking git for anything. */
 function refreshHighlight(): void {
-  const next = highlightPattern();
-  const changed = next?.source !== highlight?.source || next?.flags !== highlight?.flags;
+  const next = marking(currentSearch());
+  const changed = !same(next, highlight);
 
   highlight = next;
 
