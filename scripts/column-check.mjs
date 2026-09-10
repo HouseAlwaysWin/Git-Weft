@@ -19,8 +19,17 @@
 import { readFileSync } from 'node:fs';
 
 const css = readFileSync(new URL('../src/webview/style.css', import.meta.url), 'utf8');
-const script = readFileSync(new URL('../src/webview/main.ts', import.meta.url), 'utf8');
 const markup = readFileSync(new URL('../src/webview/markup.ts', import.meta.url), 'utf8');
+
+/*
+ * Both halves of the script side, joined, because which file a thing lives in is not what this
+ * checks. `columns.ts` holds the widths and the grips and `main.ts` holds the ceiling they are
+ * capped by; a guard that named one of them would have gone quiet the day they were separated,
+ * which is the day it was most worth having.
+ */
+const script = ['main.ts', 'columns.ts']
+  .map((name) => readFileSync(new URL(`../src/webview/${name}`, import.meta.url), 'utf8'))
+  .join('\n');
 
 const problems = [];
 
@@ -30,7 +39,7 @@ const declared = [...script.matchAll(/\{ key: '([a-z]+)', label: '([A-Za-z]+)', 
 );
 
 if (declared.length === 0) {
-  problems.push('found no column declarations in main.ts - has FIXED_COLUMNS moved or changed shape?');
+  problems.push('found no column declarations - has FIXED_COLUMNS moved or changed shape?');
 }
 
 console.log(`columns        : ${declared.map((c) => `${c.label} (${c.fallback})`).join(', ')}`);
@@ -76,7 +85,7 @@ for (const name of read) {
 }
 
 if (!set.has('') || !set.has('-show')) {
-  problems.push('main.ts no longer sets both the track and the visibility properties');
+  problems.push('the script no longer sets both the track and the visibility properties');
 }
 
 /*
@@ -110,7 +119,7 @@ if (!graphGrip) {
 }
 
 if (!graphHandled) {
-  problems.push('nothing in main.ts handles the lane grip, so dragging it does nothing');
+  problems.push('nothing handles the lane grip, so dragging it does nothing');
 }
 
 // And the ceiling that applies before anybody drags anything. A graph with no cap is the state the
