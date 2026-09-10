@@ -132,6 +132,15 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   readonly onDidChangeTreeData = this.changed.event;
   readonly onDidChangeFilter = this.filterChanged.event;
 
+  /**
+   * The listing order moved. Separate from the filter event, which reloads every open graph.
+   *
+   * Sorting changes nothing about which commits are walked, and firing the filter event for it
+   * would spend a walk of the whole history on rearranging a list.
+   */
+  private readonly orderChanged = new vscode.EventEmitter<void>();
+  readonly onDidChangeOrder = this.orderChanged.event;
+
   constructor(git: Git) {
     this.git = git;
   }
@@ -318,9 +327,20 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
         ? this.refs
         : this.refs.filter((ref) => ref.label.toLowerCase().includes(needle));
 
+    return this.inOrder(matching);
+  }
+
+  /**
+   * The listing order, without the search box's narrowing.
+   *
+   * Apart from `listed` because the header's branch menu wants the same order and has a filter box
+   * of its own. Two lists sorted differently is two lists: tick something in one, look for it in
+   * the other, and it is not where it was.
+   */
+  private inOrder(refs: readonly Ref[]): Ref[] {
     if (this.order === 'name') {
       // Which is the order git listed them in: `for-each-ref` sorts by refname.
-      return matching;
+      return [...refs];
     }
 
     /*
@@ -328,7 +348,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
      * other ordering unrecoverable without re-reading them. A ref with no date - an annotated tag,
      * whose date is the tagger's and lives in another field - sorts last rather than as 1970.
      */
-    return [...matching].sort((a, b) => b.updated - a.updated);
+    return [...refs].sort((a, b) => b.updated - a.updated);
   }
 
   /** Reorder the listing. The ticks, and what the graph walks, are untouched by it. */
@@ -340,6 +360,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     this.order = order;
     this.publishFiltering();
     this.changed.fire(undefined);
+    this.orderChanged.fire();
   }
 
   /** Show every ref in the list again, or only the ticked ones. The graph is untouched by it. */
@@ -420,7 +441,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     visible: boolean;
     updated: number;
   }[] {
-    return this.refs.map((ref) => ({
+    return this.inOrder(this.refs).map((ref) => ({
       label: ref.label,
       refName: ref.refName,
       kind: ref.group.id === 'tags' ? 'tag' : ref.group.id === 'remotes' ? 'remote' : 'local',

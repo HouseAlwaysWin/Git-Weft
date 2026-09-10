@@ -184,6 +184,18 @@ export class WeftPanel {
   }
 
   /**
+   * Send the ref list again, without re-walking anything.
+   *
+   * For the sidebar's sort buttons: the order of a list is not a question about which commits are
+   * on screen, and `refreshAll` would answer it with a walk of the whole history.
+   */
+  static refreshRefs(): void {
+    for (const panel of WeftPanel.open.values()) {
+      panel.postRefs(panel.headBranch);
+    }
+  }
+
+  /**
    * Whether a write is in flight against this repository.
    *
    * Exposed because the rule it enforces is not the panel's: anything that runs git against a
@@ -230,6 +242,9 @@ export class WeftPanel {
   /** Not a filter: ordering hides nothing, so `clearFilters` leaves it alone the way it leaves sort. */
   private order: CommitOrder = 'date';
   private readonly filters: FilterSource;
+
+  /** The branch the last ref list was sent with. */
+  private headBranch: string | null = null;
 
   private readonly ui: ActionUi = {
     confirm: async (request) => {
@@ -903,6 +918,8 @@ export class WeftPanel {
    * a tick that the next reload disagrees with is worse than no menu.
    */
   private postRefs(branch: string | null): void {
+    // Kept, because a reorder sends the list again and the branch travels with it.
+    this.headBranch = branch;
     this.post({ type: 'refs', branch, refs: this.filters.listRefs() });
   }
 

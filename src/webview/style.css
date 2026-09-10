@@ -1167,6 +1167,21 @@ body.vscode-high-contrast.author-tint .row .author {
 }
 
 .jump-age,
+/*
+ * Which kind a row in the Drawn section is.
+ *
+ * Only there, because only there are the kinds mixed - and origin/release/v1.3 and release/v1.3
+ * are two different things to be drawing, sitting next to each other.
+ */
+.branch-kind {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 0.75em;
+}
+
 .branch-age {
   flex: 0 0 auto;
   font-size: 0.85em;

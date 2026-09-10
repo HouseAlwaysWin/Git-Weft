@@ -1291,6 +1291,55 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       }
     }
 
+    /*
+     * And the list the header's branch menu is sent, which has to be in the same order.
+     *
+     * It was not: the menu was handed the refs in the order git listed them whatever the sidebar
+     * was set to, so switching the tree to "most recent" left the menu alphabetical.
+     */
+    const menuOrder = () => refsProvider.listForMenu().map((ref) => ref.label);
+
+    await commands.get('weft.sortRefsByRecent')();
+    const menuRecent = menuOrder();
+
+    await commands.get('weft.sortRefsByName')();
+    const menuNamed = menuOrder();
+
+    console.log('menu recent    :', JSON.stringify(menuRecent));
+    console.log('menu by name   :', JSON.stringify(menuNamed));
+
+    if (menuRecent.join() === menuNamed.join()) {
+      problems.push('the branch menu was sent the same order for both settings, so it follows neither');
+    }
+
+    /*
+     * Compared against the tree's own listing rather than re-derived, because a check that works
+     * out the right answer twice agrees with itself and not with the thing it is checking.
+     *
+     * Per group, because that is how both are shown: the tree sorts inside Local / Remote / Tags,
+     * and the menu sorts the whole list and then splits it by kind. Flat, the two disagree the
+     * moment a tag sorts between two branches, and the rendered lists are the same.
+     */
+    for (const order of ['weft.sortRefsByRecent', 'weft.sortRefsByName']) {
+      await commands.get(order)();
+
+      const kinds = { 'Local Branches': 'local', 'Remote Branches': 'remote', Tags: 'tag' };
+      const menu = refsProvider.listForMenu();
+
+      for (const group of refsProvider.getChildren()) {
+        const kind = kinds[group.label];
+        const tree = refsProvider.getChildren(group).map((ref) => ref.label);
+        const listed = menu.filter((ref) => ref.kind === kind).map((ref) => ref.label);
+
+        if (listed.join() !== tree.join()) {
+          problems.push(
+            `under ${order}, ${group.label} reads differently in the menu than in the tree: ` +
+              `menu ${JSON.stringify(listed)}, tree ${JSON.stringify(tree)}`,
+          );
+        }
+      }
+    }
+
     runGit(repoPath, 'branch', '-D', 'ancient');
     await refsProvider.reload();
   }

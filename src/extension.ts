@@ -342,6 +342,8 @@ function start(context: vscode.ExtensionContext): void {
      * nothing - the one place where "the graph the user is looking at" is the wrong graph.
      */
     refs.onDidChangeFilter(() => WeftPanel.refreshAll()),
+    // Only the list moved, so only the list is sent again.
+    refs.onDidChangeOrder(() => WeftPanel.refreshRefs()),
     authors.onDidChangeFilter(() => WeftPanel.refreshAll()),
 
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionContentProvider(git)),
