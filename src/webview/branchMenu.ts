@@ -1,0 +1,478 @@
+/**
+ * The branch dropdown, the quick-switch box, and the three ref presets beside them.
+ *
+ * All of it is the same question asked two ways, which is why it is one module: the dropdown asks
+ * "which branches should the graph draw", every row a tick and a name; the box asks "where do I
+ * want to be", every row one thing. They were one list once, and the obvious thing to click was the
+ * wrong one.
+ *
+ * It owns its elements, its state and its listeners. What it does not own is where the messages go
+ * or where its rolled-up groups are remembered - those arrive in `connect`, because the view is
+ * what talks to the host and the view is what saves state.
+ */
+
+import type { RefEntry, WebviewMessage } from '../protocol.ts';
+import { describeAge } from '../git/blame.ts';
+import { span } from './dom.ts';
+
+const branchButton = document.getElementById('branch-button') as HTMLButtonElement;
+const branchCurrent = document.getElementById('branch-current') as HTMLElement;
+const branchList = document.getElementById('branch-list') as HTMLElement;
+const branchFilter = document.getElementById('branch-filter') as HTMLInputElement;
+const branchRows = document.getElementById('branch-rows') as HTMLElement;
+const branchEmpty = document.getElementById('branch-empty') as HTMLElement;
+const branchJump = document.getElementById('branch-jump') as HTMLInputElement;
+const jumpList = document.getElementById('jump-list') as HTMLElement;
+const jumpRows = document.getElementById('jump-rows') as HTMLElement;
+const jumpEmpty = document.getElementById('jump-empty') as HTMLElement;
+const refPresets = document.getElementById('ref-presets') as HTMLElement;
+
+/** Where a message goes. Set by `connect`, so this module never reaches for the host itself. */
+let post: (message: WebviewMessage) => void = () => undefined;
+
+/** Called when a group is rolled up or down, because remembering that is the view's job. */
+let remember: () => void = () => undefined;
+
+let refEntries: readonly RefEntry[] = [];
+let headBranch: string | null = null;
+let branchGroupsClosed = new Set<string>();
+
+function branchMenuOpen(): boolean {
+  return !branchList.hidden;
+}
+
+/**
+ * Straight to the host, which owns the one hidden set.
+ *
+ * One message however many refs it is: the reload that follows sends the list back, so nothing here
+ * has to guess what the new state is, and a group of fifty costs one walk rather than fifty.
+ */
+function setRefsDrawn(refNames: readonly string[], visible: boolean): void {
+  if (refNames.length > 0) {
+    post({ type: 'setRefsVisible', refNames, visible });
+  }
+}
+
+function closeBranchMenu(): void {
+  branchList.hidden = true;
+  branchButton.setAttribute('aria-expanded', 'false');
+}
+
+/** One row: a tick that hides, and a name that checks out. */
+function branchRow(entry: RefEntry): HTMLElement {
+  const row = document.createElement('div');
+  const here = entry.kind === 'local' && entry.label === headBranch;
+
+  row.className = `branch-row${here ? ' current' : ''}${entry.visible ? '' : ' off'}`;
+
+  const draw = document.createElement('input');
+  draw.type = 'checkbox';
+  draw.className = 'branch-draw';
+  draw.checked = entry.visible;
+  draw.title = entry.visible ? `Stop drawing ${entry.label}` : `Draw ${entry.label}`;
+  draw.setAttribute('aria-label', draw.title);
+  draw.addEventListener('change', () => {
+    setRefsDrawn([entry.refName], draw.checked);
+  });
+
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'branch-name';
+  name.textContent = entry.label;
+  name.title = entry.refName;
+
+  if (here) {
+    // Checking out the branch you are on does nothing, and offering it suggests otherwise.
+    name.disabled = true;
+  } else {
+    name.addEventListener('click', () => checkoutRef(entry));
+  }
+
+  row.append(draw, name);
+
+  if (entry.updated > 0) {
+    row.append(span('branch-age', describeAge(entry.updated)));
+  }
+
+  if (here) {
+    row.append(span('branch-here', 'here'));
+  }
+
+  return row;
+}
+
+/**
+ * A group heading: a tick for all of them, a label that rolls the group up.
+ *
+ * The tick acts on what is *listed*, not on everything of that kind, so it composes with the filter
+ * above it - type `claude`, untick Local, and the eight branches you can see are the eight that
+ * stop being drawn. Acting on the hidden ones too would make the same click mean something
+ * different depending on a box the user can see the contents of.
+ */
+function branchGroupHeader(kind: string, label: string, listed: readonly RefEntry[]): HTMLElement {
+  const row = document.createElement('div');
+  const closed = branchGroupsClosed.has(kind);
+  const drawn = listed.filter((entry) => entry.visible).length;
+
+  row.className = 'branch-group';
+
+  const all = document.createElement('input');
+  all.type = 'checkbox';
+  all.className = 'branch-draw';
+  all.checked = drawn === listed.length;
+  // Neither on nor off: some of what is listed is drawn. Clicking from here draws all of them,
+  // which is the half of the answer that loses nothing.
+  all.indeterminate = drawn > 0 && drawn < listed.length;
+  all.title = all.checked ? `Stop drawing all ${listed.length}` : `Draw all ${listed.length}`;
+  all.setAttribute('aria-label', all.title);
+  all.addEventListener('change', () => {
+    setRefsDrawn(
+      listed.filter((entry) => entry.visible === !all.checked).map((entry) => entry.refName),
+      all.checked,
+    );
+  });
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'branch-group-toggle';
+  toggle.setAttribute('aria-expanded', closed ? 'false' : 'true');
+  toggle.title = closed ? `Show the ${listed.length}` : 'Roll this group up';
+  toggle.append(
+    span('chevron', closed ? '\u25B8' : '\u25BE'),
+    span('branch-group-label', label),
+    span('branch-group-count', String(listed.length)),
+  );
+
+  toggle.addEventListener('click', () => {
+    if (closed) {
+      branchGroupsClosed.delete(kind);
+    } else {
+      branchGroupsClosed.add(kind);
+    }
+
+    remember();
+    renderBranchMenu();
+  });
+
+  row.append(all, toggle);
+  return row;
+}
+
+function renderBranchMenu(): void {
+  const needle = branchFilter.value.trim().toLowerCase();
+  const matches = refEntries.filter(
+    (entry) => entry.kind !== 'tag' && entry.label.toLowerCase().includes(needle),
+  );
+
+  branchRows.replaceChildren();
+  branchEmpty.hidden = matches.length > 0;
+
+  // Local first: it is the half you check out. Remote branches are listed under their own heading
+  // rather than mixed in, because `origin/main` and `main` are different things to switch to.
+  for (const kind of ['local', 'remote'] as const) {
+    const group = matches.filter((entry) => entry.kind === kind);
+
+    if (group.length === 0) {
+      continue;
+    }
+
+    branchRows.append(branchGroupHeader(kind, kind === 'local' ? 'Local' : 'Remote', group));
+
+    // Rolled up hides the branches, never the heading: the tick and the count stay reachable, so a
+    // collapsed group is still one click from being switched off entirely.
+    if (branchGroupsClosed.has(kind)) {
+      continue;
+    }
+
+    for (const entry of group) {
+      branchRows.append(branchRow(entry));
+    }
+  }
+}
+
+function openBranchMenu(): void {
+  branchFilter.value = '';
+  renderBranchMenu();
+  branchList.hidden = false;
+  branchButton.setAttribute('aria-expanded', 'true');
+  branchFilter.focus();
+}
+
+/** What the button says: the branch HEAD is on, or that there is not one. */
+function renderBranchButton(): void {
+  branchCurrent.textContent = headBranch ?? 'detached';
+  branchButton.classList.toggle('detached', headBranch === null);
+  branchButton.title =
+    headBranch === null
+      ? 'HEAD is not on a branch. Pick one to check out, or tick which branches the graph draws.'
+      : `On ${headBranch}. Pick another to check it out, or tick which branches the graph draws.`;
+}
+
+/*
+ * The quick switch: its own box, its own list, and one thing per row.
+ *
+ * Not the dropdown beside it. That one answers "which branches should the graph draw" - every row
+ * is a tick box and a name, two targets with two different meanings - and borrowing it to answer
+ * "where do I want to be" gave a list where the obvious thing to click was the wrong one.
+ */
+function jumpMenuOpen(): boolean {
+  return !jumpList.hidden;
+}
+
+function closeJumpMenu(): void {
+  jumpList.hidden = true;
+}
+
+/** Which row Return would take, as an index into the branches this can actually switch to. */
+let jumpPick = 0;
+
+function pickableJumps(): HTMLButtonElement[] {
+  // `Array.from` rather than a spread: the DOM lib here is the one without `DOM.Iterable`, so a
+  // NodeList is array-like and not iterable.
+  return Array.from(jumpRows.querySelectorAll<HTMLButtonElement>('.jump-name')).filter(
+    (name) => !name.disabled,
+  );
+}
+
+/** Put the mark on the aimed-at row, and keep it in view while the arrows walk past the fold. */
+function paintJumpPick(): void {
+  const names = pickableJumps();
+
+  if (names.length === 0) {
+    jumpPick = 0;
+    return;
+  }
+
+  jumpPick = ((jumpPick % names.length) + names.length) % names.length;
+
+  names.forEach((name, i) => name.classList.toggle('picked', i === jumpPick));
+  names[jumpPick]?.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * Check one out, from wherever it was clicked.
+ *
+ * A remote branch is a different action from a local one: it has to end on a local branch of that
+ * name, creating and tracking one when there is none, because checking out the remote branch
+ * itself detaches HEAD.
+ */
+function checkoutRef(entry: RefEntry, confirm = false): void {
+  closeJumpMenu();
+  closeBranchMenu();
+  branchJump.value = '';
+
+  post({
+    type: 'runAction',
+    id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
+    target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
+    ...(confirm ? { confirm: true } : {}),
+  });
+}
+
+function renderJumpMenu(): void {
+  const needle = branchJump.value.trim().toLowerCase();
+  const matches = refEntries.filter(
+    (entry) => entry.kind !== 'tag' && entry.label.toLowerCase().includes(needle),
+  );
+
+  jumpRows.replaceChildren();
+  jumpEmpty.hidden = matches.length > 0;
+
+  // Local first: it is the half you check out by name. A remote one is still offered, because
+  // "switch to the branch somebody else pushed" is the other half of the same question.
+  for (const kind of ['local', 'remote'] as const) {
+    const group = matches.filter((entry) => entry.kind === kind);
+
+    if (group.length === 0) {
+      continue;
+    }
+
+    const heading = document.createElement('div');
+    heading.className = 'jump-group';
+    heading.textContent = kind === 'local' ? 'Local' : 'Remote';
+    jumpRows.append(heading);
+
+    for (const entry of group) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'jump-name';
+      row.title = entry.refName;
+
+      row.append(span('jump-label', entry.label));
+
+      /*
+       * How long since it moved.
+       *
+       * The question a list of a hundred and fifty branch names raises and cannot answer is which
+       * of them are still alive. Reading it here is the difference between switching to the branch
+       * you meant and switching to one that was abandoned in March.
+       */
+      if (entry.updated > 0) {
+        row.append(span('jump-age', describeAge(entry.updated)));
+      }
+
+      if (entry.kind === 'local' && entry.label === headBranch) {
+        // Listed, so the box can show where you are. Not clickable, because you are there.
+        row.disabled = true;
+      } else {
+        // Asked about first: this row is one Return away from a checkout, and the box above it is
+        // a text field - which is a keystroke somebody can arrive at while still typing.
+        row.addEventListener('click', () => checkoutRef(entry, true));
+      }
+
+      jumpRows.append(row);
+    }
+  }
+
+  // After the rows exist, because it measures them.
+  paintJumpPick();
+}
+
+function openJumpMenu(): void {
+  jumpPick = 0;
+  renderJumpMenu();
+  jumpList.hidden = false;
+}
+
+/**
+ * Wire it up.
+ *
+ * The listeners are registered here rather than at module load so that nothing fires before the
+ * view has said where messages go - a click that posted into a no-op would look like a dead button.
+ */
+export function connect(options: {
+  post: (message: WebviewMessage) => void;
+  remember: () => void;
+}): void {
+  post = options.post;
+  remember = options.remember;
+
+  branchButton.addEventListener('click', () => {
+    if (branchMenuOpen()) {
+      closeBranchMenu();
+    } else {
+      openBranchMenu();
+    }
+  });
+
+  /*
+   * Everything, the branch you are on, or nothing.
+   *
+   * Delegated from the row rather than bound per button, because the three of them never change and
+   * one listener is one listener. The host does the work: "nothing" is fourteen hundred ref names
+   * the view would have to send, and "the branch you are on" is HEAD, which is the host's to read.
+   */
+  refPresets.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('.ref-preset') as HTMLElement | null;
+    const preset = button?.dataset['preset'];
+
+    if (preset === 'all' || preset === 'none' || preset === 'current') {
+      post({ type: 'refsPreset', preset });
+    }
+  });
+
+  branchFilter.addEventListener('input', renderBranchMenu);
+
+  branchFilter.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      // Handled here so it closes the menu rather than reaching the document handler, which would
+      // read Escape as "clear the selection" and leave the menu open.
+      event.stopPropagation();
+      closeBranchMenu();
+      branchButton.focus();
+    }
+  });
+
+  // Reaching for the box is the request to see the list.
+  branchJump.addEventListener('focus', () => {
+    if (!jumpMenuOpen()) {
+      openJumpMenu();
+    }
+  });
+
+  branchJump.addEventListener('input', () => {
+    // Back to the top on every keystroke: after narrowing, the best match is the first one, and an
+    // aim left where it was points at whichever branch has moved into that position.
+    jumpPick = 0;
+    jumpList.hidden = false;
+    renderJumpMenu();
+  });
+
+  branchJump.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      // Stopped here, or the document handler reads Escape as "drop the selection" and leaves this
+      // open behind it.
+      event.stopPropagation();
+      closeJumpMenu();
+      branchJump.value = '';
+      branchJump.blur();
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      // Or the caret walks the text instead, which is the one thing the arrows are not for here.
+      event.preventDefault();
+      jumpPick += event.key === 'ArrowDown' ? 1 : -1;
+      paintJumpPick();
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      // The same click a mouse would make, so checking out has one path and not two.
+      pickableJumps()[jumpPick]?.click();
+    }
+  });
+}
+
+/**
+ * The refs moved.
+ *
+ * Whichever list is open is rebuilt, and only that one: redrawing a closed menu is work nobody
+ * asked for, and redrawing an open one is the point - a checkout or a tick lands here as the next
+ * list under the reader's cursor.
+ */
+export function setRefs(entries: readonly RefEntry[], head: string | null): void {
+  refEntries = entries;
+  headBranch = head;
+
+  renderBranchButton();
+
+  if (branchMenuOpen()) {
+    renderBranchMenu();
+  }
+
+  if (jumpMenuOpen()) {
+    renderJumpMenu();
+  }
+}
+
+/** Which groups are rolled up, for the view to remember across a reload. */
+export function collapsedGroups(): string[] {
+  return [...branchGroupsClosed];
+}
+
+export function restoreCollapsedGroups(kinds: readonly string[]): void {
+  branchGroupsClosed = new Set(kinds);
+}
+
+/** Whether the dropdown is showing, which decides what Escape means. */
+export function listOpen(): boolean {
+  return branchMenuOpen();
+}
+
+export function closeAll(): void {
+  closeBranchMenu();
+  closeJumpMenu();
+}
+
+/** A click somewhere else closes whichever of the two it was not in. */
+export function closeIfOutside(target: Node): void {
+  if (branchMenuOpen() && !branchList.contains(target) && !branchButton.contains(target)) {
+    closeBranchMenu();
+  }
+
+  if (jumpMenuOpen() && !jumpList.contains(target) && target !== branchJump) {
+    closeJumpMenu();
+  }
+}
