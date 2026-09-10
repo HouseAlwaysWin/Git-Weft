@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
+
+- **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two
+  different things a pixel apart: a tick that decides whether the graph draws that ref, and beside
+  it the branch name as a button that switched branch. The destructive one had the bigger target,
+  and it was the one that did not ask - the quick-switch box next to it puts up "Check out uat? Last
+  moved 3h ago." first, and clicking a name in the list did not. A checkout rewrites the worktree,
+  which on a large repository is a lot of files changing under whatever else is open - and it was
+  one stray click away.
+
+  The whole row is the tick now. Switching branch is the box beside it, which asks.
+
+- **Checking out asks first, wherever it was asked for.** Whether a checkout was confirmed depended
+  on which control you reached for: the quick-switch box asked, Checkout on a ref's right-click menu
+  did not. Two answers for one action. It is the action's own answer now rather than each caller's,
+  so there is no longer a path that can forget. Two of the three that existed had.
+
+- **What the graph is drawing has a section of its own, at the top.** On a repository with a hundred
+  and fifty branches, ticking one was the last you saw of it: the list is alphabetical, and what you
+  had just switched on was somewhere in the middle of it. The drawn refs are lifted into their own
+  section above the rest, local and remote together, each saying which it is - because
+  `origin/release/v1.3` and `release/v1.3` are two different things to be drawing, and split by
+  kind a ticked remote sits below every local branch there is.
+
+  The list also follows the sort the sidebar is set to, which it never did: switching Branches &
+  Tags to "most recent" left the dropdown in git's own refname order, so the same refs read
+  differently in the two places.
+
+- **The search highlight follows the mode.** Type a word, switch the search from message to author,
+  and the marks stayed on the subject - the column the search was no longer looking at - until
+  something else forced a repaint. The pattern for `lane` is identical in both modes, and the
+  repaint was decided on the pattern alone.
 
 - **Switching to another tab and back no longer re-walks the history.** VS Code tears a webview
   down when its tab is hidden, and the graph's first act on the way back was to ask for the whole
