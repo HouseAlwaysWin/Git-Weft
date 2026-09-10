@@ -102,17 +102,9 @@ function branchRow(entry: RefEntry): HTMLElement {
   name.className = 'branch-name';
   name.textContent = entry.label;
   name.title = `${entry.refName}\n\n${draw.title}`;
-  if (here) {
-    name.disabled = true;
-  } else {
-    name.addEventListener('click', () => {
-      post({
-        type: 'runAction',
-        id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
-        target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
-      });
-    });
-  }
+  name.addEventListener('click', () => {
+    setRefsDrawn([entry.refName], !entry.visible);
+  });
 
   row.append(draw, name);
 
@@ -228,18 +220,25 @@ function openBranchMenu(): void {
 function renderBranchButton(): void {
   branchCurrent.textContent = headBranch ?? 'detached';
   branchButton.classList.toggle('detached', headBranch === null);
+  /*
+   * Written here as well as in the markup, and this is the one the reader sees: the markup's copy
+   * only survives until the first ref list arrives. Both said "pick another to check it out" long
+   * after the menu stopped doing that.
+   */
   branchButton.title =
     headBranch === null
-      ? 'HEAD is not on a branch. Pick one to check out, or tick which branches the graph draws.'
-      : `On ${headBranch}. Pick another to check it out, or tick which branches the graph draws.`;
+      ? 'HEAD is not on a branch. Tick which branches the graph draws; the box beside this one switches branch.'
+      : `On ${headBranch}. Tick which branches the graph draws; the box beside this one switches branch.`;
 }
 
 /*
  * The quick switch: its own box, its own list, and one thing per row.
  *
- * Not the dropdown beside it. That one answers "which branches should the graph draw" - every row
- * is a tick box and a name, two targets with two different meanings - and borrowing it to answer
- * "where do I want to be" gave a list where the obvious thing to click was the wrong one.
+ * Not the dropdown beside it, and this is the only thing here that switches branch. That one
+ * answers "which branches should the graph draw", and every part of a row there means the same
+ * thing. It did once check out from the name beside each tick, which put the destructive answer to
+ * a different question on the larger of two targets a pixel apart - and on the one path that did
+ * not stop to ask. This asks, every time.
  */
 function jumpMenuOpen(): boolean {
   return !jumpList.hidden;
