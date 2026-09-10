@@ -3419,8 +3419,13 @@ if (disposeHandler !== null) {
    * never mentioned them. Nothing failed - a graph missing half its merge joins still looks like
    * a graph - and the layout’s own doc comment had said all along that handling one of the two
    * kinds loses half the arcs. A field crossing the wire with no reader is the shape of that.
+   *
+   * Both halves of the view: the drawing moved into `graph.ts`, and reading only `main.ts` would
+   * have called every one of these unread the day it did.
    */
-  const view = readFileSync(new URL('../src/webview/main.ts', import.meta.url), 'utf8');
+  const view = ['../src/webview/main.ts', '../src/webview/graph.ts']
+    .map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
+    .join('\n');
 
   for (const field of ['links', 'dots', 'paths', 'widths']) {
     if (!new RegExp(`delta\\.${field}`).test(view)) {

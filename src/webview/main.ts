@@ -14,7 +14,7 @@
  */
 
 import type { GraphDelta } from '../graph/layout.ts';
-import { LaneStore } from '../graph/lanes.ts';
+import { GraphPainter, LANE_COLORS } from './graph.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
 import { DotKind } from '../graph/model.ts';
@@ -41,8 +41,8 @@ declare function acquireVsCodeApi(): VsCodeApi;
 // Must be called exactly once - a second call throws.
 const vscode = acquireVsCodeApi();
 
-const LANE_COLORS = 10;
-const DOT_RADIUS = 3.5;
+/** Everything the canvas draws, and the geometry the layout streams for it. See `graph.ts`. */
+const painter = new GraphPainter();
 
 /**
  * How much room has to go unwanted before the lanes give it back, in pixels.
@@ -346,23 +346,6 @@ let compareFrom: string | null = null;
 
 /** The other end, while a comparison is on screen. */
 let comparedTo: string | null = null;
-/** Every lane the layout has handed over, and the few a frame draws. */
-const lanes = new LaneStore();
-
-/**
- * The curved joins from a merge commit into a lane that already existed.
- *
- * The other half of a merge. When a merge's extra parent has no lane yet the layout opens one, and
- * that arrives as an ordinary polyline; when it already has one there is nothing to open and the
- * join is this instead. Drawing only the first kind loses every merge into a branch that was
- * already on screen, which on a history that merges often is most of them.
- *
- * In row order, because that is the order the layout produces them in - which is what lets a frame
- * find the visible ones without walking the rest.
- */
-let links: GraphLink[] = [];
-
-let dots: GraphDot[] = [];
 /** The lane colours, re-read every frame from the stylesheet - see `measureFrame`. */
 const palette: string[] = [];
 let pending = false;
@@ -514,6 +497,8 @@ function laneScale(): number {
  * no lanes of its own. Sorted, the lanes are gone entirely and the rows take the whole width back.
  */
 function measureLanes(first: number, last: number): void {
+  const rowWidths = painter.rowWidths;
+
   if (isFlat() || rowWidths.length === 0) {
     laneNeed = 0;
     return;
@@ -537,8 +522,10 @@ function measureLanes(first: number, last: number): void {
    * of it is on screen the lanes need room for HEAD's column too - which on a history whose newest
    * rows are all branch tips is further right than any of those rows on their own.
    */
-  if (headDot !== null && shift > 0 && first - shift <= headDot.center.y) {
-    need = Math.max(need, headDot.center.x + 8);
+  const head = painter.headDot;
+
+  if (head !== null && shift > 0 && first - shift <= head.center.y) {
+    need = Math.max(need, head.center.x + 8);
   }
 
   if (need > laneNeed || need < laneNeed - LANE_SLACK) {
@@ -1941,6 +1928,12 @@ function renderDetails(details: CommitInfo): void {
   detailBodyEl.replaceChildren(body);
 }
 
+/**
+ * Draw a frame.
+ *
+ * Everything the canvas needs is read here and handed over, because the painter cannot ask the DOM
+ * for any of it - which is the point: what it does can then be checked without a browser.
+ */
 function drawGraph(): void {
   // The canvas is hidden in flat mode; sizing and stroking it anyway would be work nobody sees.
   if (isFlat()) {
@@ -1949,10 +1942,6 @@ function drawGraph(): void {
 
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(laneWidth(), 1);
-  // Applied to coordinates rather than to the transform: scaling the whole context would squash the
-  // dots into ellipses and thin the strokes, and neither of those is what "narrower" should mean.
-  const sx = laneScale();
-  const x = (px: number): number => px * sx;
   const height = frame.height;
 
   if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
@@ -1962,178 +1951,21 @@ function drawGraph(): void {
     canvas.style.height = `${height}px`;
   }
 
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-
-  const scrollTop = frame.scrollTop;
-  // Lane coordinates are in commit rows; the working-tree row sits above all of them, so every
-  // line and dot moves down by however many rows are not part of the history.
-  const shift = rowOffset();
-  const topRow = scrollTop / rowHeight - shift;
-  const bottomRow = (scrollTop + height) / rowHeight - shift;
-  const y = (row: number): number => (row + shift) * rowHeight - scrollTop;
-
-  ctx.lineWidth = 1.5;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-
-  /*
-   * Everything that opens above the fold, which is where the search can stop rather than where it
-   * has to look. A lane that opened long ago may still reach down into view, so the ones before
-   * that are tested one number at a time rather than skipped - but the ones after it cannot be
-   * here at all, and on a long history that is most of them.
-   */
-  for (const lane of lanes.visible(topRow, bottomRow)) {
-    // Interleaved x, y - see `LaneStore`. Two entries a point, and a tab holds a lot of points.
-    const pts = lane.points;
-
-    ctx.strokeStyle = palette[lane.color % LANE_COLORS] ?? '#888';
-    ctx.beginPath();
-    ctx.moveTo(x(pts[0] as number), y(pts[1] as number));
-
-    for (let i = 2; i < pts.length; i += 2) {
-      ctx.lineTo(x(pts[i] as number), y(pts[i + 1] as number));
-    }
-
-    ctx.stroke();
-  }
-
-  /*
-   * The arcs, between the lanes and the dots.
-   *
-   * Over the lanes because an arc joins two of them and has to be seen to; under the dots because a
-   * merge dot is what the arc leaves from, and a line drawn across it would read as passing through.
-   */
-  for (let i = firstLink(topRow - 1); i < links.length; i++) {
-    const link = links[i] as GraphLink;
-
-    // Sorted by where they start, so the first one below the fold ends the loop.
-    if (link.start.y > bottomRow + 1) {
-      break;
-    }
-
-    ctx.strokeStyle = palette[link.color % LANE_COLORS] ?? '#888';
-    ctx.beginPath();
-    ctx.moveTo(x(link.start.x), y(link.start.y));
-    ctx.quadraticCurveTo(
-      x(link.control.x),
-      y(link.control.y),
-      x(link.end.x),
-      y(link.end.y),
-    );
-    ctx.stroke();
-  }
-
-  const firstDot = Math.max(0, Math.floor(topRow) - 1);
-  const lastDot = Math.min(dots.length, Math.ceil(bottomRow) + 1);
-
-  for (let i = firstDot; i < lastDot; i++) {
-    const dot = dots[i];
-    if (dot === undefined) {
-      continue;
-    }
-
-    const color = palette[dot.color % LANE_COLORS] ?? '#888';
-    const cy = y(dot.center.y);
-
-    ctx.beginPath();
-    // The centre moves; the radius does not. Lanes sit closer together, dots stay round.
-    ctx.arc(x(dot.center.x), cy, dot.kind === DotKind.Head ? DOT_RADIUS + 1.5 : DOT_RADIUS, 0, Math.PI * 2);
-
-    if (dot.kind === DotKind.Merge) {
-      // A merge is drawn hollow so it reads differently at a glance without needing a legend.
-      ctx.fillStyle = frame.background;
-      ctx.fill();
-      ctx.strokeStyle = color;
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = color;
-      ctx.fill();
-    }
-
-    if (dot.kind === DotKind.Head) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(x(dot.center.x), cy, DOT_RADIUS + 4, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.lineWidth = 1.5;
-    }
-  }
-
-  drawWorkingTree(x, y);
-}
-
-/**
- * The working tree, hanging off HEAD by a dashed line.
- *
- * Dashed rather than solid because it is not history: nothing here is reachable, and drawing it
- * like a commit would be claiming otherwise. It is skipped when HEAD is not on screen at all - a
- * filter can leave the row with nothing to hang from, and a line to nowhere is worse than none.
- */
-function drawWorkingTree(x: (px: number) => number, y: (row: number) => number): void {
-  if (rowOffset() === 0 || headDot === null) {
-    return;
-  }
-
-  const color = palette[headDot.color % LANE_COLORS] ?? '#888';
-  const top = y(-0.5);
-  // Through the same squeeze as everything else on the canvas. Left raw, this hung the working
-  // tree off a column no lane was in: a dot and a dashed line beside the graph rather than on it.
-  const at = x(headDot.center.x);
-
-  ctx.setLineDash([3, 3]);
-  ctx.strokeStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(at, top);
-  ctx.lineTo(at, y(headDot.center.y));
-  ctx.stroke();
-
-  // Hollow, like a merge dot: the shape says "this is not a commit" before any of the text does.
-  ctx.beginPath();
-  ctx.arc(at, top, DOT_RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = frame.background;
-  ctx.fill();
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-/**
- * The first link that could be on screen, by binary search.
- *
- * A linear scan from the top is fine until a history has forty thousand merges in it, and then it
- * is forty thousand comparisons per frame to find the twenty that are visible. The layout emits
- * them in row order, so the search is available for free.
- */
-function firstLink(row: number): number {
-  let low = 0;
-  let high = links.length;
-
-  while (low < high) {
-    const mid = (low + high) >> 1;
-
-    if ((links[mid] as GraphLink).start.y < row) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
-  }
-
-  return low;
+  painter.draw(ctx, {
+    scrollTop: frame.scrollTop,
+    height,
+    width,
+    scale: laneScale(),
+    rowHeight,
+    devicePixelRatio: dpr,
+    shift: rowOffset(),
+    background: frame.background,
+    palette,
+  });
 }
 
 function applyDelta(delta: GraphDelta): void {
-  rowWidths.push(...delta.widths);
-  links.push(...delta.links);
-  dots.push(...delta.dots);
-
-  for (const dot of delta.dots) {
-    if (dot.kind === DotKind.Head) {
-      headDot = dot;
-    }
-  }
-
-  lanes.add(delta.paths);
+  painter.add(delta);
 }
 
 /**
@@ -2561,13 +2393,9 @@ function reset(): void {
   view = rows;
   complete = false;
   working = { total: 0, staged: 0, unstaged: 0, untracked: 0, conflicted: 0, branch: null };
-  headDot = null;
+  painter.clear();
   remote = { upstream: null, branch: null, fetchedAt: null };
   upstreamEl.hidden = true;
-  dots = [];
-  links = [];
-  lanes.clear();
-  rowWidths = [];
   laneNeed = 0;
   selected = -1;
   spacer.style.height = '0px';
