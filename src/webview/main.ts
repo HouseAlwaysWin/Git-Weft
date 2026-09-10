@@ -19,6 +19,7 @@ import * as branches from './branchMenu.ts';
 import * as contextMenu from './contextMenu.ts';
 import * as columns from './columns.ts';
 import * as filterBar from './filterBar.ts';
+import * as detailsPane from './detailsPane.ts';
 import type { LocalItem } from './contextMenu.ts';
 import { span } from './dom.ts';
 import type { Marking } from './highlight.ts';
@@ -26,7 +27,7 @@ import { marking, same } from './highlight.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
 import { DotKind } from '../graph/model.ts';
-import type { CommitInfo, CommitOrder, RefEntry } from '../protocol.ts';
+import type { CommitOrder, RefEntry } from '../protocol.ts';
 import type { Upstream } from '../git/repoState.ts';
 import type { SearchMode, SearchToggle } from '../git/search.ts';
 import { looksLikeCommitId } from '../git/search.ts';
@@ -58,6 +59,14 @@ branches.connect({ post: (message) => vscode.postMessage(message), remember: () 
 contextMenu.connect({
   post: (message) => vscode.postMessage(message),
   localItems: (target) => localMenuItems(target),
+});
+
+/** The pane along the bottom. What is in it is the host's answer; where the rows are is here. */
+detailsPane.connect({
+  post: (message) => vscode.postMessage(message),
+  remember: () => saveViewState(),
+  redraw: () => schedule(),
+  jump: (sha) => jumpTo(sha),
 });
 
 /**
@@ -123,10 +132,6 @@ const spacer = document.getElementById('spacer') as HTMLElement;
 const rowsEl = document.getElementById('rows') as HTMLElement;
 const canvas = document.getElementById('graph') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-const detailsEl = document.getElementById('details') as HTMLElement;
-const detailMetaEl = document.getElementById('detail-meta') as HTMLElement;
-const detailBodyEl = document.getElementById('detail-body') as HTMLElement;
-const splitter = document.getElementById('splitter') as HTMLElement;
 
 interface ViewState {
   readonly detailsHeight?: number;
@@ -157,8 +162,6 @@ interface ViewState {
  * The metadata lines plus the first paragraph of a message, which is now the whole job: the changed
  * files moved to Source Control, and the 260 they needed left the pane mostly empty without them.
  */
-let detailsHeight = 200;
-let currentDetails: CommitInfo | null = null;
 
 /*
  * The panel is created with `retainContextWhenHidden: false`, so hiding the tab destroys this
@@ -167,7 +170,7 @@ let currentDetails: CommitInfo | null = null;
  */
 function saveViewState(): void {
   vscode.setState({
-    detailsHeight,
+    detailsHeight: detailsPane.height(),
     sort,
     ...filterBar.saved(),
     firstParent,
@@ -181,9 +184,7 @@ function saveViewState(): void {
 function restoreViewState(): void {
   const state = vscode.getState() as ViewState | undefined;
 
-  if (state?.detailsHeight !== undefined) {
-    detailsHeight = state.detailsHeight;
-  }
+  detailsPane.restore(state?.detailsHeight);
 
   if (state?.sort !== undefined) {
     sort = state.sort;
@@ -673,7 +674,10 @@ function renderRows(indent: number, first: number, last: number): void {
       el.title = 'The working tree. Click to see what has changed.';
 
       const label = span('cell-subject', '');
-      label.append(span('subject', row.subject), span('working-count', describeWorking()));
+      label.append(
+        span('subject', row.subject),
+        span('working-count', detailsPane.describeWorking(working)),
+      );
 
       // The same four cells as every other row, so the columns still line up over their contents.
       el.append(label, span('author', ''), span('date', ''), span('sha', '*'));
@@ -784,6 +788,17 @@ function scrollRowIntoView(index: number): void {
   }
 }
 
+/** Follow a parent link. The commit may not be loaded if a search is narrowing the view. */
+function jumpTo(sha: string): void {
+  const index = view.findIndex((row) => row.sha === sha);
+
+  if (index >= 0) {
+    select(index);
+  } else {
+    statusEl.textContent = `${sha.slice(0, 8)} is not in the current view`;
+  }
+}
+
 /** Mark a commit as the one to measure from. Nothing is compared yet; this is half a question. */
 function markForCompare(sha: string): void {
   if (sha.length === 0) {
@@ -889,13 +904,7 @@ function select(index: number): void {
   updateCompareMark();
 
   if (index === selected) {
-    // Clicking the row that is already selected is how you ask for the pane back after closing it.
-    // Without this, closing the pane makes that one row unclickable until you pick another.
-    if (detailsEl.hidden && currentDetails !== null) {
-      detailsEl.hidden = false;
-      splitter.hidden = false;
-      applyDetailsHeight(detailsHeight);
-    }
+    detailsPane.reopen();
 
     return;
   }
@@ -907,7 +916,7 @@ function select(index: number): void {
     // Nothing to load: there is no commit. The files go to Source Control, and the pane describes
     // the working tree from what the host already told us about it.
     vscode.postMessage({ type: 'selectUncommitted' });
-    renderWorking();
+    detailsPane.showWorking(working);
   } else if (row !== undefined) {
     vscode.postMessage({ type: 'selectCommit', sha: row.sha });
   }
@@ -1117,250 +1126,6 @@ function appendMarked(target: HTMLElement, text: string, pattern: RegExp | null)
   }
 }
 
-/** `2026-07-28T13:37:20+08:00` -> `2026-07-28 13:37:20`, without pretending to know a locale. */
-function formatDate(iso: string): string {
-  return iso.slice(0, 19).replace('T', ' ');
-}
-
-/** Follow a parent link. The commit may not be loaded if a search is narrowing the view. */
-function jumpTo(sha: string): void {
-  const index = view.findIndex((row) => row.sha === sha);
-
-  if (index >= 0) {
-    select(index);
-  } else {
-    statusEl.textContent = `${sha.slice(0, 8)} is not in the current view`;
-  }
-}
-
-/**
- * Resize the details pane. The graph's canvas is sized to the viewport, so every change has to be
- * followed by a redraw - the lanes would otherwise keep the height they had before the drag.
- */
-function applyDetailsHeight(height: number): void {
-  const max = Math.max(120, window.innerHeight - 160);
-  detailsHeight = Math.round(Math.min(Math.max(height, 90), max));
-  detailsEl.style.height = `${detailsHeight}px`;
-  schedule();
-}
-
-splitter.addEventListener('pointerdown', (event: PointerEvent) => {
-  const startY = event.clientY;
-  const startHeight = detailsEl.getBoundingClientRect().height;
-
-  splitter.setPointerCapture(event.pointerId);
-  splitter.classList.add('dragging');
-  event.preventDefault();
-
-  const onMove = (move: PointerEvent): void => {
-    // The pane is below the graph, so dragging up must make it taller.
-    applyDetailsHeight(startHeight - (move.clientY - startY));
-  };
-
-  const onUp = (): void => {
-    splitter.classList.remove('dragging');
-    splitter.removeEventListener('pointermove', onMove);
-    splitter.removeEventListener('pointerup', onUp);
-    splitter.removeEventListener('pointercancel', onUp);
-    saveViewState();
-  };
-
-  splitter.addEventListener('pointermove', onMove);
-  splitter.addEventListener('pointerup', onUp);
-  splitter.addEventListener('pointercancel', onUp);
-});
-
-// Double-clicking a sash to reset it is the convention everywhere else in VS Code.
-splitter.addEventListener('dblclick', () => {
-  applyDetailsHeight(260);
-  saveViewState();
-});
-
-/**
- * Put the details pane away.
- *
- * The selection stays where it is - closing the pane is about wanting the graph's height back, not
- * about deselecting - so clicking another commit brings it straight back.
- */
-function closeDetails(): void {
-  detailsEl.hidden = true;
-  splitter.hidden = true;
-  schedule();
-}
-
-(document.getElementById('detail-close') as HTMLElement).addEventListener('click', closeDetails);
-
-/** `3 staged, 2 unstaged, 1 untracked` - only the parts that are not zero. */
-function describeWorking(): string {
-  const parts = [
-    working.conflicted > 0 ? `${working.conflicted} conflicted` : '',
-    working.staged > 0 ? `${working.staged} staged` : '',
-    working.unstaged > 0 ? `${working.unstaged} unstaged` : '',
-    working.untracked > 0 ? `${working.untracked} untracked` : '',
-  ].filter((part) => part.length > 0);
-
-  return parts.join(', ');
-}
-
-/**
- * The details pane for the working tree.
- *
- * No hash, no author, no message - none of them exist yet. What it can say is what is in the tree
- * and where it would land, and saying only that is more honest than a card of empty fields.
- */
-function renderWorking(): void {
-  currentDetails = null;
-  detailsEl.hidden = false;
-  splitter.hidden = false;
-  applyDetailsHeight(detailsHeight);
-
-  const meta = document.createDocumentFragment();
-  const line = (label: string, value: string): void => {
-    const wrap = document.createElement('div');
-    const text = span('meta-value', value);
-
-    wrap.append(span('meta-key', label), text);
-    meta.append(wrap);
-  };
-
-  line('changes', describeWorking());
-
-  if (working.branch !== null) {
-    line('branch', working.branch);
-  }
-
-  detailMetaEl.replaceChildren(meta);
-  detailBodyEl.replaceChildren();
-  detailBodyEl.hidden = true;
-}
-
-/**
- * The pane for a comparison.
- *
- * Two counts rather than one, because two commits picked off a graph are not always one behind the
- * other - a single "N commits" would have to pick a side, and picking the wrong one is worse than
- * spending a line saying both.
- */
-function renderComparison(message: {
-  from: string;
-  to: string;
-  files: number;
-  onlyFrom: number;
-  onlyTo: number;
-}): void {
-  currentDetails = null;
-  detailsEl.hidden = false;
-  splitter.hidden = false;
-  applyDetailsHeight(detailsHeight);
-
-  const meta = document.createDocumentFragment();
-  const line = (label: string, ...values: HTMLElement[]): void => {
-    const wrap = document.createElement('div');
-    const value = document.createElement('span');
-
-    value.className = 'meta-value';
-    value.append(...values);
-    wrap.append(span('meta-key', label), value);
-    meta.append(wrap);
-  };
-
-  // `.sha-full` carries a pointer cursor, so it has to actually do the thing it looks like it does.
-  const hash = (sha: string): HTMLElement => {
-    const el = span('sha-full', sha.slice(0, 8));
-
-    el.title = `${sha}
-Click to copy`;
-    el.addEventListener('click', () => vscode.postMessage({ type: 'copy', text: sha }));
-
-    return el;
-  };
-
-  line('comparing', hash(message.from), span('range-arrow', '→'), hash(message.to));
-
-  line(
-    'changed',
-    span('person', message.files === 1 ? '1 file' : `${message.files} files`),
-  );
-
-  line(
-    'apart',
-    span(
-      'when',
-      message.onlyFrom === 0 && message.onlyTo === 0
-        ? 'the same commit content on both sides'
-        : `${message.onlyFrom} commit${message.onlyFrom === 1 ? '' : 's'} only on the left, ` +
-          `${message.onlyTo} only on the right`,
-    ),
-  );
-
-  detailMetaEl.replaceChildren(meta);
-  detailBodyEl.replaceChildren();
-  detailBodyEl.hidden = true;
-}
-
-function renderDetails(details: CommitInfo): void {
-  currentDetails = details;
-  detailBodyEl.hidden = false;
-  detailsEl.hidden = false;
-  splitter.hidden = false;
-  applyDetailsHeight(detailsHeight);
-
-  const meta = document.createDocumentFragment();
-
-  const line = (label: string, ...values: HTMLElement[]): void => {
-    const wrap = document.createElement('div');
-    const value = document.createElement('span');
-    value.className = 'meta-value';
-    value.append(...values);
-    wrap.append(span('meta-key', label), value);
-    meta.append(wrap);
-  };
-
-  const sha = span('sha-full', details.sha);
-  sha.title = 'Copy the full hash';
-  sha.addEventListener('click', () => vscode.postMessage({ type: 'copy', text: details.sha }));
-  line('commit', sha);
-
-  line(
-    'author',
-    span('person', details.author),
-    span('email', `<${details.authorEmail}>`),
-    span('when', formatDate(details.authorDate)),
-  );
-
-  // A rebase, a squash, or a merge made through a web UI leaves a committer who is not the author.
-  // When they are the same person, saying it twice is noise.
-  if (details.committer !== details.author) {
-    line('committer', span('person', details.committer), span('when', formatDate(details.committerDate)));
-  }
-
-  if (details.parents.length > 0) {
-    const parents = details.parents.map((parent) => {
-      const chip = span('parent', parent.slice(0, 8));
-      chip.title = `Go to ${parent}`;
-      chip.addEventListener('click', () => jumpTo(parent));
-      return chip;
-    });
-
-    line(details.parents.length > 1 ? 'parents' : 'parent', ...parents);
-  }
-
-  detailMetaEl.replaceChildren(meta);
-
-  // The first line is a title and the rest is prose; rendering them alike makes a long message a
-  // wall of text.
-  const lines = details.body.split('\n');
-  const body = document.createDocumentFragment();
-  body.append(span('body-subject', lines[0] ?? ''));
-
-  const rest = lines.slice(1).join('\n').trim();
-  if (rest.length > 0) {
-    body.append(span('body-rest', rest));
-  }
-
-  detailBodyEl.replaceChildren(body);
-}
-
 /**
  * Draw a frame.
  *
@@ -1520,9 +1285,7 @@ function reset(): void {
   selected = -1;
   spacer.style.height = '0px';
   rowsEl.replaceChildren();
-  detailsEl.hidden = true;
-  splitter.hidden = true;
-  currentDetails = null;
+  detailsPane.forget();
   header.classList.remove('error');
   statusEl.textContent = 'loading…';
   walkError = null;
@@ -1616,11 +1379,11 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'details':
-      renderDetails(message.details);
+      detailsPane.show(message.details);
       break;
 
     case 'comparison':
-      renderComparison(message);
+      detailsPane.showComparison(message);
       break;
 
     case 'reveal': {
@@ -1876,8 +1639,8 @@ document.addEventListener('keydown', (event) => {
       return;
     }
 
-    if (!detailsEl.hidden) {
-      closeDetails();
+    if (detailsPane.isOpen()) {
+      detailsPane.close();
       event.preventDefault();
       return;
     }
