@@ -123,6 +123,16 @@ export interface Action {
    * risking something else has to say so itself.
    */
   confirmDetail?(context: ActionContext): Promise<string>;
+  /**
+   * Whether this moves HEAD, which is asked about whatever the tier says.
+   *
+   * The tiers are about what git can undo, and by that measure a checkout is safe: git refuses one
+   * that would overwrite work it cannot get back. This is the other reason to ask. Rewriting the
+   * worktree of a large repository is a minute of files changing under whatever else is open, and
+   * the thing being named is a branch, which is the kind of argument you can be one character wrong
+   * about. Neither is danger; both are worth a sentence and a look at what you picked.
+   */
+  readonly movesHead?: boolean;
   run(context: ActionContext): Promise<ActionResult>;
 }
 

@@ -50,6 +50,7 @@ const checkoutBranch: Action = {
   id: 'weft.checkoutBranch',
   group: 'branch',
   tier: Tier.Safe,
+  movesHead: true,
 
   label: (target) => (target.kind === 'ref' ? `Checkout ${target.label}` : 'Checkout'),
 
@@ -88,6 +89,7 @@ const checkoutRemoteBranch: Action = {
   id: 'weft.checkoutRemoteBranch',
   group: 'branch',
   tier: Tier.Safe,
+  movesHead: true,
 
   label: (target) => (target.kind === 'ref' ? `Checkout ${localNameOf(target.label)}` : 'Checkout'),
 
@@ -158,6 +160,7 @@ const checkoutCommit: Action = {
   id: 'weft.checkoutCommit',
   group: 'branch',
   tier: Tier.Safe,
+  movesHead: true,
 
   label: (target) => `Checkout ${shortLabel(target)} (detached)`,
 

@@ -90,7 +90,7 @@ import { listStashes } from './git/stash.ts';
 import { Remedy, mapGitError } from './git/errors.ts';
 import { describeAge } from './git/blame.ts';
 import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
-import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
+import { buildMenu, confirmIfNeeded, findAction, movesHead } from './actions/registry.ts';
 
 /** Set by the extension so panels can write to - and reveal - the same output channel. */
 type Logger = { warn(message: string): void; show(): void };
@@ -540,7 +540,12 @@ export class WeftPanel {
         await this.showMenu(message.target, message.x, message.y);
         break;
       case 'runAction':
-        if (message.confirm === true && !(await this.confirmSwitch(message.target))) {
+        /*
+         * Asked here rather than where the click was, because the answer belongs to the action.
+         * Every caller used to decide for itself and they disagreed: the quick-switch box asked,
+         * the right-click menu did not, and the branch dropdown checked out without asking at all.
+         */
+        if (movesHead(message.id) && !(await this.confirmSwitch(message.target))) {
           break;
         }
 

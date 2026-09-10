@@ -277,10 +277,9 @@ function paintJumpPick(): void {
 /**
  * Check one out, from the quick-switch box - the one place here that switches branch.
  *
- * Always confirmed. Checking out rewrites the worktree, which on a large repository is a minute of
- * files changing under whatever else is open, and it is refused outright on a dirty tree. The
- * gesture that asks for it is a name typed into a box, which is one keystroke from a different
- * branch with a similar name.
+ * The host asks first, because the action says it moves HEAD. Not decided here: this used to send
+ * a `confirm` flag and the right-click menu sent none, so the same checkout asked or did not
+ * depending on which control you reached for.
  *
  * A remote branch is a different action from a local one: it has to end on a local branch of that
  * name, creating and tracking one when there is none, because checking out the remote branch
@@ -295,7 +294,6 @@ function checkoutRef(entry: RefEntry): void {
     type: 'runAction',
     id: entry.kind === 'remote' ? 'weft.checkoutRemoteBranch' : 'weft.checkoutBranch',
     target: { kind: 'ref', refName: entry.refName, label: entry.label, refKind: entry.kind },
-    confirm: true,
   });
 }
 

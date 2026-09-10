@@ -1325,12 +1325,17 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 }
 
 /*
- * The switch box asks before it switches.
+ * Checking out asks first, wherever it was asked for.
  *
- * It is a text field with Return bound to "check that branch out", which is the right shape for the
- * gesture and one typo away from a checkout nobody wanted. The menus are not asked about: getting
- * to Checkout there is already two deliberate steps, and a dialog on top of that is a click that
- * teaches people to click through dialogs.
+ * It did not always. The reasoning was that reaching Checkout in a menu is already two deliberate
+ * steps, and that a dialog on top of them is a click which teaches people to click through
+ * dialogs - so only the switch box, a text field with Return bound to "check that branch out",
+ * asked. That left the same action asking or not depending on which control you reached for, and
+ * the control that asked was not the one people reached for by accident: the branch dropdown
+ * checked out from a click on a name, next to a tick that only filtered.
+ *
+ * So the answer belongs to the action rather than to the caller - `movesHead` on the action, read
+ * where the message arrives. Both paths are driven here, because the bug was that they disagreed.
  */
 {
   const head = () => String(runGit(repoPath, 'rev-parse', '--abbrev-ref', 'HEAD')).trim();
@@ -1340,7 +1345,7 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   // Said no.
   confirmed = false;
-  await messageHandler({ type: 'runAction', id: 'weft.checkoutBranch', target: side, confirm: true });
+  await messageHandler({ type: 'runAction', id: 'weft.checkoutBranch', target: side });
   await new Promise((r) => setTimeout(r, 2000));
 
   const asked = confirmations.slice(before);
@@ -1355,7 +1360,7 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   console.log('  said no      : HEAD is', head());
 
   if (asked.length === 0) {
-    problems.push('the switch box checked out without asking');
+    problems.push('checking out did not ask, though the action says it moves HEAD');
   } else {
     if (!String(asked[0].message).includes('side')) {
       problems.push(`the switch dialog did not name the branch: ${asked[0].message}`);
@@ -1370,7 +1375,10 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     problems.push('saying no to the switch dialog checked the branch out anyway');
   }
 
-  // And the menus, which do not ask.
+  /*
+   * And the right-click menu, which is the same message from a different control - the one that
+   * used to arrive with no flag on it and run straight through.
+   */
   confirmed = true;
   const beforeMenu = confirmations.length;
 
@@ -1379,12 +1387,12 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   console.log('  menu path    : HEAD is', head(), '| asked', confirmations.length - beforeMenu, 'times');
 
-  if (confirmations.length !== beforeMenu) {
-    problems.push('checking out from a menu asked for confirmation, which is a click too many');
+  if (confirmations.length === beforeMenu) {
+    problems.push('checking out from a menu did not ask, so the two paths still disagree');
   }
 
   if (head() !== 'side') {
-    problems.push('checking out from a menu did not check the branch out');
+    problems.push('saying yes to the menu dialog did not check the branch out');
   }
 
   // Back where the rest of this run expects to be.

@@ -90,6 +90,11 @@ function defaultDetail(action: Action, context: ActionContext): string {
  * Ask before anything that cannot be taken back, and say what would be lost rather than asking the
  * user to imagine it. "Are you sure?" with nothing behind it is not a warning, it is a shrug.
  */
+/** Whether this action moves HEAD, and so is asked about wherever it was invoked from. */
+export function movesHead(id: string): boolean {
+  return findAction(id)?.movesHead === true;
+}
+
 export async function confirmIfNeeded(action: Action, context: ActionContext): Promise<boolean> {
   if (action.tier === Tier.Safe) {
     return true;
