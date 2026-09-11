@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createServer } from 'node:net';
-import type { AddressInfo } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 
 import { Git, GitError, GitTimeoutError } from '../src/git/exec.ts';
 import { discover } from '../src/git/discovery.ts';
@@ -1691,38 +1691,189 @@ test('pull is unavailable on a branch that tracks nothing', async () => {
   assert.equal(menu.find((item) => item.id === 'weft.push')?.disabledReason, null);
 });
 
-test('a remote that connects and then says nothing is given up on, not waited on forever', async () => {
-  const dir = makeRepo();
+/**
+ * The `git` Git for Windows' installer puts on PATH: its launcher, `cmd\git.exe`, which runs the
+ * real git as a child of its own - so ending only what was started leaves git running. A shell of
+ * Git's own puts the real git first on PATH instead, where the two are the same thing, so the tests
+ * below name the launcher: what they check does not depend on where they are run from. Anywhere
+ * else it is just `git`.
+ */
+function launcher(): string {
+  if (process.platform !== 'win32') {
+    return 'git';
+  }
 
-  // Accepts the connection and never answers, which is what a hung remote looks like from here.
-  // The error handler matters: killing git resets the socket, and an unhandled 'error' on it would
-  // fail this test for the very thing it is checking happens.
-  const server = createServer((socket) => {
-    socket.on('error', () => undefined);
-    socket.resume();
+  const libexec = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
+  const found = join(libexec, '..', '..', '..', 'cmd', 'git.exe');
+
+  return existsSync(found) ? found : 'git';
+}
+
+const launched = new Git({ gitPath: launcher() });
+
+/**
+ * A remote that accepts the connection and never answers, which is what a hung one looks like from
+ * here. `hungUp` is that connection closing - the git on the other end of it gone, which from out
+ * here is the only sign of it there is.
+ *
+ * The error handler matters: killing git resets the socket, and an unhandled 'error' on it would
+ * fail the test for the very thing it is checking happens.
+ */
+async function silentRemote(): Promise<{
+  url: string;
+  reached: Promise<void>;
+  hungUp: Promise<void>;
+  close: () => void;
+}> {
+  const sockets = new Set<Socket>();
+  let reach = (): void => undefined;
+  let hangUp = (): void => undefined;
+  const reached = new Promise<void>((resolve) => {
+    reach = () => resolve();
   });
+  const hungUp = new Promise<void>((resolve) => {
+    hangUp = () => resolve();
+  });
+
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.on('error', () => undefined);
+    socket.on('close', () => hangUp());
+    socket.resume();
+    reach();
+  });
+
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as AddressInfo).port;
+
+  return {
+    url: `git://127.0.0.1:${(server.address() as AddressInfo).port}/silent.git`,
+    reached,
+    hungUp,
+    // Every connection too, so a git that outlived its test cannot hold the test run open with it.
+    close: () => {
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+
+      server.close();
+    },
+  };
+}
+
+/** Whether it settles within `ms` - for waiting on something that, broken, would never happen at all. */
+async function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
 
   try {
-    const started = Date.now();
+    return await Promise.race([
+      promise.then(
+        () => true,
+        () => true,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-    await assert.rejects(
-      () =>
-        git.runNetwork(dir, ['fetch', `git://127.0.0.1:${port}/silent.git`], {
-          idleTimeoutMs: 1500,
-        }),
-      (err: unknown) => {
-        assert.ok(err instanceof GitTimeoutError, `expected a timeout, got ${String(err)}`);
-        assert.match((err as Error).message, /stopped responding/);
-        return true;
-      },
+/** How a command ended, as a word: `finished`, or what it was rejected with - `cancelled`, say. */
+function ending(running: Promise<unknown>): Promise<string> {
+  return running.then(
+    () => 'finished',
+    (err: unknown) => (err instanceof Error ? err.message : String(err)),
+  );
+}
+
+test('a remote that connects and then says nothing is given up on, not waited on forever', async () => {
+  const dir = makeRepo();
+  const remote = await silentRemote();
+
+  try {
+    const failure = launched.runNetwork(dir, ['fetch', remote.url], { idleTimeoutMs: 1500 }).then(
+      () => null,
+      (err: unknown) => err,
     );
 
-    assert.ok(Date.now() - started < 15_000, 'and gives up promptly rather than hanging the host');
+    // A deadline of its own: a git that is never given up on has to fail this test, not hang the
+    // run - which is what it did, for eleven minutes, before anything looked.
+    assert.ok(await within(failure, 15_000), 'it gives up promptly rather than hanging the host');
+
+    const err = await failure;
+    assert.ok(err instanceof GitTimeoutError, `expected a timeout, got ${String(err)}`);
+    assert.match(err.message, /stopped responding/);
+
+    // Given up on and ended. Ending only the launcher left the real git on the connection - and on
+    // the pipes, so the wait above never finished at all.
+    assert.ok(await within(remote.hungUp, 5_000), 'and the git that was waiting on it is gone');
   } finally {
-    server.close();
+    remote.close();
   }
+});
+
+test('cancelling a command ends git, not just the wait for it', async () => {
+  const dir = makeRepo();
+
+  // Both ways git is run: to the end, and streamed. A fetch stands in for a walk on the streamed
+  // side, because any walk this repository could hold is over before it can be cancelled.
+  const ways: [string, (url: string, signal: AbortSignal) => Promise<unknown>][] = [
+    ['run', (url, signal) => launched.runNetwork(dir, ['fetch', url], { signal, idleTimeoutMs: 0 })],
+    ['streamed', (url, signal) => launched.stream(dir, ['fetch', url], () => undefined, { signal })],
+  ];
+
+  for (const [way, run] of ways) {
+    const remote = await silentRemote();
+    const controller = new AbortController();
+
+    try {
+      const outcome = ending(run(remote.url, controller.signal));
+
+      assert.ok(await within(remote.reached, 10_000), `${way}: git reached the remote`);
+      controller.abort();
+
+      assert.ok(await within(outcome, 5_000), `${way}: the cancel is heard promptly`);
+      assert.equal(await outcome, 'cancelled', way);
+      assert.ok(await within(remote.hungUp, 5_000), `${way}: and the git it cancelled is gone`);
+    } finally {
+      remote.close();
+    }
+  }
+});
+
+test('a cancelled git is let go even when something it started still holds its output', async () => {
+  // What no kill can reach: a process whose parent has already exited belongs to no tree. The alias
+  // leaves one behind on git's stdout, says so, and waits - so the cancel is only heard in time if
+  // the pipes are let go once git itself has gone.
+  const dir = makeRepo();
+  const controller = new AbortController();
+  let said = '';
+  let ready = (): void => undefined;
+  const readied = new Promise<void>((resolve) => {
+    ready = () => resolve();
+  });
+
+  const outcome = ending(
+    launched.stream(
+      dir,
+      ['-c', 'alias.linger=!(sleep 20 &); echo ready; sleep 20', 'linger'],
+      (text) => {
+        said += text;
+
+        if (said.includes('ready')) {
+          ready();
+        }
+      },
+      { signal: controller.signal },
+    ),
+  );
+
+  assert.ok(await within(readied, 10_000), 'the alias got as far as leaving something behind');
+  controller.abort();
+
+  assert.ok(await within(outcome, 5_000), 'the cancel is heard promptly');
+  assert.equal(await outcome, 'cancelled');
 });
 
 

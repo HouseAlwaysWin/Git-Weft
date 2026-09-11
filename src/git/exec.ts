@@ -19,6 +19,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 
 /**
@@ -163,6 +164,52 @@ function isOpenSsh(command: string): boolean {
 
   const name = first.split(/[\\/]/).pop()?.toLowerCase() ?? '';
   return name === 'ssh' || name === 'ssh.exe';
+}
+
+/**
+ * Stop a git that is being given up on - gone quiet, cancelled, or saying too much.
+ *
+ * `child.kill()` is not that on Windows. There `git` is usually Git for Windows' launcher,
+ * `cmd\git.exe`, which runs the real git as a child of its own: the kill ended the launcher, and
+ * the real git ran on, with the connection it was waiting on and the pipes its output comes
+ * through. A command is not over until those close, so a remote that had stopped answering was
+ * waited on for ever. taskkill ends the whole tree - the launcher, git, and whatever git started.
+ *
+ * And once the process started here has exited, its pipes are let go from this end. Whatever still
+ * holds them escaped the tree - a process whose parent has already gone belongs to none - and is
+ * being given up on along with the rest.
+ */
+function stop(child: ChildProcessWithoutNullStreams): void {
+  const letGo = (): void => {
+    child.stdout.destroy();
+    child.stderr.destroy();
+  };
+
+  if (child.exitCode !== null || child.signalCode !== null) {
+    letGo();
+    return;
+  }
+
+  child.once('exit', letGo);
+
+  if (process.platform !== 'win32' || child.pid === undefined) {
+    child.kill();
+    return;
+  }
+
+  const taskkill = spawn(
+    `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\taskkill.exe`,
+    ['/PID', String(child.pid), '/T', '/F'],
+    { windowsHide: true, stdio: 'ignore' },
+  );
+
+  // If taskkill cannot do it, the launcher at least goes the ordinary way.
+  taskkill.on('error', () => child.kill());
+  taskkill.on('exit', (code) => {
+    if (code !== 0) {
+      child.kill();
+    }
+  });
 }
 
 /** git writes progress to stderr forever; nothing we run should produce more than this. */
@@ -405,7 +452,7 @@ export class Git {
 
       const onAbort = (): void => {
         if (!settled) {
-          child.kill();
+          stop(child);
         }
       };
 
@@ -489,7 +536,7 @@ export class Git {
 
       const onAbort = (): void => {
         if (!settled) {
-          child.kill();
+          stop(child);
         }
       };
 
@@ -507,7 +554,7 @@ export class Git {
         clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
           timedOut = true;
-          child.kill();
+          stop(child);
         }, idleMs);
       };
 
@@ -528,7 +575,7 @@ export class Git {
         bumpIdle();
         stdoutLength += chunk.length;
         if (stdoutLength > MAX_BUFFER) {
-          child.kill();
+          stop(child);
           finish(() => reject(new Error(`git ${args[0]} produced more than ${MAX_BUFFER} bytes`)));
           return;
         }

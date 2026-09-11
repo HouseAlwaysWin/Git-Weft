@@ -110,6 +110,15 @@
   comparison runs. The details pane, the mark above the graph and Commit Files name the two ends -
   `main → origin/uat`, and "3 only on main" - rather than eight characters of each hash.
 
+- **On Windows, a remote that stops answering is given up on, and a cancelled command stops.** There
+  `git` is usually Git for Windows' launcher, `cmd\git.exe`, which runs the real git as a child of
+  its own, and giving up on a command ended the launcher alone. The real git ran on, still waiting on
+  the remote and holding the pipes its output comes through, and a command is not over until those
+  close - so a fetch, pull or push against a remote that had gone quiet was waited on for ever,
+  whatever `weft.networkIdleTimeoutSeconds` said, and a history walk superseded by the next one
+  walked on to the end. The whole process tree is ended now, and once git itself has gone, a command
+  that was given up on is over, whatever it left behind.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two
