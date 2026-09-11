@@ -106,3 +106,33 @@ export function readStoredTicks(value: unknown): StoredTicks | null {
 function tidy(refs: Iterable<string>): string[] {
   return [...new Set(refs)].sort();
 }
+
+/** Named sets read back from storage, dropping any entry that is not one. */
+export function readPresets(value: unknown): Map<string, RefSet> {
+  const presets = new Map<string, RefSet>();
+
+  if (typeof value !== 'object' || value === null) {
+    return presets;
+  }
+
+  for (const [name, stored] of Object.entries(value as Record<string, unknown>)) {
+    const set = readRefSet(stored);
+
+    if (name.trim().length > 0 && set !== null) {
+      presets.set(name, set);
+    }
+  }
+
+  return presets;
+}
+
+/** A set in a few words, for a list of them: how much it draws, or how much it leaves out. */
+export function describeSet(set: RefSet): string {
+  const n = set.refs.length;
+
+  if (set.mode === 'only') {
+    return n === 0 ? 'nothing' : `${n} ${n === 1 ? 'ref' : 'refs'}`;
+  }
+
+  return n === 0 ? 'everything' : `everything but ${n}`;
+}

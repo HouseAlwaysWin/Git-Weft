@@ -109,6 +109,10 @@ const inputAnswers = [];
 const offers = [];
 const infoAnswers = [];
 
+/** What each quick pick offered, and the labels to answer the next ones with - none left is Escape. */
+const picks = [];
+const pickAnswers = [];
+
 /*
  * Settings, so that a default is not the only value any of them can have. Every `get` used to
  * return the fallback it was handed, which meant the branches behind a non-default - a hidden
@@ -319,6 +323,15 @@ const vscodeStub = {
     },
     // An input box, answered from inputAnswers and dismissed when nothing is queued.
     showInputBox: async () => inputAnswers.shift(),
+    showQuickPick: async (items, options) => {
+      const list = await items;
+      const label = (item) => (typeof item === 'string' ? item : item.label);
+
+      picks.push({ title: options?.title ?? '', labels: list.map(label) });
+
+      const want = pickAnswers.shift();
+      return list.find((item) => label(item) === want);
+    },
     // Activation reports its own failure through this one, so it has to exist here - and anything
     // arriving on it is a failure by definition.
     showErrorMessage: async (m) => {
@@ -4194,6 +4207,62 @@ await new Promise((r) => setTimeout(r, 2000));
   for (const [path, , complaint] of missing) {
     problems.push(`${path} ${complaint}`);
   }
+}
+
+/*
+ * Presets: the ticks saved under a name, drawn again in one pick, and deleted.
+ *
+ * The one saved is not the default, and the refs are read again after drawing it - the way a fetch
+ * or a commit would - because a preset that left the default in charge looks right until then.
+ */
+{
+  const provider = treeProviders.get('weft.refs');
+  const ticked = () =>
+    provider
+      .getChildren()
+      .flatMap((group) => provider.getChildren(group))
+      .filter((node) => provider.getTreeItem(node).checkboxState === 1)
+      .map((node) => node.refName)
+      .sort();
+  const stored = () => Object.values(workspaceMemory.get('weft.refPresets') ?? {})[0] ?? {};
+
+  await commands.get('weft.showAllRefs')();
+  await new Promise((r) => setTimeout(r, 800));
+  const saved = ticked();
+
+  inputAnswers.push('everything');
+  await commands.get('weft.saveRefPreset')();
+  const kept = stored()['everything'];
+
+  await commands.get('weft.showCurrentRefOnly')();
+  await new Promise((r) => setTimeout(r, 800));
+
+  pickAnswers.push('everything');
+  await commands.get('weft.manageRefPresets')();
+  await provider.reload();
+  const drawn = ticked();
+  const offered = picks.at(-1)?.labels ?? [];
+
+  pickAnswers.push('$(trash) Delete a Preset…', 'everything');
+  await commands.get('weft.manageRefPresets')();
+  const left = Object.keys(stored());
+
+  console.log('\npresets        : kept', JSON.stringify(kept ?? null), '| offered', JSON.stringify(offered), '| drew', drawn.length, 'of', saved.length, '| after delete', JSON.stringify(left));
+
+  if (kept?.mode !== 'except' || (kept?.refs ?? []).length !== 0) {
+    problems.push('saving everything as a preset kept ' + JSON.stringify(kept) + ', not everything-but-nothing');
+  }
+
+  if (JSON.stringify(drawn) !== JSON.stringify(saved)) {
+    problems.push('drawing the preset, and reading the refs again, ticked ' + JSON.stringify(drawn) + ', not ' + JSON.stringify(saved));
+  }
+
+  if (left.length !== 0) {
+    problems.push('deleting the preset left ' + JSON.stringify(left));
+  }
+
+  await commands.get('weft.showCurrentRefOnly')();
+  await new Promise((r) => setTimeout(r, 800));
 }
 
 /*

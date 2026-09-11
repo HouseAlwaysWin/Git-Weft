@@ -81,6 +81,17 @@
         "icon": "$(circle-slash)"
       },
       {
+        "command": "weft.manageRefPresets",
+        "title": "Branch Presets…",
+        "category": "Git Weft",
+        "icon": "$(bookmark)"
+      },
+      {
+        "command": "weft.saveRefPreset",
+        "title": "Save the Current Ticks as a Preset…",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.sortRefsByRecent",
         "title": "Sort Branches & Tags by Most Recent",
         "category": "Git Weft",
@@ -542,6 +553,11 @@
           "command": "weft.showAllRefs",
           "when": "view == weft.refs",
           "group": "navigation@3"
+        },
+        {
+          "command": "weft.manageRefPresets",
+          "when": "view == weft.refs",
+          "group": "presets@1"
         },
         {
           "command": "weft.untickAllRefs",

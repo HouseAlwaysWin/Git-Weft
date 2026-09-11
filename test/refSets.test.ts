@@ -6,7 +6,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { except, hiddenBy, only, pruned, readRefSet, readStoredTicks, withVisible } from '../src/refSets.ts';
+import {
+  describeSet,
+  except,
+  hiddenBy,
+  only,
+  pruned,
+  readPresets,
+  readRefSet,
+  readStoredTicks,
+  withVisible,
+} from '../src/refSets.ts';
 
 const MAIN = 'refs/heads/main';
 const TOPIC = 'refs/heads/topic';
@@ -61,4 +71,24 @@ test('anything that is not a stored set reads as nothing', () => {
 
   assert.equal(readRefSet({ mode: 'only' }), null);
   assert.deepEqual(readRefSet({ mode: 'except', refs: [TOPIC, MAIN] }), except([MAIN, TOPIC]));
+});
+
+test('named sets read back, dropping whatever is not one', () => {
+  const presets = readPresets({
+    'only main': only([MAIN]),
+    'all but topic': except([TOPIC]),
+    broken: { mode: 'some' },
+    '  ': only([MAIN]),
+  });
+
+  assert.deepEqual([...presets.keys()], ['only main', 'all but topic']);
+  assert.equal(readPresets(null).size, 0);
+});
+
+test('a set says what it draws in a few words', () => {
+  assert.equal(describeSet(only([MAIN])), '1 ref');
+  assert.equal(describeSet(only([MAIN, TOPIC])), '2 refs');
+  assert.equal(describeSet(only([])), 'nothing');
+  assert.equal(describeSet(except([])), 'everything');
+  assert.equal(describeSet(except([TOPIC])), 'everything but 1');
 });

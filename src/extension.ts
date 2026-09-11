@@ -304,6 +304,76 @@ async function offerFasterStatus(git: Git, root: string, memento: vscode.Memento
   void vscode.window.setStatusBarMessage(`Weft: turned on ${what} in ${name}`, 5000);
 }
 
+/** Name the ticks as they are, to draw them again later in one pick. */
+async function saveRefPreset(refs: RefsProvider): Promise<void> {
+  if (refs.repoRoot === null) {
+    void vscode.window.showInformationMessage('Weft: open the graph first.');
+    return;
+  }
+
+  const name = await vscode.window.showInputBox({
+    title: 'Save the current ticks as a preset',
+    prompt: 'A name to draw them by later. Saving under a name already used replaces it.',
+    validateInput: (value) => (value.trim().length === 0 ? 'A preset needs a name' : null),
+  });
+
+  if (name === undefined) {
+    return;
+  }
+
+  refs.savePreset(name);
+  void vscode.window.setStatusBarMessage(`Weft: saved the ticks as ${name.trim()}`, 3000);
+}
+
+/**
+ * The named presets: draw one, save the ticks as they are as another, or delete one. A pick rather
+ * than a view of their own, because a preset is something you choose, not something you watch.
+ */
+async function manageRefPresets(refs: RefsProvider): Promise<void> {
+  if (refs.repoRoot === null) {
+    void vscode.window.showInformationMessage('Weft: open the graph first.');
+    return;
+  }
+
+  const presets = refs.presets();
+  const listed = presets.map((preset) => ({ label: preset.name, description: preset.describes }));
+  const save = '$(add) Save the Current Ticks…';
+  const remove = '$(trash) Delete a Preset…';
+
+  const picked = await vscode.window.showQuickPick(
+    [
+      ...listed,
+      { label: save, description: '' },
+      ...(presets.length === 0 ? [] : [{ label: remove, description: '' }]),
+    ],
+    {
+      title: 'Branch presets',
+      placeHolder: presets.length === 0 ? 'None saved yet' : 'Draw one, or save the ticks as they are',
+    },
+  );
+
+  if (picked === undefined) {
+    return;
+  }
+
+  if (picked.label === save) {
+    await saveRefPreset(refs);
+    return;
+  }
+
+  if (picked.label === remove) {
+    const doomed = await vscode.window.showQuickPick(listed, { title: 'Delete which preset?' });
+
+    if (doomed !== undefined) {
+      refs.deletePreset(doomed.label);
+    }
+
+    return;
+  }
+
+  refs.applyPreset(picked.label);
+}
+
 function start(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('weft');
 
@@ -442,6 +512,7 @@ function start(context: vscode.ExtensionContext): void {
     refs.onDidChangeFilter(() => WeftPanel.refreshAll()),
     // Only the list moved, so only the list is sent again.
     refs.onDidChangeOrder(() => WeftPanel.refreshRefs()),
+    refs.onDidChangePresets(() => WeftPanel.refreshRefs()),
     authors.onDidChangeFilter(() => WeftPanel.refreshAll()),
 
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionContentProvider(git)),
@@ -853,6 +924,8 @@ function start(context: vscode.ExtensionContext): void {
      * graph that team. `weft.showOnlyListedAuthors` is the second half of it.
      */
     vscode.commands.registerCommand('weft.untickAllRefs', () => refs.untickAll()),
+    vscode.commands.registerCommand('weft.saveRefPreset', () => saveRefPreset(refs)),
+    vscode.commands.registerCommand('weft.manageRefPresets', () => manageRefPresets(refs)),
     vscode.commands.registerCommand('weft.listTickedRefs', () => refs.setTickedOnly(true)),
     vscode.commands.registerCommand('weft.sortRefsByRecent', () => refs.setOrder('recent')),
     vscode.commands.registerCommand('weft.sortRefsByName', () => refs.setOrder('name')),

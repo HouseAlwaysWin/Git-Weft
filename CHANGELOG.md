@@ -85,6 +85,12 @@
   or ticking away from the default - no longer takes in every branch fetched afterwards: a new branch
   arrives unticked, like any other nobody picked. After Show All, whatever arrives is still drawn.
 
+- **Presets: the ticks saved under a name, and drawn again in one pick.** Branch Presets…, in the "…"
+  menu of the Branches & Tags title bar, lists them, saves the ticks as they are as another, and
+  deletes one. A preset keeps the choice rather than the refs it happened to hide, so one saved as
+  "only these" still leaves out a branch fetched after it. They are kept for each repository, like
+  the ticks themselves.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

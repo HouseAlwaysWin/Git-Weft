@@ -16,7 +16,7 @@ import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { describeAge } from './git/blame.ts';
 import type { RefSet, StoredTicks } from './refSets.ts';
-import { except, hiddenBy, only, pruned, readStoredTicks, withVisible } from './refSets.ts';
+import { describeSet, except, hiddenBy, only, pruned, readPresets, readStoredTicks, withVisible } from './refSets.ts';
 
 interface Group {
   readonly kind: 'group';
@@ -55,6 +55,9 @@ const GROUPS: Group[] = [
 
 /** Where each repository's ticks are kept between sessions, keyed by root. */
 const TICKS_KEY = 'weft.refTicks';
+
+/** Where each repository's named sets of ticks are kept, keyed by root and then by name. */
+const PRESETS_KEY = 'weft.refPresets';
 
 export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private readonly git: Git;
@@ -149,6 +152,10 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    */
   private readonly orderChanged = new vscode.EventEmitter<void>();
   readonly onDidChangeOrder = this.orderChanged.event;
+
+  /** The named sets changed. The header's menu lists them, and nothing needs walking for that. */
+  private readonly presetsChanged = new vscode.EventEmitter<void>();
+  readonly onDidChangePresets = this.presetsChanged.event;
 
   /** Where the ticks outlast the session. None where there is no workspace to keep them in. */
   private readonly memento: vscode.Memento | null;
@@ -861,6 +868,73 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     if (hadHidden) {
       this.filterChanged.fire();
     }
+  }
+
+  /** This repository's named sets, sorted, each with what it draws in a few words. */
+  presets(): { name: string; describes: string }[] {
+    return [...this.readPresetMap()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, set]) => ({ name, describes: describeSet(set) }));
+  }
+
+  /**
+   * Keep the ticks as they are now, under a name. The choice is kept rather than the refs it hides,
+   * so a set saved as "only these" still leaves out a branch fetched after it when drawn again.
+   */
+  savePreset(name: string): void {
+    const trimmed = name.trim();
+
+    if (this.repo === null || trimmed.length === 0) {
+      return;
+    }
+
+    const presets = this.readPresetMap();
+    presets.set(trimmed, pruned(this.set, this.refs.map((ref) => ref.refName)));
+    this.writePresetMap(presets);
+  }
+
+  /** Draw a named set. A name that is not there - deleted in another window, say - does nothing. */
+  applyPreset(name: string): boolean {
+    const preset = this.readPresetMap().get(name);
+
+    if (preset === undefined) {
+      return false;
+    }
+
+    // A choice, like any tick: the default stops applying, or the next reload would undo it.
+    this.following = false;
+    this.set = preset;
+    this.derive();
+    this.persist();
+
+    this.changed.fire(undefined);
+    this.updateMessage();
+    this.filterChanged.fire();
+    return true;
+  }
+
+  deletePreset(name: string): void {
+    const presets = this.readPresetMap();
+
+    if (presets.delete(name)) {
+      this.writePresetMap(presets);
+    }
+  }
+
+  private readPresetMap(): Map<string, RefSet> {
+    const all = this.memento?.get<Record<string, unknown>>(PRESETS_KEY, {}) ?? {};
+    return readPresets(this.repo === null ? undefined : all[this.repo.root]);
+  }
+
+  private writePresetMap(presets: ReadonlyMap<string, RefSet>): void {
+    if (this.memento === null || this.repo === null) {
+      return;
+    }
+
+    const all = { ...this.memento.get<Record<string, unknown>>(PRESETS_KEY, {}) };
+    all[this.repo.root] = Object.fromEntries(presets);
+    void this.memento.update(PRESETS_KEY, all);
+    this.presetsChanged.fire();
   }
 }
 
