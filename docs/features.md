@@ -74,7 +74,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   left alone: it hides nothing, and it has a way back of its own
 - Auto-refresh: commit from a terminal and the graph reloads itself
 - Right-click to act: checkout (branch, remote branch, or a commit detached), create and rename
-  branches, create lightweight or annotated tags, delete branches and tags
+  branches, create lightweight or annotated tags, delete branches and tags. A checkout asks first,
+  wherever it was started - the graph, its menus or Branches & Tags - and one that detaches HEAD
+  says so
 - Merge and rebase, with a banner while either is unfinished: Continue, Skip, Abort, and the
   conflicted files as links into VS Code's merge editor
 - Cherry-pick, revert, and reset (soft, mixed or hard) from any commit

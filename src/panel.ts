@@ -90,7 +90,7 @@ import { listStashes } from './git/stash.ts';
 import { Remedy, mapGitError } from './git/errors.ts';
 import { describeAge } from './git/blame.ts';
 import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
-import { buildMenu, confirmIfNeeded, findAction, movesHead } from './actions/registry.ts';
+import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
 
 /** Set by the extension so panels can write to - and reveal - the same output channel. */
 type Logger = { warn(message: string): void; show(): void };
@@ -555,15 +555,6 @@ export class WeftPanel {
         await this.showMenu(message.target, message.x, message.y);
         break;
       case 'runAction':
-        /*
-         * Asked here rather than where the click was, because the answer belongs to the action.
-         * Every caller used to decide for itself and they disagreed: the quick-switch box asked,
-         * the right-click menu did not, and the branch dropdown checked out without asking at all.
-         */
-        if (movesHead(message.id) && !(await this.confirmSwitch(message.target))) {
-          break;
-        }
-
         await this.runAction(message.id, message.target);
         break;
       case 'refsPreset':
@@ -605,33 +596,41 @@ export class WeftPanel {
   }
 
   /**
-   * Ask before a checkout that one keystroke started.
+   * Ask before anything that moves HEAD.
    *
-   * The switch box is a text field with Return bound to "check that branch out", which is the right
-   * shape for the gesture and one typo away from a checkout of somebody else's branch. On a large
-   * repository that is a minute of files being rewritten, and on a dirty one it is a refusal to
-   * read - so it asks, with the one fact that decides it: how long since the branch moved.
+   * Not for git's sake - a checkout that would overwrite work is refused by git itself - but for the
+   * reader's. Rewriting a large worktree is a lot of files changing under whatever else is open, and
+   * what is being named is a branch or a hash, the kind of argument you can be one character wrong
+   * about. So it asks, with the one fact that decides it: how long since that commit was made.
+   *
+   * A checkout that detaches HEAD - onto a commit, or a tag - says so. New commits made there are on
+   * no branch until one is made for them, which is the surprise worth a sentence.
    */
   private async confirmSwitch(target: Target): Promise<boolean> {
-    if (target.kind !== 'ref') {
+    if (target.kind !== 'ref' && target.kind !== 'commit') {
       return true;
     }
 
-    const moved = await this.refMoved(target.refName);
+    const detached = target.kind === 'commit' || target.refKind === 'tag';
+    const name = target.kind === 'commit' ? target.sha.slice(0, 8) : target.label;
+    const moved = await this.refMoved(target.kind === 'commit' ? target.sha : target.refName);
+
+    const detail = [
+      target.kind === 'commit' ? target.subject : '',
+      moved === null ? '' : `${target.kind === 'commit' ? 'Committed' : 'Last moved'} ${describeAge(moved)}.`,
+      detached ? 'HEAD will be detached: new commits made there are on no branch until you create one.' : '',
+    ].filter((line) => line.length > 0);
 
     const choice = await vscode.window.showWarningMessage(
-      `Check out ${target.label}?`,
-      {
-        modal: true,
-        detail: moved === null ? '' : `Last moved ${describeAge(moved)}.`,
-      },
+      detached ? `Check out ${name} (detached)?` : `Check out ${name}?`,
+      { modal: true, detail: detail.join('\n') },
       'Checkout',
     );
 
     return choice === 'Checkout';
   }
 
-  /** When a ref last moved, epoch milliseconds, or null when git will not say. */
+  /** When a revision's commit was made - a ref's tip, or a hash - in epoch ms, or null when git will not say. */
   private async refMoved(refName: string): Promise<number | null> {
     const out = await this.git
       .runRead(this.repo.root, ['log', '-1', '--format=%ct', refName])
@@ -676,6 +675,19 @@ export class WeftPanel {
           return null;
         }
 
+        /*
+         * Asked here, where every action passes whoever started it: the graph's messages, the
+         * sidebar's commands and the remedies all arrive in this function. It used to be asked
+         * where the graph's messages come in, and the sidebar sends none - its Checkout called
+         * straight through and ran without a question, while 0.8.0's notes said checking out always
+         * asked.
+         *
+         * After the refusal, so checking out the branch you are on says so instead of first asking
+         * whether you are sure; and not on the retry, which the user has already answered once.
+         */
+        if (action.movesHead === true && !retrying && !(await this.confirmSwitch(target))) {
+          return null;
+        }
 
         const context: ActionContext = { git: this.git, repo: this.repo, state, target, ui: this.ui };
 

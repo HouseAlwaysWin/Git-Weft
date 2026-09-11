@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Checking out asks first from Branches & Tags too, and when it detaches onto a commit.** 0.8.0
+  said checking out asks first wherever it was asked for, and two ways in did not: Checkout on a
+  branch in Branches & Tags went straight through, and so did Checkout on a commit in the graph. The
+  question was asked where the graph's messages arrive, and the sidebar does not send messages - it
+  calls the action directly - while a commit was waved through as something picked by pointing. It
+  is asked now where every checkout passes, whoever started it, and one that detaches HEAD says so,
+  since new commits made there belong to no branch until one is made for them. It also comes after
+  the check that refuses, so checking out the branch you are already on says so, instead of first
+  asking whether you are sure.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

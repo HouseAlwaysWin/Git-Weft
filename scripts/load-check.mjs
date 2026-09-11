@@ -1374,7 +1374,7 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 }
 
 /*
- * Checking out asks first, wherever it was asked for.
+ * Checking out asks first, however it was asked for.
  *
  * It did not always. The reasoning was that reaching Checkout in a menu is already two deliberate
  * steps, and that a dialog on top of them is a click which teaches people to click through
@@ -1383,8 +1383,12 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
  * the control that asked was not the one people reached for by accident: the branch dropdown
  * checked out from a click on a name, next to a tick that only filtered.
  *
- * So the answer belongs to the action rather than to the caller - `movesHead` on the action, read
- * where the message arrives. Both paths are driven here, because the bug was that they disagreed.
+ * So the answer belongs to the action rather than to the caller - `movesHead` on the action. It was
+ * then read where the graph's messages arrive, and 0.8.0 said checking out always asked while the
+ * sidebar's Checkout, which calls the action directly, never did - and a commit was waved through as
+ * something picked by pointing. It is read in `runAction` now, where every way in passes, and all
+ * three are driven here: the graph's message, the sidebar's command, and a detached checkout. Each
+ * must ask exactly once - twice is the question asked in two places, which is how this started.
  */
 {
   const head = () => String(runGit(repoPath, 'rev-parse', '--abbrev-ref', 'HEAD')).trim();
@@ -1408,8 +1412,8 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   );
   console.log('  said no      : HEAD is', head());
 
-  if (asked.length === 0) {
-    problems.push('checking out did not ask, though the action says it moves HEAD');
+  if (asked.length !== 1) {
+    problems.push(`checking out asked ${asked.length} times, not once`);
   } else {
     if (!String(asked[0].message).includes('side')) {
       problems.push(`the switch dialog did not name the branch: ${asked[0].message}`);
@@ -1436,21 +1440,105 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   console.log('  menu path    : HEAD is', head(), '| asked', confirmations.length - beforeMenu, 'times');
 
-  if (confirmations.length === beforeMenu) {
-    problems.push('checking out from a menu did not ask, so the two paths still disagree');
+  if (confirmations.length - beforeMenu !== 1) {
+    problems.push(`checking out from a menu asked ${confirmations.length - beforeMenu} times, not once`);
   }
 
   if (head() !== 'side') {
     problems.push('saying yes to the menu dialog did not check the branch out');
   }
 
-  // Back where the rest of this run expects to be.
+  const backToMain = async () => {
+    confirmed = true;
+    await messageHandler({
+      type: 'runAction',
+      id: 'weft.checkoutBranch',
+      target: { kind: 'ref', refName: 'refs/heads/main', label: 'main', refKind: 'local' },
+    });
+    await new Promise((r) => setTimeout(r, 2500));
+  };
+
+  await backToMain();
+
+  /*
+   * The sidebar's Checkout, which calls the action directly rather than sending a message - the way
+   * in that 0.8.0 said asked, and did not.
+   */
+  const refsTree = treeProviders.get('weft.refs');
+  const sideNode = refsTree
+    ?.getChildren()
+    .flatMap((group) => refsTree.getChildren(group))
+    .find((node) => refsTree.targetOf(node)?.refName === 'refs/heads/side');
+
+  if (sideNode === undefined) {
+    problems.push('no row for side in Branches & Tags to check out from');
+  } else {
+    confirmed = false;
+    const beforeNo = confirmations.length;
+    await commands.get('weft.checkoutRef')(sideNode);
+    await new Promise((r) => setTimeout(r, 2500));
+    const askedNo = confirmations.length - beforeNo;
+    const afterNo = head();
+
+    confirmed = true;
+    const beforeYes = confirmations.length;
+    await commands.get('weft.checkoutRef')(sideNode);
+    await new Promise((r) => setTimeout(r, 2500));
+    const askedYes = confirmations.length - beforeYes;
+
+    console.log('  sidebar      : asked', askedNo, 'then', askedYes, '| HEAD after no:', afterNo, 'after yes:', head());
+
+    if (askedNo !== 1 || askedYes !== 1) {
+      problems.push(`checking out from Branches & Tags asked ${askedNo} and ${askedYes} times, not once each`);
+    }
+
+    if (afterNo !== 'main') {
+      problems.push('saying no to the sidebar checkout checked the branch out anyway');
+    }
+
+    if (head() !== 'side') {
+      problems.push('saying yes to the sidebar checkout did not check the branch out');
+    }
+
+    await backToMain();
+  }
+
+  // And a commit, which detaches HEAD - once waved through as something picked by pointing.
+  const detachAt = String(runGit(repoPath, 'rev-parse', 'main~1')).trim();
+  const detachSubject = String(runGit(repoPath, 'log', '-1', '--format=%s', detachAt)).trim();
+
+  confirmed = false;
+  const beforeCommit = confirmations.length;
   await messageHandler({
     type: 'runAction',
-    id: 'weft.checkoutBranch',
-    target: { kind: 'ref', refName: 'refs/heads/main', label: 'main', refKind: 'local' },
+    id: 'weft.checkoutCommit',
+    target: { kind: 'commit', sha: detachAt, subject: detachSubject },
   });
   await new Promise((r) => setTimeout(r, 2500));
+  const commitAsked = confirmations.slice(beforeCommit);
+
+  console.log(
+    '  detached     :',
+    commitAsked.length === 0
+      ? 'NOTHING ASKED'
+      : JSON.stringify(`${commitAsked[0].message} — ${String(commitAsked[0].detail).split('\n').join(' / ')}`),
+  );
+
+  if (commitAsked.length !== 1) {
+    problems.push(`checking out a commit asked ${commitAsked.length} times, not once`);
+  } else if (
+    !String(commitAsked[0].message).includes(detachAt.slice(0, 8)) ||
+    !/detached/i.test(`${commitAsked[0].message} ${commitAsked[0].detail}`)
+  ) {
+    problems.push(`the detached checkout did not name the commit, or did not say HEAD would be detached: ${commitAsked[0].message}`);
+  }
+
+  if (head() !== 'main') {
+    problems.push('saying no to a detached checkout moved HEAD anyway');
+    await backToMain();
+  }
+
+  confirmed = true;
 }
 
 /*

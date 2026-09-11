@@ -403,7 +403,8 @@ async function needBuild() {
 /**
  * Put each bug back, one at a time, and require the check to notice.
  *
- * The spec is a module whose default export lists `{ file, from, to, what, check, args }`. `check`
+ * The spec is a module whose default export lists `{ what, check, args }` with one break, as
+ * `{ file, from, to }`, or several in `edits` - for a bug that lived in more than one place. `check`
  * is `diff` (the recording differs from the healthy one), `assert` (an invariant breaks), or
  * `load-check`, `unit` or `node` (that run fails - `node` runs whatever script `args` names, for the
  * guards that are scripts of their own). The file is restored before anything is reported, the
@@ -421,21 +422,44 @@ async function control(port, specPath) {
   const results = [];
 
   for (const item of spec) {
-    const file = resolve(ROOT, item.file);
-    const original = readFileSync(file, 'utf8');
-    const anchors = original.split(item.from).length - 1;
+    // One break or several, in one file or more: a bug that lived in two places is put back in both.
+    const edits = item.edits ?? [{ file: item.file, from: item.from, to: item.to }];
+    const originals = new Map();
+    const breaks = new Map();
+    let invalid = null;
 
-    if (anchors !== 1) {
-      results.push(['invalid', item.what, `the anchor is in ${item.file} ${anchors} times, not once`]);
+    for (const change of edits) {
+      const file = resolve(ROOT, change.file);
+
+      if (!originals.has(file)) {
+        originals.set(file, readFileSync(file, 'utf8'));
+      }
+
+      const text = breaks.get(file) ?? originals.get(file);
+      const anchors = text.split(change.from).length - 1;
+
+      if (anchors !== 1) {
+        invalid = `the anchor is in ${change.file} ${anchors} times, not once`;
+        break;
+      }
+
+      breaks.set(file, text.replace(change.from, () => change.to));
+    }
+
+    if (invalid !== null) {
+      results.push(['invalid', item.what, invalid]);
       continue;
     }
 
     let verdict = 'invalid';
     let detail = '';
 
-    writeFileSync(file, original.replace(item.from, () => item.to));
-
     try {
+      // Inside the try, so a failure halfway through writing still puts every file back.
+      for (const [file, text] of breaks) {
+        writeFileSync(file, text);
+      }
+
       const built = await build();
 
       if (!built.ok) {
@@ -462,11 +486,15 @@ async function control(port, specPath) {
         detail = `unknown check "${item.check}"`;
       }
     } finally {
-      writeFileSync(file, original);
+      for (const [file, text] of originals) {
+        writeFileSync(file, text);
+      }
     }
 
-    if (readFileSync(file, 'utf8') !== original) {
-      fail(2, `${item.file} did not come back as it was - stopping rather than reporting`);
+    for (const [file, text] of originals) {
+      if (readFileSync(file, 'utf8') !== text) {
+        fail(2, `${file} did not come back as it was - stopping rather than reporting`);
+      }
     }
 
     results.push([verdict, item.what, detail]);
