@@ -1205,6 +1205,37 @@ body.vscode-high-contrast.author-tint .row .author {
   color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--weft-fg));
 }
 
+/* Saved presets, above the list: a chip each, and the two quieter ways to make or change them. */
+#branch-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 6px 6px;
+}
+
+#branch-presets:empty {
+  display: none;
+}
+
+.branch-preset {
+  padding: 1px 8px;
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: 9px;
+  background: none;
+  color: var(--weft-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.branch-preset:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.branch-preset.quiet {
+  border-color: transparent;
+  color: var(--vscode-descriptionForeground);
+}
+
 #branch-rows {
   overflow-y: auto;
 }

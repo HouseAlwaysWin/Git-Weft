@@ -27,6 +27,7 @@ import type {
   HostMessage,
   RefEntry,
   RefsPreset,
+  RefsPresetEntry,
   Row,
   WebviewMessage,
 } from './protocol.ts';
@@ -62,6 +63,10 @@ export interface FilterSource {
   authorPicks(root: string): AuthorPick[];
   /** Every ref with whether it is drawn, for the header's branch menu. */
   listRefs(): RefEntry[];
+  /** The named sets of ticks, for the same menu. */
+  refPresets(): RefsPresetEntry[];
+  /** Draw one of them. */
+  applyRefPreset(name: string): void;
   /** Switch them on or off. The same call the sidebar's own ticks make, so the two cannot drift. */
   setRefsVisible(refNames: readonly string[], visible: boolean): void;
   /** Everything, nothing, or the branch HEAD is on - the sidebar's three buttons, from the graph. */
@@ -625,6 +630,16 @@ export class WeftPanel {
          */
         this.filters.setRefsPreset(message.preset);
         break;
+      case 'applyRefsPreset':
+        // Straight through, like the presets beside it: the sidebar's filter event does the rest.
+        this.filters.applyRefPreset(message.name);
+        break;
+      case 'saveRefsPreset':
+        void vscode.commands.executeCommand('weft.saveRefPreset');
+        break;
+      case 'manageRefsPresets':
+        void vscode.commands.executeCommand('weft.manageRefPresets');
+        break;
       case 'setRefsVisible':
         /*
          * Straight through to the sidebar's own state. It fires the filter event, which is already
@@ -1016,7 +1031,7 @@ export class WeftPanel {
   private postRefs(branch: string | null): void {
     // Kept, because a reorder sends the list again and the branch travels with it.
     this.headBranch = branch;
-    this.post({ type: 'refs', branch, refs: this.filters.listRefs() });
+    this.post({ type: 'refs', branch, refs: this.filters.listRefs(), presets: this.filters.refPresets() });
   }
 
   /**

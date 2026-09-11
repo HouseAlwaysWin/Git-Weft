@@ -91,6 +91,9 @@
   "only these" still leaves out a branch fetched after it. They are kept for each repository, like
   the ticks themselves.
 
+- **The presets are in the header's branch menu as well**, as a chip each above the list: one click
+  draws a preset without opening Source Control, and Save… and Manage… sit beside them.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

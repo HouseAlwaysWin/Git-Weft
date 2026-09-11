@@ -1214,7 +1214,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'refs':
-      branches.setRefs(message.refs, message.branch);
+      branches.setRefs(message.refs, message.branch, message.presets);
 
       break;
 

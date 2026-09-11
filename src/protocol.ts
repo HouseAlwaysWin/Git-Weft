@@ -65,6 +65,12 @@ export interface RefEntry {
   readonly updated: number;
 }
 
+/** A named set of ticks, as the header's menu offers it: its name, and what it draws in a few words. */
+export interface RefsPresetEntry {
+  readonly name: string;
+  readonly describes: string;
+}
+
 /**
  * How git is asked to order the walk.
  *
@@ -131,6 +137,8 @@ export type HostMessage =
       /** The branch HEAD is on, or null when it is detached. */
       readonly branch: string | null;
       readonly refs: readonly RefEntry[];
+      /** The named sets of ticks, for the menu to offer as one click each. */
+      readonly presets: readonly RefsPresetEntry[];
     }
   /** A fresh load is starting. `filtered` is whether anything is narrowing it, from any source. */
   | { readonly type: 'reset'; readonly filtered: boolean }
@@ -240,5 +248,13 @@ export type WebviewMessage =
    * follow HEAD, and HEAD is the host's to read.
    */
   | { readonly type: 'refsPreset'; readonly preset: RefsPreset }
+  /** Draw a named set of ticks, from its chip in the header's menu. */
+  | { readonly type: 'applyRefsPreset'; readonly name: string }
+  /**
+   * Save the ticks as a preset, or manage the ones there are. Asked of the host, which does the
+   * asking: a name is typed into VS Code's own box, not into one drawn here.
+   */
+  | { readonly type: 'saveRefsPreset' }
+  | { readonly type: 'manageRefsPresets' }
   /** Hand a conflicted file to VS Code, whose merge editor is better at this than anything here. */
   | { readonly type: 'openConflict'; readonly path: string };

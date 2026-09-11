@@ -96,6 +96,7 @@ export const BODY_MARKUP = `<header id="header">
       <div id="branch-list" hidden>
         <input id="branch-filter" type="search" placeholder="Filter branches" spellcheck="false"
           aria-label="Filter the branch list">
+        <div id="branch-presets" aria-label="Presets"></div>
         <div id="branch-rows"></div>
         <div id="branch-empty" hidden>No branch matches.</div>
       </div>

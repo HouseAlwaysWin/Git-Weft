@@ -4233,6 +4233,8 @@ await new Promise((r) => setTimeout(r, 2000));
   inputAnswers.push('everything');
   await commands.get('weft.saveRefPreset')();
   const kept = stored()['everything'];
+  await new Promise((r) => setTimeout(r, 200));
+  const menuLists = JSON.stringify(posted.filter((m) => m.type === 'refs').pop()?.presets ?? []);
 
   await commands.get('weft.showCurrentRefOnly')();
   await new Promise((r) => setTimeout(r, 800));
@@ -4242,6 +4244,13 @@ await new Promise((r) => setTimeout(r, 2000));
   await provider.reload();
   const drawn = ticked();
   const offered = picks.at(-1)?.labels ?? [];
+
+  // The same preset from the header's menu: its chip posts the name, and the host draws it.
+  await commands.get('weft.showCurrentRefOnly')();
+  await new Promise((r) => setTimeout(r, 800));
+  await messageHandler({ type: 'applyRefsPreset', name: 'everything' });
+  await provider.reload();
+  const fromMenu = ticked();
 
   pickAnswers.push('$(trash) Delete a Preset…', 'everything');
   await commands.get('weft.manageRefPresets')();
@@ -4259,6 +4268,16 @@ await new Promise((r) => setTimeout(r, 2000));
 
   if (left.length !== 0) {
     problems.push('deleting the preset left ' + JSON.stringify(left));
+  }
+
+  console.log('  in the menu  :', menuLists, '| drawn from its chip:', fromMenu.length, 'of', saved.length);
+
+  if (!menuLists.includes('"everything"')) {
+    problems.push("the header's menu was not sent the preset just saved: " + menuLists);
+  }
+
+  if (JSON.stringify(fromMenu) !== JSON.stringify(saved)) {
+    problems.push("drawing the preset from the header's menu ticked " + JSON.stringify(fromMenu) + ', not ' + JSON.stringify(saved));
   }
 
   await commands.get('weft.showCurrentRefOnly')();

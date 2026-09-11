@@ -377,6 +377,15 @@ const INVARIANTS = [
     },
   ],
   [
+    'a preset chip draws its preset, and Save asks the host',
+    (found) => {
+      const said = found['=== clicking a preset, then Save, sends ==='] ?? '';
+      return said.includes('"type":"applyRefsPreset","name":"release work"') && said.includes('"type":"saveRefsPreset"')
+        ? null
+        : `it sent: ${said.trim() || 'nothing'}`;
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null

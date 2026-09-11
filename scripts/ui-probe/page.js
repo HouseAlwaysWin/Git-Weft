@@ -161,6 +161,31 @@
     parts.push('=== clicking the remote row of the branch you are on sends ===\n' + sentSince(beforeRemote));
 
     /*
+     * Presets, as chips above the list: a click on one draws it, and Save asks the host. The demo
+     * repository has none saved, so one is posted in.
+     */
+    window.postMessage(
+      {
+        type: 'refs',
+        branch: 'main',
+        refs: [{ label: 'main', refName: 'refs/heads/main', kind: 'local', visible: true, updated: 0 }],
+        presets: [{ name: 'release work', describes: '3 refs' }],
+      },
+      '*',
+    );
+    await settle(200);
+
+    await openMenu();
+    take('branch presets', document.querySelector('#branch-presets'));
+
+    const beforePreset = sent().length;
+    click(document.querySelector('#branch-presets .branch-preset[data-preset]'));
+    await settle(250);
+    click(document.querySelector('#branch-presets .branch-preset[data-action="save"]'));
+    await settle(250);
+    parts.push('=== clicking a preset, then Save, sends ===\n' + sentSince(beforePreset));
+
+    /*
      * A long list with a few ticked, which is the reported case: ticking one in the middle of a
      * hundred and fifty alphabetical rows was the last you saw of it. The ticked ones are scattered -
      * two near the start, one at the very end - so "they went to the top" cannot be satisfied by the

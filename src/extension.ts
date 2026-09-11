@@ -469,6 +469,8 @@ function start(context: vscode.ExtensionContext): void {
       authors.setRepository(repo);
     },
     listRefs: () => refs.listForMenu(),
+    refPresets: () => refs.presets(),
+    applyRefPreset: (name: string) => void refs.applyPreset(name),
     refsMoved: () => refs.reload(),
     setRefsVisible: (refNames: readonly string[], visible: boolean) =>
       refs.setVisible(refNames, visible),

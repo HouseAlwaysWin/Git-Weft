@@ -11,7 +11,7 @@
  * what talks to the host and the view is what saves state.
  */
 
-import type { RefEntry, WebviewMessage } from '../protocol.ts';
+import type { RefEntry, RefsPresetEntry, WebviewMessage } from '../protocol.ts';
 import { describeAge } from '../git/blame.ts';
 import { span } from './dom.ts';
 
@@ -26,6 +26,7 @@ const jumpList = document.getElementById('jump-list') as HTMLElement;
 const jumpRows = document.getElementById('jump-rows') as HTMLElement;
 const jumpEmpty = document.getElementById('jump-empty') as HTMLElement;
 const refPresets = document.getElementById('ref-presets') as HTMLElement;
+const branchPresets = document.getElementById('branch-presets') as HTMLElement;
 
 /** Where a message goes. Set by `connect`, so this module never reaches for the host itself. */
 let post: (message: WebviewMessage) => void = () => undefined;
@@ -50,6 +51,9 @@ let remember: () => void = () => undefined;
  */
 let refEntries: readonly RefEntry[] = [];
 let headBranch: string | null = null;
+
+/** The named sets of ticks the host last sent, drawn as a chip each above the list. */
+let presetEntries: readonly RefsPresetEntry[] = [];
 let branchGroupsClosed = new Set<string>();
 
 function branchMenuOpen(): boolean {
@@ -237,6 +241,41 @@ function renderBranchMenu(): void {
       branchRows.append(branchRow(entry));
     }
   }
+}
+
+/**
+ * The saved presets, a chip each, and the two ways to make or change them.
+ *
+ * Above the list rather than in it: a preset is a set of ticks, not a branch, and a row among a
+ * hundred and fifty would be found the way a branch is - by looking for it. Save… and Manage… ask
+ * the host, which asks in VS Code's own boxes.
+ */
+function renderPresets(): void {
+  const chips = presetEntries.map((preset) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'branch-preset';
+    chip.dataset['preset'] = preset.name;
+    chip.textContent = preset.name;
+    chip.title = `Draw ${preset.name}: ${preset.describes}`;
+    return chip;
+  });
+
+  const action = (what: 'save' | 'manage', label: string, title: string): HTMLButtonElement => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'branch-preset quiet';
+    button.dataset['action'] = what;
+    button.textContent = label;
+    button.title = title;
+    return button;
+  };
+
+  branchPresets.replaceChildren(
+    ...chips,
+    action('save', 'Save…', 'Save the ticks as they are, under a name'),
+    ...(presetEntries.length === 0 ? [] : [action('manage', 'Manage…', 'Draw, save or delete a preset')]),
+  );
 }
 
 function openBranchMenu(): void {
@@ -430,6 +469,21 @@ export function connect(options: {
     }
   });
 
+  // A chip draws its preset. Save… and Manage… are the host's to ask about.
+  branchPresets.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('.branch-preset') as HTMLElement | null;
+    const name = button?.dataset['preset'];
+    const action = button?.dataset['action'];
+
+    if (name !== undefined) {
+      post({ type: 'applyRefsPreset', name });
+    } else if (action === 'save') {
+      post({ type: 'saveRefsPreset' });
+    } else if (action === 'manage') {
+      post({ type: 'manageRefsPresets' });
+    }
+  });
+
   branchFilter.addEventListener('input', renderBranchMenu);
 
   branchFilter.addEventListener('keydown', (event) => {
@@ -491,9 +545,15 @@ export function connect(options: {
  * asked for, and redrawing an open one is the point - a checkout or a tick lands here as the next
  * list under the reader's cursor.
  */
-export function setRefs(entries: readonly RefEntry[], head: string | null): void {
+export function setRefs(
+  entries: readonly RefEntry[],
+  head: string | null,
+  presets: readonly RefsPresetEntry[] = [],
+): void {
   refEntries = entries;
   headBranch = head;
+  presetEntries = presets;
+  renderPresets();
 
   renderBranchButton();
 

@@ -99,7 +99,8 @@ landing page that lists two hundred things tells you nothing about any of them.
 - Presets: **Branch Presets…**, in the "…" menu of the **Branches & Tags** title bar, saves the ticks
   under a name, draws a saved set again in one pick, and deletes one. Each keeps its choice - a set
   saved as only these still leaves
-  out a branch fetched later - and they are kept for each repository
+  out a branch fetched later - and they are kept for each repository. The header's branch menu has
+  them too, as a chip each above the list, beside Save… and Manage…
 - Three buttons for the three answers worth one click - everything, nothing, and the branch you are
   on - over the branch list and again in the graph's own header. Ticking three refs out of fourteen
   hundred starts by unticking the rest, which is not something anybody does a box at a time
