@@ -43,6 +43,11 @@
   rename locks case matching on and the switch's tooltip says why, and nothing put the old tooltip
   back when the lock came off - so it went on explaining a lock that was no longer there.
 
+- **Working-tree changes cost one `git status` at a time, however many are reported together.**
+  Every change the git extension reported was a `git status` of Weft's own, however close together
+  they came - several side by side, on a repository where each takes the better part of a second.
+  Weft now waits for them to go quiet, reads once, and never runs two at a time.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

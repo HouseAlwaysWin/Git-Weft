@@ -86,6 +86,7 @@ export interface FilterSource {
 import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
+import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
 import { listStashes } from './git/stash.ts';
 import { Remedy, mapGitError } from './git/errors.ts';
@@ -236,6 +237,10 @@ export class WeftPanel {
    */
   private working: FileStatus[] = [];
   private fetchTimer: NodeJS.Timeout | null = null;
+  /** A working-tree read waiting for a burst of events to go quiet. */
+  private workingTimer: NodeJS.Timeout | null = null;
+  /** Working-tree reads, one at a time and at most one queued - see `readWorkingNow`. */
+  private readonly readWorking = coalesce(() => this.readWorkingNow());
   /** Walk only the mainline. A filter like any other: it decides which commits are on screen. */
   private firstParent = false;
   /** Walk only what the ticked refs have that no other ref does. */
@@ -392,7 +397,7 @@ export class WeftPanel {
 
     // The watcher sees `.git`, which is where refs move and is not where a file being saved shows
     // up. The working-tree row would otherwise sit stale until something else caused a reload.
-    this.disposables.push(watchWorkingTree(repo.root, () => void this.refreshWorking()));
+    this.disposables.push(watchWorkingTree(repo.root, () => this.scheduleWorking()));
 
     this.setActive(true);
   }
@@ -977,6 +982,22 @@ export class WeftPanel {
   }
 
   /**
+   * A working-tree event from the git extension. However close together they came, each one was a
+   * `git status` of our own, several of them side by side - so wait for 150 ms of quiet and read
+   * once for the lot.
+   */
+  private scheduleWorking(): void {
+    if (this.workingTimer !== null) {
+      clearTimeout(this.workingTimer);
+    }
+
+    this.workingTimer = setTimeout(() => {
+      this.workingTimer = null;
+      void this.refreshWorking();
+    }, 150);
+  }
+
+  /**
    * Re-read the working tree without touching the history.
    *
    * Saving a file changes nothing a walk would produce differently, so re-walking would be paying
@@ -997,6 +1018,21 @@ export class WeftPanel {
      * watches for is our own. Nothing is lost by waiting: every write ends in a reload, which
      * re-reads the working tree anyway.
      */
+    if (WeftPanel.lock.isBusy(this.repo.root)) {
+      return;
+    }
+
+    await this.readWorking();
+  }
+
+  /**
+   * One read of the working tree, drawn. Reached only through `readWorking`, which runs these one at
+   * a time: a request while one is going gets one more after it, however many arrived, and never a
+   * second alongside. Auto-fetch asks without waiting for a quiet moment, and on a large repository
+   * each `git status` is the better part of a second.
+   */
+  private async readWorkingNow(): Promise<void> {
+    // Asked again for a run that was queued: a write may have begun while the one before it read.
     if (WeftPanel.lock.isBusy(this.repo.root)) {
       return;
     }
@@ -1284,6 +1320,11 @@ ${BODY_MARKUP}
     if (this.fetchTimer !== null) {
       clearInterval(this.fetchTimer);
       this.fetchTimer = null;
+    }
+
+    if (this.workingTimer !== null) {
+      clearTimeout(this.workingTimer);
+      this.workingTimer = null;
     }
 
     this.detailsLoading?.abort();

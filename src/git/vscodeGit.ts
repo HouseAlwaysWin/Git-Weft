@@ -122,8 +122,10 @@ export function watchRepositories(onChange: () => void): { dispose(): void } {
  * autosave - but it means saving a file moves nothing it is looking at, and the row that stands for
  * the working tree would sit there stale until something else happened to cause a reload.
  *
- * The git extension is already running `git status` on its own debounce. Listening costs nothing
- * and inherits the debounce.
+ * The git extension is already running `git status` on its own, so listening costs nothing. What
+ * it does not do is space its events out for us: nothing stops several arriving close together, and
+ * a listener that reads once per event reads several times per change. The panel waits for them to
+ * go quiet, and reads one at a time.
  */
 export function watchWorkingTree(root: string, onChange: () => void): { dispose(): void } {
   return pending(async (add) => {

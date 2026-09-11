@@ -3244,6 +3244,34 @@ if (watchTest) {
     problems.push('a file being saved re-walked the history');
   }
 
+  /*
+   * And several at once. Each event was a git status of our own, however close together they came -
+   * side by side, on a repository where each takes the better part of a second. Five in one go must
+   * be one read: they are fired synchronously, so no timing on this machine can split them.
+   */
+  await new Promise((r) => setTimeout(r, 400));
+
+  const statusRuns = () => outputLines.filter((l) => l.startsWith('debug') && l.includes('git status ')).length;
+  const burstFrom = statusRuns();
+  const burstWalks = posted.filter((m) => m.type === 'done').length;
+
+  for (let i = 0; i < 5; i += 1) {
+    repositoryState.fire();
+  }
+
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const burstRan = statusRuns() - burstFrom;
+  console.log('working burst  : 5 events ->', burstRan, 'status runs');
+
+  if (burstRan !== 1) {
+    problems.push('a burst of 5 working-tree events ran git status ' + burstRan + ' times, not once');
+  }
+
+  if (posted.filter((m) => m.type === 'done').length !== burstWalks) {
+    problems.push('a burst of working-tree events re-walked the history');
+  }
+
   // --- a repository appearing, which is what makes the sections show up ----------------------
   contextKeys.delete('weft.hasRepository');
   repositoryOpened.fire({
@@ -3700,6 +3728,12 @@ if (disposeHandler !== null) {
       'src/panel.ts',
       /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.root\)/,
       'reads the working tree without standing back for a write in flight',
+    ],
+    // And a read that was queued behind another: a write may have begun while the first one ran.
+    [
+      'src/panel.ts',
+      /readWorkingNow\(\): Promise<void> \{[\s\S]{0,400}?isBusy\(this\.repo\.root\)/,
+      'reads the working tree again, for a queued request, without standing back for a write',
     ],
     [
       'src/blameAnnotations.ts',
