@@ -88,6 +88,10 @@
         .map((el) => {
           const name = el.querySelector('.branch-name');
 
+          if (el.classList.contains('branch-folder')) {
+            return '(folder) ' + (el.textContent || '').trim();
+          }
+
           if (name === null) {
             return '(group) ' + (el.textContent || '').trim();
           }
@@ -220,7 +224,8 @@
      */
     const rows = [...document.querySelectorAll('#branch-rows .branch-row')];
     const target = rows[rows.length - 1];
-    const targetName = target.querySelector('.branch-name').textContent;
+    // By its ref rather than its text: a row inside a folder reads as the rest of its name.
+    const targetRef = target.querySelector('.branch-name').title.split('\n')[0];
     const box = target.querySelector('.branch-draw');
 
     box.checked = true;
@@ -229,7 +234,7 @@
 
     // The host answers a tick by sending the list back, which is what redraws the menu.
     window.postMessage(
-      { type: 'refs', branch: 'main', refs: many.map((r) => (r.label === targetName ? { ...r, visible: true } : r)) },
+      { type: 'refs', branch: 'main', refs: many.map((r) => (r.refName === targetRef ? { ...r, visible: true } : r)) },
       '*',
     );
     await settle(300);
@@ -240,6 +245,38 @@
     await shutMenu();
     await openMenu();
     parts.push('=== and again after closing and opening it ===\n' + listed());
+
+    /*
+     * Folders: Dev_a and Dev_b fold into a Dev_ folder, closed until opened, and Fix_c, the only Fix_,
+     * stays on its own. The filter is emptied first, since text in it opens every folder there is.
+     */
+    window.postMessage(
+      {
+        type: 'refs',
+        branch: 'main',
+        refs: ['main', 'Dev_a', 'Dev_b', 'Fix_c'].map((label) => ({
+          label,
+          refName: 'refs/heads/' + label,
+          kind: 'local',
+          visible: label === 'main',
+          updated: 0,
+        })),
+        presets: [],
+        folders: 'auto',
+      },
+      '*',
+    );
+    await settle(200);
+
+    const folderFilter = document.querySelector('#branch-filter');
+    folderFilter.value = '';
+    fire(folderFilter, 'input');
+    await openMenu();
+    parts.push('=== branch folders, closed ===\n' + listed());
+
+    click(document.querySelector('#branch-rows .branch-folder-toggle'));
+    await settle(200);
+    parts.push('=== branch folders, one opened ===\n' + listed());
 
     // The right-click menu on a commit row. The host answers that one, so the answer is posted
     // directly - which is what the menu is given either way.

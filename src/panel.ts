@@ -94,6 +94,7 @@ import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
+import type { BranchFolders } from './git/refFolders.ts';
 import { listStashes } from './git/stash.ts';
 import { Remedy, mapGitError } from './git/errors.ts';
 import { describeAge } from './git/blame.ts';
@@ -1031,7 +1032,14 @@ export class WeftPanel {
   private postRefs(branch: string | null): void {
     // Kept, because a reorder sends the list again and the branch travels with it.
     this.headBranch = branch;
-    this.post({ type: 'refs', branch, refs: this.filters.listRefs(), presets: this.filters.refPresets() });
+    this.post({
+      type: 'refs',
+      branch,
+      refs: this.filters.listRefs(),
+      presets: this.filters.refPresets(),
+      // The menu folds as the sidebar does, so the setting goes along with the list it folds.
+      folders: vscode.workspace.getConfiguration('weft').get<BranchFolders>('branchFolders', 'auto'),
+    });
   }
 
   /**

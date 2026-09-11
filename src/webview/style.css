@@ -1293,11 +1293,42 @@ body.vscode-high-contrast.author-tint .row .author {
   opacity: 0.8;
 }
 
+/* A folder: a quieter heading than a group's, indented by how deep it is, like the rows inside it. */
+.branch-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 calc(6px + var(--depth, 0) * 14px);
+}
+
+.branch-folder:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.branch-folder-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.branch-folder-toggle .chevron {
+  width: 1em;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
 .branch-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 8px 0 6px;
+  padding: 0 8px 0 calc(6px + var(--depth, 0) * 14px);
 }
 
 .branch-row:hover {

@@ -662,7 +662,7 @@
             "No folders: every ref listed on its own"
           ],
           "default": "auto",
-          "markdownDescription": "Gather refs that share a prefix into folders in **Branches & Tags**. A folder is made only for two names or more, and ticking one ticks everything in it."
+          "markdownDescription": "Gather refs that share a prefix into folders in **Branches & Tags** and the header's branch menu. A folder is made only for two names or more, and ticking one ticks everything in it."
         },
         "weft.refreshDebounceMs": {
           "type": "number",

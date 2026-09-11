@@ -101,7 +101,8 @@ landing page that lists two hundred things tells you nothing about any of them.
   saved as only these still leaves
   out a branch fetched later - and they are kept for each repository. The header's branch menu has
   them too, as a chip each above the list, beside Save… and Manage…
-- Folders: refs that share a prefix are gathered under it in **Branches & Tags** - `feature/` at every
+- Folders: refs that share a prefix are gathered under it in **Branches & Tags** and the header's
+  branch menu, where they start closed and open while filtering - `feature/` at every
   slash, and `Dev_` or `Fix_` at the first underscore, where a repository names its branches that way.
   Two names or more make a folder, and ticking one ticks everything in it. `weft.branchFolders` says
   how: `auto`, `slash`, `slashAndUnderscore` or `none`

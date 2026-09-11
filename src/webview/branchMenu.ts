@@ -13,6 +13,8 @@
 
 import type { RefEntry, RefsPresetEntry, WebviewMessage } from '../protocol.ts';
 import { describeAge } from '../git/blame.ts';
+import type { BranchFolders, Folded } from '../git/refFolders.ts';
+import { foldRefs, foldingFor } from '../git/refFolders.ts';
 import { span } from './dom.ts';
 
 const branchButton = document.getElementById('branch-button') as HTMLButtonElement;
@@ -54,6 +56,12 @@ let headBranch: string | null = null;
 
 /** The named sets of ticks the host last sent, drawn as a chip each above the list. */
 let presetEntries: readonly RefsPresetEntry[] = [];
+
+/** How to fold the lists, as the host last said: the same setting the sidebar folds by. */
+let folderSetting: BranchFolders = 'auto';
+
+/** Which folders are open. They start closed: what a folder is for is what it keeps out of the way. */
+let branchFoldersOpen = new Set<string>();
 let branchGroupsClosed = new Set<string>();
 
 function branchMenuOpen(): boolean {
@@ -78,11 +86,16 @@ function closeBranchMenu(): void {
 }
 
 /** One row: a tick that hides, and a name that checks out. */
-function branchRow(entry: RefEntry, sayKind = false): HTMLElement {
+function branchRow(entry: RefEntry, sayKind = false, display = entry.label, depth = 0): HTMLElement {
   const row = document.createElement('div');
   const here = entry.kind === 'local' && entry.label === headBranch;
 
   row.className = `branch-row${here ? ' current' : ''}${entry.visible ? '' : ' off'}`;
+
+  // Inside a folder: indented by how deep, through a property rather than an inline style.
+  if (depth > 0) {
+    row.style.setProperty('--depth', String(depth));
+  }
 
   const draw = document.createElement('input');
   draw.type = 'checkbox';
@@ -104,7 +117,7 @@ function branchRow(entry: RefEntry, sayKind = false): HTMLElement {
   const name = document.createElement('button');
   name.type = 'button';
   name.className = 'branch-name';
-  name.textContent = entry.label;
+  name.textContent = display;
   name.title = `${entry.refName}\n\n${draw.title}`;
   name.addEventListener('click', () => {
     setRefsDrawn([entry.refName], !entry.visible);
@@ -138,25 +151,10 @@ function branchRow(entry: RefEntry, sayKind = false): HTMLElement {
 function branchGroupHeader(kind: string, label: string, listed: readonly RefEntry[]): HTMLElement {
   const row = document.createElement('div');
   const closed = branchGroupsClosed.has(kind);
-  const drawn = listed.filter((entry) => entry.visible).length;
 
   row.className = 'branch-group';
 
-  const all = document.createElement('input');
-  all.type = 'checkbox';
-  all.className = 'branch-draw';
-  all.checked = drawn === listed.length;
-  // Neither on nor off: some of what is listed is drawn. Clicking from here draws all of them,
-  // which is the half of the answer that loses nothing.
-  all.indeterminate = drawn > 0 && drawn < listed.length;
-  all.title = all.checked ? `Stop drawing all ${listed.length}` : `Draw all ${listed.length}`;
-  all.setAttribute('aria-label', all.title);
-  all.addEventListener('change', () => {
-    setRefsDrawn(
-      listed.filter((entry) => entry.visible === !all.checked).map((entry) => entry.refName),
-      all.checked,
-    );
-  });
+  const all = tickForAll(listed);
 
   const toggle = document.createElement('button');
   toggle.type = 'button';
@@ -181,6 +179,75 @@ function branchGroupHeader(kind: string, label: string, listed: readonly RefEntr
   });
 
   row.append(all, toggle);
+  return row;
+}
+
+/**
+ * The tick for everything listed under a heading, a group's or a folder's - see `branchGroupHeader`
+ * for why it is what is listed. Neither on nor off when some of it is drawn: clicking from there draws
+ * all of it, which is the half of the answer that loses nothing.
+ */
+function tickForAll(listed: readonly RefEntry[]): HTMLInputElement {
+  const drawn = listed.filter((entry) => entry.visible).length;
+  const all = document.createElement('input');
+
+  all.type = 'checkbox';
+  all.className = 'branch-draw';
+  all.checked = drawn === listed.length;
+  all.indeterminate = drawn > 0 && drawn < listed.length;
+  all.title = all.checked ? `Stop drawing all ${listed.length}` : `Draw all ${listed.length}`;
+  all.setAttribute('aria-label', all.title);
+  all.addEventListener('change', () => {
+    setRefsDrawn(
+      listed.filter((entry) => entry.visible === !all.checked).map((entry) => entry.refName),
+      all.checked,
+    );
+  });
+
+  return all;
+}
+
+/**
+ * A folder in the list: a tick for everything listed inside it, and a label that opens it.
+ *
+ * Closed until opened, unlike the groups: a folder is there to keep what is in it out of the way until
+ * it is asked for - forty Fix_ branches are not the rows anybody came to find. Open whenever the
+ * filter has text in it, though, since a name being typed is a name being looked for, wherever it is.
+ */
+function branchFolderHeader(
+  key: string,
+  label: string,
+  listed: readonly RefEntry[],
+  depth: number,
+  open: boolean,
+): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'branch-folder';
+  row.style.setProperty('--depth', String(depth));
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'branch-folder-toggle';
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  toggle.title = open ? 'Close this folder' : `Show the ${listed.length}`;
+  toggle.append(
+    span('chevron', open ? '\u25BE' : '\u25B8'),
+    span('branch-folder-label', label),
+    span('branch-group-count', String(listed.length)),
+  );
+
+  toggle.addEventListener('click', () => {
+    if (open) {
+      branchFoldersOpen.delete(key);
+    } else {
+      branchFoldersOpen.add(key);
+    }
+
+    remember();
+    renderBranchMenu();
+  });
+
+  row.append(tickForAll(listed), toggle);
   return row;
 }
 
@@ -237,10 +304,43 @@ function renderBranchMenu(): void {
       continue;
     }
 
-    for (const entry of group) {
-      branchRows.append(branchRow(entry));
+    // Folded as the sidebar folds them - see `foldRefs` - with remote branches from one remote read
+    // without its name. What is drawn stays above, flat: those are the rows being looked at.
+    const remotes = new Set(group.map((entry) => entry.label.split('/')[0] ?? ''));
+    const strip = kind === 'remote' && remotes.size === 1 ? `${[...remotes][0] ?? ''}/` : '';
+    const names = group.map((entry) => (strip.length > 0 ? entry.label.slice(strip.length) : entry.label));
+    const folded = foldRefs(group, (entry) => entry.label, foldingFor(names, folderSetting), strip);
+
+    appendFolded(kind, folded, 0, needle.length > 0);
+  }
+}
+
+/** Folded entries as rows: a folder's heading, and what is inside it while it is open. */
+function appendFolded(
+  kind: string,
+  nodes: readonly Folded<RefEntry>[],
+  depth: number,
+  filtering: boolean,
+): void {
+  for (const node of nodes) {
+    if (node.kind === 'leaf') {
+      branchRows.append(branchRow(node.item, false, node.label, depth));
+      continue;
+    }
+
+    const key = `${kind}:${node.path}`;
+    const open = filtering || branchFoldersOpen.has(key);
+
+    branchRows.append(branchFolderHeader(key, node.label, leavesOf(node.children), depth, open));
+
+    if (open) {
+      appendFolded(kind, node.children, depth + 1, filtering);
     }
   }
+}
+
+function leavesOf(nodes: readonly Folded<RefEntry>[]): RefEntry[] {
+  return nodes.flatMap((node) => (node.kind === 'leaf' ? [node.item] : leavesOf(node.children)));
 }
 
 /**
@@ -549,10 +649,12 @@ export function setRefs(
   entries: readonly RefEntry[],
   head: string | null,
   presets: readonly RefsPresetEntry[] = [],
+  folders: BranchFolders = 'auto',
 ): void {
   refEntries = entries;
   headBranch = head;
   presetEntries = presets;
+  folderSetting = folders;
   renderPresets();
 
   renderBranchButton();
@@ -573,6 +675,15 @@ export function collapsedGroups(): string[] {
 
 export function restoreCollapsedGroups(kinds: readonly string[]): void {
   branchGroupsClosed = new Set(kinds);
+}
+
+/** Which folders are open, for the view to remember across a reload. */
+export function openFolders(): string[] {
+  return [...branchFoldersOpen];
+}
+
+export function restoreOpenFolders(keys: readonly string[]): void {
+  branchFoldersOpen = new Set(keys);
 }
 
 /** Whether the dropdown is showing, which decides what Escape means. */

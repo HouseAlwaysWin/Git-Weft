@@ -160,6 +160,8 @@ interface ViewState {
   /** Which groups of the branch menu are rolled up. Worth keeping: a repository with two hundred
       remote branches is one you collapse once and want to stay collapsed. */
   readonly branchGroupsClosed?: readonly string[];
+  /** Which folders of the branch menu are open. They start closed, and stay as they were left. */
+  readonly branchFoldersOpen?: readonly string[];
   /** Column widths in pixels and which are switched off. Absent width means the default. */
   readonly columns?: Record<string, { readonly width?: number; readonly hidden?: boolean }>;
   /** How much room the lanes were dragged to. Absent means the default ceiling. */
@@ -185,6 +187,7 @@ function saveViewState(): void {
     onlyHere,
     order: commitOrder,
     branchGroupsClosed: branches.collapsedGroups(),
+    branchFoldersOpen: branches.openFolders(),
     ...columns.saved(),
   } satisfies ViewState);
 }
@@ -199,6 +202,7 @@ function restoreViewState(): void {
   }
 
   branches.restoreCollapsedGroups(state?.branchGroupsClosed ?? []);
+  branches.restoreOpenFolders(state?.branchFoldersOpen ?? []);
   columns.restore(state ?? {});
   firstParent = state?.firstParent ?? false;
   onlyHere = state?.onlyHere ?? false;
@@ -1214,7 +1218,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'refs':
-      branches.setRefs(message.refs, message.branch, message.presets);
+      branches.setRefs(message.refs, message.branch, message.presets, message.folders);
 
       break;
 

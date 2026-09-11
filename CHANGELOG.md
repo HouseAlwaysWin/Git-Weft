@@ -100,6 +100,10 @@
   ticking one ticks what is inside it, and remote branches from one remote are read without its name.
   `weft.branchFolders` chooses: `auto`, the default, `slash`, `slashAndUnderscore` or `none`.
 
+- **The header's branch menu folds its lists as Branches & Tags does.** Local and Remote gather into
+  the same folders, closed until opened and remembered as they were left, and every folder opens
+  while the filter has text in it. Drawn stays flat above them - those are the rows being looked at.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

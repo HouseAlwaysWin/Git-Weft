@@ -386,6 +386,18 @@ const INVARIANTS = [
     },
   ],
   [
+    'branch folders start closed, and open when asked',
+    (found) => {
+      const closed = found['=== branch folders, closed ==='] ?? '';
+      const opened = found['=== branch folders, one opened ==='] ?? '';
+      const folded = /^\(folder\) .*Dev_/m.test(closed) && closed.includes('[ ] Fix_c');
+      const shut = !/^\[ \] a$/m.test(closed);
+      const shown = /^\[ \] a$/m.test(opened) && /^\[ \] b$/m.test(opened);
+
+      return folded && shut && shown ? null : `closed: ${closed.split('\n').join(' / ')} | opened: ${opened.split('\n').join(' / ')}`;
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null

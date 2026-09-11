@@ -15,6 +15,7 @@ import type { GitRef } from './git/logParser.ts';
 import type { CommitDetails } from './git/details.ts';
 import type { Search } from './git/search.ts';
 import type { DateRange } from './git/dates.ts';
+import type { BranchFolders } from './git/refFolders.ts';
 import type { MenuItem, Target } from './actions/registry.ts';
 
 /**
@@ -139,6 +140,8 @@ export type HostMessage =
       readonly refs: readonly RefEntry[];
       /** The named sets of ticks, for the menu to offer as one click each. */
       readonly presets: readonly RefsPresetEntry[];
+      /** `weft.branchFolders`, so the menu folds its lists as the sidebar does. */
+      readonly folders: BranchFolders;
     }
   /** A fresh load is starting. `filtered` is whether anything is narrowing it, from any source. */
   | { readonly type: 'reset'; readonly filtered: boolean }
