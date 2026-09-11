@@ -176,7 +176,14 @@ export function workingChanges(files: readonly FileStatus[]): FileChange[] {
 export type Subject =
   | { readonly kind: 'commit'; readonly sha: string }
   | { readonly kind: 'working' }
-  | { readonly kind: 'range'; readonly from: string; readonly to: string };
+  | {
+      readonly kind: 'range';
+      readonly from: string;
+      readonly to: string;
+      /** What the two ends are called: a branch's name, or a commit's short hash. */
+      readonly fromLabel: string;
+      readonly toLabel: string;
+    };
 
 /**
  * Open one file's diff in VS Code's own diff editor.
@@ -202,7 +209,7 @@ export async function openFileDiff(
       'vscode.diff',
       revisionUri(repo, file.oldPath ?? file.path, file.oldBlob, short(subject.from)),
       revisionUri(repo, file.path, file.newBlob, short(subject.to)),
-      `${basename(file.path)} (${short(subject.from)} → ${short(subject.to)})`,
+      `${basename(file.path)} (${subject.fromLabel} → ${subject.toLabel})`,
       { preview: true },
     );
 
@@ -287,9 +294,13 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     this.show(repo, { kind: 'working' }, workingChanges(files));
   }
 
-  /** Point it at the gap between two commits. */
-  setComparison(repo: string, comparison: Comparison): void {
-    this.show(repo, { kind: 'range', from: comparison.from, to: comparison.to }, comparison.files);
+  /** Point it at the gap between two commits, named as they were asked for. */
+  setComparison(repo: string, comparison: Comparison, labels: { readonly from: string; readonly to: string }): void {
+    this.show(
+      repo,
+      { kind: 'range', from: comparison.from, to: comparison.to, fromLabel: labels.from, toLabel: labels.to },
+      comparison.files,
+    );
   }
 
   private show(repo: string | null, subject: Subject | null, files: FileChange[] | null): void {
@@ -409,7 +420,7 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
         : subject.kind === 'working'
           ? 'working tree'
           : subject.kind === 'range'
-            ? `${subject.from.slice(0, 8)} → ${subject.to.slice(0, 8)}`
+            ? `${subject.fromLabel} → ${subject.toLabel}`
             : subject.sha.slice(0, 8);
 
     this.view.description = `${what} · ${files}`;

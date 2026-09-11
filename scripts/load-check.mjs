@@ -3261,7 +3261,11 @@ if (watchTest) {
     problems.push('not enough commits to compare');
   } else {
     const before = posted.filter((m) => m.type === 'comparison').length;
-    messageHandler({ type: 'compare', from: oldest.sha, to: newest.sha });
+    messageHandler({
+      type: 'compare',
+      from: { rev: oldest.sha, label: oldest.sha.slice(0, 8) },
+      to: { rev: newest.sha, label: newest.sha.slice(0, 8) },
+    });
 
     const deadline = Date.now() + 20_000;
     while (Date.now() < deadline && posted.filter((m) => m.type === 'comparison').length === before) {
@@ -3274,7 +3278,7 @@ if (watchTest) {
       '\ncompare        :',
       comparison === undefined
         ? 'NO ANSWER'
-        : `${comparison.from.slice(0, 8)} → ${comparison.to.slice(0, 8)} | ${comparison.files} files | ${comparison.onlyFrom} left, ${comparison.onlyTo} right`,
+        : `${comparison.from.label} → ${comparison.to.label} | ${comparison.files} files | ${comparison.onlyFrom} left, ${comparison.onlyTo} right`,
     );
 
     if (comparison === undefined) {
@@ -3334,6 +3338,45 @@ if (watchTest) {
         }
       }
     }
+  }
+}
+
+/*
+ * Two refs compared by name, from Branches & Tags: main and the tag v1.0, answered and headed as the
+ * refs they are rather than as eight characters of a hash - in the pane and in Commit Files.
+ */
+{
+  const refsProvider = treeProviders.get('weft.refs');
+  const heads = refsProvider.getChildren(refsProvider.getChildren().find((g) => g.id === 'heads'));
+  const mainNode = heads.find((node) => node.label === 'main');
+  const before = posted.filter((m) => m.type === 'comparison').length;
+
+  pickAnswers.push('v1.0');
+  await commands.get('weft.compareRef')(mainNode);
+
+  const by = Date.now() + 20_000;
+  while (Date.now() < by && posted.filter((m) => m.type === 'comparison').length === before) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+
+  const answer = posted.filter((m) => m.type === 'comparison').length > before ? posted.filter((m) => m.type === 'comparison').pop() : undefined;
+  const heading = String(treeViews.get('weft.files')?.description ?? '');
+
+  console.log(
+    'compare refs   :',
+    answer === undefined ? 'NO ANSWER' : `${answer.from.label} → ${answer.to.label} | ${answer.onlyFrom} left, ${answer.onlyTo} right`,
+    '| Commit Files',
+    JSON.stringify(heading),
+  );
+
+  if (answer === undefined || answer.from.label !== 'main' || answer.to.label !== 'v1.0') {
+    problems.push('comparing main with v1.0 from Branches & Tags answered ' + JSON.stringify(answer ? [answer.from, answer.to] : null));
+  } else if (answer.from.sha !== runGit(repoPath, 'rev-parse', 'main').trim()) {
+    problems.push("the comparison's main is not main's commit");
+  }
+
+  if (!heading.startsWith('main → v1.0')) {
+    problems.push('Commit Files headed the comparison ' + JSON.stringify(heading) + ', not with the two names');
   }
 }
 

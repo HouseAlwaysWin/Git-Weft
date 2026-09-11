@@ -37,6 +37,8 @@ export type Target =
       readonly refName: string;
       readonly label: string;
       readonly refKind: 'local' | 'remote' | 'tag';
+      /** The commit it points at, when it was picked off a row of the graph. */
+      readonly sha?: string;
     }
   | {
       readonly kind: 'stash';

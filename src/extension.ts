@@ -374,6 +374,49 @@ async function manageRefPresets(refs: RefsProvider): Promise<void> {
   refs.applyPreset(picked.label);
 }
 
+/**
+ * Compare two branches or tags from outside the graph: the one right-clicked in Branches & Tags - or,
+ * from the palette, one picked here as well - and another chosen from the rest. It lands in the
+ * repository's graph as a comparison picked there would: the distance in the details pane, the files
+ * in Commit Files.
+ */
+async function compareRefs(refs: RefsProvider, node: unknown): Promise<void> {
+  const root = refs.repoRoot;
+
+  if (root === null) {
+    void vscode.window.showInformationMessage('Weft: open the graph first.');
+    return;
+  }
+
+  const every = refs.listRefs();
+  const pick = async (title: string, except: string | null): Promise<{ rev: string; label: string } | null> => {
+    const chosen = await vscode.window.showQuickPick(
+      every
+        .filter((ref) => ref.refName !== except)
+        .map((ref) => ({ label: ref.label, description: ref.group, rev: ref.refName })),
+      { title, placeHolder: 'A branch or a tag' },
+    );
+
+    return chosen === undefined ? null : { rev: chosen.rev, label: chosen.label };
+  };
+
+  const picked = refs.targetOf(node);
+  const from =
+    picked === null
+      ? await pick('Compare which branch or tag?', null)
+      : { rev: picked.refName, label: picked.label };
+
+  if (from === null) {
+    return;
+  }
+
+  const to = await pick(`Compare ${from.label} with…`, from.rev);
+
+  if (to !== null && !(await WeftPanel.compareIn(root, from, to))) {
+    void vscode.window.showInformationMessage('Weft: open the graph first.');
+  }
+}
+
 function start(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('weft');
 
@@ -442,7 +485,7 @@ function start(context: vscode.ExtensionContext): void {
   setCommitFiles({
     show: (repo, details) => files.setCommit(repo, details),
     working: (repo, changes) => files.setWorking(repo, changes),
-    compared: (repo, comparison) => files.setComparison(repo, comparison),
+    compared: (repo, comparison, labels) => files.setComparison(repo, comparison, labels),
     clear: () => files.setCommit(null, null),
   });
 
@@ -934,6 +977,8 @@ function start(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('weft.untickAllRefs', () => refs.untickAll()),
     vscode.commands.registerCommand('weft.saveRefPreset', () => saveRefPreset(refs)),
     vscode.commands.registerCommand('weft.manageRefPresets', () => manageRefPresets(refs)),
+    vscode.commands.registerCommand('weft.compareRef', (node: unknown) => compareRefs(refs, node)),
+    vscode.commands.registerCommand('weft.compareBranches', () => compareRefs(refs, undefined)),
     vscode.commands.registerCommand('weft.listTickedRefs', () => refs.setTickedOnly(true)),
     vscode.commands.registerCommand('weft.sortRefsByRecent', () => refs.setOrder('recent')),
     vscode.commands.registerCommand('weft.sortRefsByName', () => refs.setOrder('name')),

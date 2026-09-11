@@ -317,10 +317,26 @@ let selected = -1;
  * reload - and the way to reach a commit a thousand rows away is to search for it, which is exactly
  * the act that would have thrown the mark away.
  */
-let compareFrom: string | null = null;
+let compareFrom: CompareMark | null = null;
 
 /** The other end, while a comparison is on screen. */
-let comparedTo: string | null = null;
+let comparedTo: CompareMark | null = null;
+
+/**
+ * One end of a comparison, as the view keeps it: what git is asked about - a commit's sha, or a
+ * branch's name, so it is compared as it is when the comparison runs - what it is called, and the
+ * commit it was, which is what marks a row.
+ */
+interface CompareMark {
+  readonly rev: string;
+  readonly label: string;
+  readonly sha: string;
+}
+
+/** A commit as a compare end: asked about, and called, by its sha. */
+function commitEnd(sha: string): CompareMark {
+  return { rev: sha, label: sha.slice(0, 8), sha };
+}
 /** The lane colours, re-read every frame from the stylesheet - see `measureFrame`. */
 const palette: string[] = [];
 let pending = false;
@@ -587,13 +603,13 @@ function renderRows(indent: number, first: number, last: number): void {
     }
 
     const el = document.createElement('div');
-    const isEnd = row.sha === compareFrom || row.sha === comparedTo;
+    const isEnd = row.sha === compareFrom?.sha || row.sha === comparedTo?.sha;
     const inComparison = comparedTo !== null && isEnd;
 
     el.className = [
       'row',
       i === selected ? 'selected' : '',
-      inComparison ? 'compared' : row.sha === compareFrom ? 'compare-anchor' : '',
+      inComparison ? 'compared' : row.sha === compareFrom?.sha ? 'compare-anchor' : '',
     ]
       .filter((name) => name.length > 0)
       .join(' ');
@@ -640,6 +656,7 @@ function renderRows(indent: number, first: number, last: number): void {
           refName: refFullName(ref.kind, ref.name),
           label: ref.name,
           refKind: ref.kind,
+          sha: row.sha,
         });
       });
 
@@ -679,10 +696,10 @@ function renderRows(indent: number, first: number, last: number): void {
     el.addEventListener('click', (event) => {
       // Ctrl anywhere, Cmd on a Mac: the same two steps as the menu, without the menu.
       if (event.ctrlKey || event.metaKey) {
-        if (compareFrom === null || compareFrom === row.sha) {
-          markForCompare(row.sha);
+        if (compareFrom === null || compareFrom.sha === row.sha) {
+          markForCompare(commitEnd(row.sha));
         } else {
-          compareWith(row.sha);
+          compareWith(commitEnd(row.sha));
         }
 
         return;
@@ -730,13 +747,13 @@ function jumpTo(sha: string): void {
   }
 }
 
-/** Mark a commit as the one to measure from. Nothing is compared yet; this is half a question. */
-function markForCompare(sha: string): void {
-  if (sha.length === 0) {
+/** Mark a commit, or a branch, as the end to measure from. Nothing is compared yet; this is half a question. */
+function markForCompare(end: CompareMark): void {
+  if (end.sha.length === 0) {
     return;
   }
 
-  compareFrom = sha;
+  compareFrom = end;
   comparedTo = null;
   updateCompareMark();
   schedule();
@@ -755,22 +772,21 @@ function updateCompareMark(): void {
     return;
   }
 
-  const short = compareFrom.slice(0, 8);
+  const from = compareFrom.label;
 
-  compareMarkEl.textContent =
-    comparedTo === null ? `compare from ${short}` : `${short} → ${comparedTo.slice(0, 8)}`;
+  compareMarkEl.textContent = comparedTo === null ? `compare from ${from}` : `${from} → ${comparedTo.label}`;
 
   compareMarkEl.title =
     comparedTo === null
-      ? `Marked to compare from. Right-click another commit for "Compare with ${short}", or click here to go back to it. Escape drops the mark.`
-      : `Comparing ${compareFrom} with ${comparedTo}. Click to go back to the first. Escape drops both.`;
+      ? `Marked to compare from. Right-click another commit or branch for "Compare with ${from}", or click here to go back to it. Escape drops the mark.`
+      : `Comparing ${from} (${compareFrom.sha}) with ${comparedTo.label} (${comparedTo.sha}). Click to go back to the first. Escape drops both.`;
 
   compareMarkEl.hidden = false;
 }
 
 compareMarkEl.addEventListener('click', () => {
   if (compareFrom !== null) {
-    jumpTo(compareFrom);
+    jumpTo(compareFrom.sha);
   }
 });
 
@@ -782,13 +798,17 @@ compareMarkEl.addEventListener('click', () => {
  * two commits on different branches have no order between them, and the graph's own is only the
  * order git happened to walk them in.
  */
-function compareWith(sha: string): void {
-  if (compareFrom === null || sha.length === 0 || sha === compareFrom) {
+function compareWith(end: CompareMark): void {
+  if (compareFrom === null || end.sha.length === 0 || end.rev === compareFrom.rev) {
     return;
   }
 
-  comparedTo = sha;
-  vscode.postMessage({ type: 'compare', from: compareFrom, to: sha });
+  comparedTo = end;
+  vscode.postMessage({
+    type: 'compare',
+    from: { rev: compareFrom.rev, label: compareFrom.label },
+    to: { rev: end.rev, label: end.label },
+  });
   updateCompareMark();
   schedule();
 }
@@ -892,6 +912,8 @@ function localMenuItems(target: Target): LocalItem[] {
     const what = target.refKind === 'tag' ? 'Tag' : 'Branch';
 
     return [
+      // By its name, so as it is when the comparison runs - and only off a row, where its commit is known.
+      ...(target.sha === undefined ? [] : compareItems({ rev: target.refName, label: target.label, sha: target.sha })),
       copyItem(`Copy ${what} Name`, target.label),
       // The full name as git spells it, which is what a command line wants and the label is not:
       // `origin/main` is a branch to read and `refs/remotes/origin/main` is one to pass to git.
@@ -914,27 +936,24 @@ function localMenuItems(target: Target): LocalItem[] {
 
   const copies = [copyItem('Copy Commit Hash', sha), copyItem('Copy Commit Subject', target.subject)];
 
+  return [...compareItems(commitEnd(sha)), ...copies];
+}
+
+/** The two steps of a comparison, for a commit or for a branch or tag on its row. */
+function compareItems(end: CompareMark): LocalItem[] {
   // Nothing marked yet: this is the first of the two steps.
   if (compareFrom === null) {
-    return [{ label: 'Select for Compare', group: 'compare', run: () => markForCompare(sha) }, ...copies];
+    return [{ label: 'Select for Compare', group: 'compare', run: () => markForCompare(end) }];
   }
 
-  // Right-clicking the marked commit itself: the only useful thing to offer is letting it go.
-  if (sha === compareFrom) {
-    return [
-      { label: 'Clear Compare Selection', group: 'compare', run: () => clearComparison() },
-      ...copies,
-    ];
+  // Right-clicking the marked one itself: the only useful thing to offer is letting it go.
+  if (end.rev === compareFrom.rev) {
+    return [{ label: 'Clear Compare Selection', group: 'compare', run: () => clearComparison() }];
   }
 
   return [
-    {
-      label: `Compare with ${compareFrom.slice(0, 8)}`,
-      group: 'compare',
-      run: () => compareWith(sha),
-    },
-    { label: 'Select for Compare', group: 'compare', run: () => markForCompare(sha) },
-    ...copies,
+    { label: `Compare with ${compareFrom.label}`, group: 'compare', run: () => compareWith(end) },
+    { label: 'Select for Compare', group: 'compare', run: () => markForCompare(end) },
   ];
 }
 
@@ -1196,6 +1215,12 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       break;
 
     case 'comparison':
+      // Marked from the answer, which says what the ends came to - and is all a comparison started in
+      // Branches & Tags has, since nothing here picked it.
+      compareFrom = message.from;
+      comparedTo = message.to;
+      updateCompareMark();
+      schedule();
       detailsPane.showComparison(message);
       break;
 

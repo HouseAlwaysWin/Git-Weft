@@ -73,6 +73,15 @@ export interface RefsPresetEntry {
 }
 
 /**
+ * One end of a comparison: what git is asked about, and what a reader calls it. A branch is compared
+ * by its name, so it means the branch as it is when the comparison runs; a commit, by its sha.
+ */
+export interface CompareEnd {
+  readonly rev: string;
+  readonly label: string;
+}
+
+/**
  * How git is asked to order the walk.
  *
  * Three, not four: git's own chronological order can put a parent before its child under clock
@@ -154,8 +163,9 @@ export type HostMessage =
    */
   | {
       readonly type: 'comparison';
-      readonly from: string;
-      readonly to: string;
+      /** Each end as it was asked for, and the commit it came to when the comparison ran. */
+      readonly from: CompareEnd & { readonly sha: string };
+      readonly to: CompareEnd & { readonly sha: string };
       readonly files: number;
       readonly onlyFrom: number;
       readonly onlyTo: number;
@@ -226,7 +236,7 @@ export type WebviewMessage =
   /** The working-tree row was picked. It has no commit to load, only files to list. */
   | { readonly type: 'selectUncommitted' }
   /** Two commits were picked. What they differ by is a range, not either one of them. */
-  | { readonly type: 'compare'; readonly from: string; readonly to: string }
+  | { readonly type: 'compare'; readonly from: CompareEnd; readonly to: CompareEnd }
   | { readonly type: 'copy'; readonly text: string }
   /** Right-click: the host decides what is on the menu, because availability depends on repo state. */
   | { readonly type: 'requestMenu'; readonly target: Target; readonly x: number; readonly y: number }

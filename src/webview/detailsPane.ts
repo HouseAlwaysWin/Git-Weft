@@ -139,6 +139,9 @@ function renderWorking(working: WorkingTree): void {
   detailBodyEl.hidden = true;
 }
 
+/** One end of a comparison, as the pane names it. */
+type End = { readonly label: string; readonly sha: string };
+
 /**
  * The pane for a comparison.
  *
@@ -147,8 +150,8 @@ function renderWorking(working: WorkingTree): void {
  * spending a line saying both.
  */
 function renderComparison(message: {
-  from: string;
-  to: string;
+  from: End;
+  to: End;
   files: number;
   onlyFrom: number;
   onlyTo: number;
@@ -170,17 +173,18 @@ function renderComparison(message: {
   };
 
   // `.sha-full` carries a pointer cursor, so it has to actually do the thing it looks like it does.
-  const hash = (sha: string): HTMLElement => {
-    const el = span('sha-full', sha.slice(0, 8));
+  // Named as the end was asked for - a branch by its name - with the commit it came to on hover.
+  const end = (at: End): HTMLElement => {
+    const el = span('sha-full', at.label);
 
-    el.title = `${sha}
+    el.title = `${at.sha}
 Click to copy`;
-    el.addEventListener('click', () => post({ type: 'copy', text: sha }));
+    el.addEventListener('click', () => post({ type: 'copy', text: at.sha }));
 
     return el;
   };
 
-  line('comparing', hash(message.from), span('range-arrow', '→'), hash(message.to));
+  line('comparing', end(message.from), span('range-arrow', '→'), end(message.to));
 
   line(
     'changed',
@@ -193,8 +197,8 @@ Click to copy`;
       'when',
       message.onlyFrom === 0 && message.onlyTo === 0
         ? 'the same commit content on both sides'
-        : `${message.onlyFrom} commit${message.onlyFrom === 1 ? '' : 's'} only on the left, ` +
-          `${message.onlyTo} only on the right`,
+        : `${message.onlyFrom} commit${message.onlyFrom === 1 ? '' : 's'} only on ${message.from.label}, ` +
+          `${message.onlyTo} only on ${message.to.label}`,
     ),
   );
 
@@ -300,8 +304,8 @@ export function showWorking(working: WorkingTree): void {
 
 /** Show a comparison between two commits. */
 export function showComparison(message: {
-  from: string;
-  to: string;
+  from: End;
+  to: End;
   files: number;
   onlyFrom: number;
   onlyTo: number;

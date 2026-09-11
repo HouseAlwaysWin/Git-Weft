@@ -92,6 +92,16 @@
         "category": "Git Weft"
       },
       {
+        "command": "weft.compareRef",
+        "title": "Compare With…",
+        "category": "Git Weft"
+      },
+      {
+        "command": "weft.compareBranches",
+        "title": "Compare Two Branches…",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.sortRefsByRecent",
         "title": "Sort Branches & Tags by Most Recent",
         "category": "Git Weft",
@@ -338,6 +348,10 @@
           "when": "false"
         },
         {
+          "command": "weft.compareRef",
+          "when": "false"
+        },
+        {
           "command": "weft.deleteRef",
           "when": "false"
         },
@@ -491,6 +505,11 @@
           "command": "weft.showOnlyRef",
           "when": "view == weft.refs && viewItem =~ /^weftRef/",
           "group": "filter@1"
+        },
+        {
+          "command": "weft.compareRef",
+          "when": "view == weft.refs && viewItem =~ /^weftRef/",
+          "group": "compare@1"
         },
         {
           "command": "weft.groupAuthor",

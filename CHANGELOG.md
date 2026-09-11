@@ -104,6 +104,12 @@
   the same folders, closed until opened and remembered as they were left, and every folder opens
   while the filter has text in it. Drawn stays flat above them - those are the rows being looked at.
 
+- **Branches and tags can be compared by name, and a comparison says what it is between.** Right-click
+  a branch or tag - on its row in the graph, or in Branches & Tags - to compare it with another, or
+  with a commit; Compare Two Branches is on the palette. A branch is compared as it is when the
+  comparison runs. The details pane, the mark above the graph and Commit Files name the two ends -
+  `main → origin/uat`, and "3 only on main" - rather than eight characters of each hash.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

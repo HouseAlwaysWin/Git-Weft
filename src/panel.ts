@@ -24,6 +24,7 @@ import type { DateRange } from './git/dates.ts';
 import { dateArgs } from './git/dates.ts';
 import type {
   CommitOrder,
+  CompareEnd,
   HostMessage,
   RefEntry,
   RefsPreset,
@@ -116,7 +117,7 @@ let output: Logger | undefined;
 type CommitFilesSink = {
   show(repo: string, details: CommitDetails): void;
   working(repo: string, files: readonly FileStatus[]): void;
-  compared(repo: string, comparison: Comparison): void;
+  compared(repo: string, comparison: Comparison, labels: { readonly from: string; readonly to: string }): void;
   clear(): void;
 };
 
@@ -210,6 +211,24 @@ export class WeftPanel {
     for (const panel of WeftPanel.open.values()) {
       panel.postRefs(panel.headBranch);
     }
+  }
+
+  /**
+   * Compare two branches or tags from outside the graph - Branches & Tags, the palette - in the graph
+   * of the repository they belong to, as if they had been picked there. False when no graph is open
+   * for it, since the comparison would have nowhere to be shown.
+   */
+  static async compareIn(root: string, from: CompareEnd, to: CompareEnd): Promise<boolean> {
+    const panel = WeftPanel.open.get(root);
+
+    if (panel === undefined) {
+      return false;
+    }
+
+    // In front, without taking the focus from wherever it was asked.
+    panel.panel.reveal(undefined, true);
+    await panel.showComparison(from, to);
+    return true;
   }
 
   /**
@@ -959,25 +978,37 @@ export class WeftPanel {
    * selected", only one of them can be true at a time, and ctrl-clicking down a column would
    * otherwise leave a `git diff` running for every pair passed through on the way.
    */
-  private async showComparison(from: string, to: string): Promise<void> {
+  private async showComparison(from: CompareEnd, to: CompareEnd): Promise<void> {
     this.detailsLoading?.abort();
     const controller = new AbortController();
     this.detailsLoading = controller;
 
     try {
-      const comparison = await compareCommits(this.git, this.repo, from, to, controller.signal);
+      // By what each end names: a branch is compared as it is now, and comes back as the commit that
+      // was - which is what the rows are marked by.
+      const commitOf = async (end: CompareEnd): Promise<string> =>
+        (
+          await this.git.runRead(
+            this.repo.root,
+            ['rev-parse', '--verify', '--end-of-options', `${end.rev}^{commit}`],
+            { signal: controller.signal },
+          )
+        ).trim();
+
+      const [fromSha, toSha] = await Promise.all([commitOf(from), commitOf(to)]);
+      const comparison = await compareCommits(this.git, this.repo, fromSha, toSha, controller.signal);
 
       if (!controller.signal.aborted) {
         this.post({
           type: 'comparison',
-          from,
-          to,
+          from: { rev: from.rev, label: from.label, sha: fromSha },
+          to: { rev: to.rev, label: to.label, sha: toSha },
           files: comparison.files.length,
           onlyFrom: comparison.onlyFrom,
           onlyTo: comparison.onlyTo,
         });
 
-        commitFiles?.compared(this.repo.root, comparison);
+        commitFiles?.compared(this.repo.root, comparison, { from: from.label, to: to.label });
       }
     } catch (err) {
       if (!controller.signal.aborted) {
