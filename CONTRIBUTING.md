@@ -40,6 +40,20 @@ To look at the view without VS Code — it renders the real webview with real re
 npm run build && node scripts/preview.mjs <repo> --max=20000 && node scripts/serve.mjs
 ```
 
+To tell whether a change moved the view when it was not meant to, the probe drives that same
+preview in headless Chrome and records what it builds and what each click asks the extension to do.
+`npm test` holds it to a few invariants; the rest is for while you work:
+
+```bash
+npm run ui-probe -- save before       # record the view as it is now
+npm run ui-probe -- check before      # after a change: which sections moved
+npm run ui-probe -- stable            # the recording reproduces, so a difference means something
+npm run ui-probe -- control spec.mjs  # put each bug back and require the probe to notice
+```
+
+It records against a demo repository it builds fresh, and needs Chrome (`--chrome` or `WEFT_CHROME`
+if it is not in the usual place) - without one it stops rather than passing.
+
 To build a large repository to test against:
 
 ```bash
