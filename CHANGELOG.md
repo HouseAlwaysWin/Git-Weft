@@ -48,6 +48,13 @@
   they came - several side by side, on a repository where each takes the better part of a second.
   Weft now waits for them to go quiet, reads once, and never runs two at a time.
 
+- **A branch the graph is not drawing moves without re-walking the history.** Every ref that moved
+  cost a walk of everything drawn, so on a repository with a thousand remote branches, a fetch that
+  moved a few nobody had ticked re-drew the branch on screen exactly as it was. The graph now walks
+  only when the change is on screen: a drawn branch, HEAD, the stash, a tag, or any branch pointing
+  at a commit the graph shows, where it is a badge. Branches & Tags and the header's menu still hear
+  of every branch either way.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

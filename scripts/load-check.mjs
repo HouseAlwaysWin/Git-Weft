@@ -2420,6 +2420,87 @@ if (watchTest) {
   await settle();
   runGit(repoPath, 'branch', '-D', 'clash-theirs', 'clash-ours');
   await settle();
+
+  /*
+   * A branch the graph is not drawing costs no walk - unless it points at something the graph has
+   * drawn, where it is a badge like any other.
+   *
+   * Every ref that moved cost a walk of everything drawn, and on a repository with a thousand remote
+   * branches a fetch moves dozens nobody has ticked. The walk decorates every row with every ref
+   * pointing at it, though, so "not ticked" is not "not on screen", and both halves are checked here.
+   */
+  await commands.get('weft.showCurrentRefOnly')();
+  await settle();
+
+  const walks = () => posted.filter((m) => m.type === 'done').length;
+  const headsNodes = () => {
+    const provider = treeProviders.get('weft.refs');
+    return provider.getChildren(provider.getChildren().find((g) => g.id === 'heads'));
+  };
+
+  // A commit hanging off main that main does not reach: nothing the graph has drawn.
+  const offGraph = runGit(repoPath, 'commit-tree', 'main^{tree}', '-p', 'main', '-m', 'off the graph').trim();
+  const farFrom = walks();
+  runGit(repoPath, 'branch', 'far', offGraph);
+  await settle();
+
+  const farWalks = walks() - farFrom;
+  const farNode = headsNodes().find((node) => node.label === 'far');
+  const farInMenu = JSON.stringify(posted.filter((m) => m.type === 'refs').pop()?.refs ?? []).includes('refs/heads/far');
+
+  console.log(
+    'hidden branch  :',
+    farWalks === 0 ? 'no walk' : farWalks + ' walk(s)',
+    '| sidebar',
+    farNode === undefined ? 'MISSING' : 'lists it',
+    '| menu',
+    farInMenu ? 'lists it' : 'MISSING',
+  );
+
+  if (farWalks !== 0) {
+    problems.push('a branch the graph is not drawing, at a commit it has not drawn, re-walked the history');
+  }
+
+  if (farNode === undefined) {
+    problems.push('Branches & Tags never heard of a branch made in a terminal');
+  } else {
+    // Ticked, it is drawn: one walk, which is the tick's own.
+    const tickFrom = walks();
+    checkboxHandlers.get('weft.refs')({ items: [[farNode, 1]] });
+    await settle();
+
+    console.log('  ticked       :', walks() - tickFrom, 'walk(s)');
+
+    if (walks() - tickFrom !== 1) {
+      problems.push('ticking the hidden branch took ' + (walks() - tickFrom) + ' walks, not one');
+    }
+  }
+
+  if (!farInMenu) {
+    problems.push("the header's branch menu never heard of a branch made in a terminal");
+  }
+
+  // And a hidden branch made at a commit the graph has drawn is a badge on it, so that one walks.
+  await commands.get('weft.showCurrentRefOnly')();
+  await settle();
+
+  const nearFrom = posted.length;
+  runGit(repoPath, 'branch', 'near', 'main~1');
+  await settle();
+
+  const badged = posted
+    .slice(nearFrom)
+    .filter((m) => m.type === 'page')
+    .some((m) => m.rows.some((row) => JSON.stringify(row.refs).includes('near')));
+
+  console.log('  on a drawn row:', badged ? 'walked, badge drawn' : 'NO BADGE');
+
+  if (!badged) {
+    problems.push('a hidden branch made at a commit on screen never got its badge');
+  }
+
+  runGit(repoPath, 'branch', '-D', 'far', 'near');
+  await settle();
 }
 
 /*

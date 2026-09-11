@@ -16,6 +16,7 @@ import type { Comparison } from './git/details.ts';
 import { compareCommits, loadCommitDetails } from './git/details.ts';
 import { RepoWatcher, repoFingerprint } from './git/watcher.ts';
 import type { Fingerprint } from './git/watcher.ts';
+import { changesDrawing } from './git/refChanges.ts';
 import type { Search } from './git/search.ts';
 import type { AuthorPick } from './git/search.ts';
 import { filterArgs } from './git/search.ts';
@@ -79,7 +80,7 @@ export interface FilterSource {
    * deleting a branch removed it from git and left it on screen, which from the outside is
    * indistinguishable from the delete having done nothing.
    */
-  refsMoved(): void;
+  refsMoved(): Promise<void>;
   /** A graph took focus; point the sidebar at its repository. */
   activated(repo: RepoInfo): void;
 }
@@ -241,6 +242,12 @@ export class WeftPanel {
   private workingTimer: NodeJS.Timeout | null = null;
   /** Working-tree reads, one at a time and at most one queued - see `readWorkingNow`. */
   private readonly readWorking = coalesce(() => this.readWorkingNow());
+  /**
+   * What the last walk drew - the refs it named, null for all of them, and every commit it put on
+   * screen - to tell a ref moving on screen from one moving where nobody can see it.
+   */
+  private drawnRefs: readonly string[] | null = null;
+  private walked = new Set<string>();
   /** Walk only the mainline. A filter like any other: it decides which commits are on screen. */
   private firstParent = false;
   /** Walk only what the ticked refs have that no other ref does. */
@@ -435,9 +442,31 @@ export class WeftPanel {
     }
 
     if (signature.refs !== previous.refs) {
-      this.filters.refsMoved();
-      this.post({ type: 'reloading', reason: 'repository changed' });
-      await this.reload();
+      /*
+       * First, and awaited: the sidebar hears of every branch whether or not the graph walks, and a
+       * checkout moves the ticks - which are what the decision below, and the walk after it, read.
+       */
+      await this.filters.refsMoved();
+
+      const next = this.filters.refs(this.repo.root);
+      const drawn = next === null || this.drawnRefs === null ? null : new Set([...next, ...this.drawnRefs]);
+
+      const onScreen = changesDrawing(previous.refs, signature.refs, {
+        drawn,
+        walked: this.walked,
+        complete: this.loading === null,
+        exclusive: this.onlyHere,
+      });
+
+      if (onScreen) {
+        this.post({ type: 'reloading', reason: 'repository changed' });
+        await this.reload();
+      } else {
+        // Nothing drawn moved. What does name the branch - the sidebar, which has re-read, and the
+        // header's menu and counts, which come with the working tree - is all there is to redraw.
+        await this.refreshWorking();
+      }
+
       return;
     }
 
@@ -750,7 +779,8 @@ export class WeftPanel {
         return false;
       }
 
-      this.filters.refsMoved();
+      // Awaited: the walk reads the ticks, and a checkout moves them.
+      await this.filters.refsMoved();
       await this.reload();
 
       /*
@@ -1072,6 +1102,7 @@ export class WeftPanel {
     this.loading?.abort();
     const controller = new AbortController();
     this.loading = controller;
+    this.walked = new Set();
 
     const config = vscode.workspace.getConfiguration('weft');
 
@@ -1133,6 +1164,9 @@ export class WeftPanel {
       this.signature = value;
     });
 
+    const drawnRefs = this.filters.refs(this.repo.root);
+    this.drawnRefs = drawnRefs;
+
     try {
       await loader.load(
         (page) => {
@@ -1156,6 +1190,13 @@ export class WeftPanel {
 
           this.post({ type: 'page', rows, delta: page.delta });
 
+          // Not kept when everything is drawn: then every ref that moves is on screen anyway.
+          if (drawnRefs !== null) {
+            for (const row of rows) {
+              this.walked.add(row.sha);
+            }
+          }
+
           // The page that carries it is the first moment the view can act on it.
           if (
             this.pendingReveal !== null &&
@@ -1178,7 +1219,7 @@ export class WeftPanel {
           onlyHere: this.onlyHere,
           order: this.order,
           filters: filterArgs(this.search, this.filters.authorPicks(this.repo.root), dates),
-          refs: this.filters.refs(this.repo.root),
+          refs: drawnRefs,
           stashes,
         },
         controller.signal,
