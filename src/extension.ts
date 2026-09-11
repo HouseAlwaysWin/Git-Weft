@@ -15,6 +15,7 @@ import { BlameAnnotations } from './blameAnnotations.ts';
 import { LineHistoryProvider } from './lineHistoryView.ts';
 import { lineHistory } from './git/lineHistory.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
+import { SlowReads, fsmonitorCanRun, statusOffer } from './git/statusAdvice.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -217,8 +218,97 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 }
 
+/** Where each repository's answer to the offer below is kept: its root, to 'never' or 'enabled'. */
+const STATUS_ANSWERS = 'weft.statusAnswers';
+
+/**
+ * Offer git's own switches for a slow `git status` in `root` - once a session at most, and never
+ * again for a repository that answered for good.
+ *
+ * The settings are written through the repository's lock, like every other write: a `git config`
+ * landing in the middle of a checkout is a write alongside a write.
+ */
+async function offerFasterStatus(git: Git, root: string, memento: vscode.Memento): Promise<void> {
+  if (memento.get<Record<string, string>>(STATUS_ANSWERS, {})[root] !== undefined) {
+    return;
+  }
+
+  const setting = async (key: string): Promise<string | null> => {
+    const result = await git.tryRead(root, ['config', '--get', key]).catch(() => null);
+    return result?.exitCode === 0 ? result.stdout.trim() : null;
+  };
+
+  const [untrackedCache, fsmonitor, recent] = await Promise.all([
+    setting('core.untrackedCache'),
+    setting('core.fsmonitor'),
+    git.atLeast(2, 37),
+  ]);
+
+  const probe = recent ? await git.tryRead(root, ['fsmonitor--daemon', 'status']).catch(() => null) : null;
+  const offer = statusOffer({ untrackedCache, fsmonitor }, fsmonitorCanRun(probe?.exitCode ?? null));
+
+  if (!offer.untrackedCache && !offer.fsmonitor) {
+    return;
+  }
+
+  const name = basename(root);
+  const both = offer.untrackedCache && offer.fsmonitor;
+  const what = both
+    ? "git's untracked cache and filesystem monitor"
+    : offer.fsmonitor
+      ? "git's filesystem monitor"
+      : "git's untracked cache";
+  const enable = both ? 'Enable Them' : 'Enable It';
+
+  const choice = await vscode.window.showInformationMessage(
+    both
+      ? `git status is slow in ${name}. Turn on ${what} for this repository? Both are git's own settings, off by default.`
+      : `git status is slow in ${name}. Turn on ${what} for this repository? It is git's own setting, off by default.`,
+    enable,
+    'Not Now',
+    'Never for This Repository',
+  );
+
+  // Read again rather than reusing the first read: another repository may have answered meanwhile.
+  const keep = (answer: string): Thenable<void> =>
+    memento.update(STATUS_ANSWERS, { ...memento.get<Record<string, string>>(STATUS_ANSWERS, {}), [root]: answer });
+
+  if (choice === 'Never for This Repository') {
+    await keep('never');
+    return;
+  }
+
+  // Not Now, or closed: this session has had its one offer, and a later one may ask again.
+  if (choice !== enable) {
+    return;
+  }
+
+  try {
+    await WeftPanel.exclusive(root, async () => {
+      if (offer.untrackedCache) {
+        await git.runWrite(root, ['config', '--local', 'core.untrackedCache', 'true']);
+      }
+
+      if (offer.fsmonitor) {
+        await git.runWrite(root, ['config', '--local', 'core.fsmonitor', 'true']);
+      }
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    output?.warn(`could not change git's settings in ${root}: ${message}`);
+    void vscode.window.showWarningMessage(`Weft: could not change git's settings in ${name}: ${message}`);
+    return;
+  }
+
+  await keep('enabled');
+  void vscode.window.setStatusBarMessage(`Weft: turned on ${what} in ${name}`, 5000);
+}
+
 function start(context: vscode.ExtensionContext): void {
   const config = vscode.workspace.getConfiguration('weft');
+
+  // Slow reads of the working tree, per repository: the third gets one offer to make them faster.
+  const slowReads = new SlowReads();
 
   const git = new Git({
     maxConcurrent: config.get<number>('maxConcurrentGitProcesses', 4),
@@ -229,6 +319,14 @@ function start(context: vscode.ExtensionContext): void {
         output?.warn(`${line} -> exit ${entry.exitCode}`);
       } else {
         output?.debug(line);
+      }
+
+      if (entry.args[0] === 'status' && !entry.failed) {
+        const slowMs = vscode.workspace.getConfiguration('weft').get<number>('statusSlowMs', 500);
+
+        if (slowReads.record(entry.cwd, entry.durationMs, slowMs)) {
+          void offerFasterStatus(git, entry.cwd, context.workspaceState);
+        }
       }
     },
   });

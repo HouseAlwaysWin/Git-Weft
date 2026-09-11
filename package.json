@@ -624,6 +624,13 @@
           "maximum": 16,
           "description": "Upper bound on git processes Weft runs at once."
         },
+        "weft.statusSlowMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 0,
+          "maximum": 60000,
+          "markdownDescription": "A `git status` slower than this many milliseconds counts as slow. After the third in a repository, Weft offers - once - to turn on git's untracked cache and filesystem monitor there. `0` never offers."
+        },
         "weft.refreshDebounceMs": {
           "type": "number",
           "default": 600,

@@ -168,6 +168,14 @@ export class WeftPanel {
   /** Shared across panels: two graphs on the same repository must not write at once. */
   private static readonly lock = new RepoLock();
 
+  /**
+   * Run `work` holding a repository's lock, for a write that does not come from a graph - git's
+   * own settings, say - and still has to queue behind a checkout rather than run alongside it.
+   */
+  static exclusive<T>(root: string, work: () => Promise<T>): Promise<T> {
+    return WeftPanel.lock.run(root, work);
+  }
+
   /** The graph the user is looking at, for commands that act on "this graph". */
   static active(): WeftPanel | null {
     return WeftPanel.current;

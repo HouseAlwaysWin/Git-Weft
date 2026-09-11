@@ -105,6 +105,10 @@ let confirmed = true;
  */
 const inputAnswers = [];
 
+/** Information messages that came with buttons - questions, however politely asked - and their answers. */
+const offers = [];
+const infoAnswers = [];
+
 /*
  * Settings, so that a default is not the only value any of them can have. Every `get` used to
  * return the fallback it was handed, which meant the branches behind a non-default - a hidden
@@ -280,7 +284,22 @@ const vscodeStub = {
       show() {},
       dispose() {},
     }),
-    showInformationMessage: (m) => problems.push(`unexpected info message: ${m}`),
+    /*
+     * With buttons, an information message is a question: recorded, and answered from infoAnswers -
+     * an empty queue closing it, the way dismissing a notification does. Without them it is a
+     * message nothing here expects.
+     */
+    showInformationMessage: async (m, ...choices) => {
+      const buttons = choices.filter((choice) => typeof choice === 'string');
+
+      if (buttons.length === 0) {
+        problems.push(`unexpected info message: ${m}`);
+        return undefined;
+      }
+
+      offers.push({ message: m, buttons });
+      return infoAnswers.shift();
+    },
     /*
      * A warning with buttons is a confirmation, and this answers it with the first one - which is
      * how a user gets past `ui.confirm`. Until this existed every confirmation returned undefined,
@@ -3353,6 +3372,51 @@ if (watchTest) {
     problems.push('a burst of working-tree events re-walked the history');
   }
 
+  /*
+   * A slow git status gets one offer, with the fix on a button - and "Never" is kept, with git's own
+   * settings left exactly as they were. A threshold of 1 ms makes every read a slow one.
+   */
+  settings.set('weft.statusSlowMs', 1);
+  infoAnswers.length = 0;
+  infoAnswers.push('Never for This Repository');
+  const offersFrom = offers.length;
+
+  for (let i = 0; i < 5; i += 1) {
+    repositoryState.fire();
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  const answeredBy = Date.now() + 10_000;
+  while (Date.now() < answeredBy && workspaceMemory.get('weft.statusAnswers') === undefined) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const offered = offers.slice(offersFrom);
+  const kept = Object.values(workspaceMemory.get('weft.statusAnswers') ?? {});
+  const gitSetting = (key) => {
+    try {
+      return runGit(repoPath, 'config', '--get', key).trim();
+    } catch {
+      return null;
+    }
+  };
+
+  console.log('slow status    :', offered.length, 'offer(s)', JSON.stringify(offered[0]?.buttons ?? []), '| kept', JSON.stringify(kept));
+
+  if (offered.length !== 1) {
+    problems.push(`a run of slow git status reads made ${offered.length} offers, not one`);
+  }
+
+  if (!kept.includes('never')) {
+    problems.push('"Never for This Repository" was not remembered');
+  }
+
+  if (gitSetting('core.untrackedCache') !== null || gitSetting('core.fsmonitor') !== null) {
+    problems.push("answering Never changed git's settings anyway");
+  }
+
+  settings.delete('weft.statusSlowMs');
+
   // --- a repository appearing, which is what makes the sections show up ----------------------
   contextKeys.delete('weft.hasRepository');
   repositoryOpened.fire({
@@ -3815,6 +3879,12 @@ if (disposeHandler !== null) {
       'src/panel.ts',
       /readWorkingNow\(\): Promise<void> \{[\s\S]{0,400}?isBusy\(this\.repo\.root\)/,
       'reads the working tree again, for a queued request, without standing back for a write',
+    ],
+    // And git's own settings, written when a slow git status is answered with Enable.
+    [
+      'src/extension.ts',
+      /WeftPanel\.exclusive\(root, async \(\) => \{[\s\S]{0,400}?core\.untrackedCache/,
+      "writes git's settings outside the repository's lock",
     ],
     [
       'src/blameAnnotations.ts',

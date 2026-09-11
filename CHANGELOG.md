@@ -55,6 +55,12 @@
   at a commit the graph shows, where it is a badge. Branches & Tags and the header's menu still hear
   of every branch either way.
 
+- **A repository where `git status` is slow gets one offer to make it faster.** After the third
+  working-tree read slower than `weft.statusSlowMs` (500 ms), Weft offers to turn on git's untracked
+  cache for that repository - and its filesystem monitor, where git says one can run: Enable Them,
+  Not Now, or Never for This Repository, which is remembered. Both are git's own settings, off by
+  default, and one somebody already set, to anything, is left alone.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

@@ -73,6 +73,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   ticks in Source Control - and it is on screen only while there is something to drop. The sort is
   left alone: it hides nothing, and it has a way back of its own
 - Auto-refresh: commit from a terminal and the graph reloads itself
+- A repository where `git status` is slow gets one offer to turn on git's untracked cache - and its
+  filesystem monitor, where git says one can run. Never for This Repository is remembered, a
+  setting somebody already chose is left alone, and `weft.statusSlowMs` says what counts as slow
 - Right-click to act: checkout (branch, remote branch, or a commit detached), create and rename
   branches, create lightweight or annotated tags, delete branches and tags. A checkout asks first,
   wherever it was started - the graph, its menus or Branches & Tags - and one that detaches HEAD
