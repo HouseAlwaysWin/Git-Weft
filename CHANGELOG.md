@@ -94,6 +94,12 @@
 - **The presets are in the header's branch menu as well**, as a chip each above the list: one click
   draws a preset without opening Source Control, and Save… and Manage… sit beside them.
 
+- **Branches & Tags folds refs that share a prefix.** `feature/` folds at every slash, and in a
+  repository that names branches `Dev_...` and `Fix_...` the first underscore folds as well - a hundred
+  and fifty local branches become a handful of folders. A folder is made only for two names or more,
+  ticking one ticks what is inside it, and remote branches from one remote are read without its name.
+  `weft.branchFolders` chooses: `auto`, the default, `slash`, `slashAndUnderscore` or `none`.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

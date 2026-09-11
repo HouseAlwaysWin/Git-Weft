@@ -515,6 +515,12 @@ function start(context: vscode.ExtensionContext): void {
     // Only the list moved, so only the list is sent again.
     refs.onDidChangeOrder(() => WeftPanel.refreshRefs()),
     refs.onDidChangePresets(() => WeftPanel.refreshRefs()),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('weft.branchFolders')) {
+        refs.refold();
+        WeftPanel.refreshRefs();
+      }
+    }),
     authors.onDidChangeFilter(() => WeftPanel.refreshAll()),
 
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionContentProvider(git)),

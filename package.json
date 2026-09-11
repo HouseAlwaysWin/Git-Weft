@@ -647,6 +647,23 @@
           "maximum": 60000,
           "markdownDescription": "A `git status` slower than this many milliseconds counts as slow. After the third in a repository, Weft offers - once - to turn on git's untracked cache and filesystem monitor there. `0` never offers."
         },
+        "weft.branchFolders": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "slash",
+            "slashAndUnderscore",
+            "none"
+          ],
+          "enumDescriptions": [
+            "Fold on / - and on the first _ as well, when more of the names use it than use /",
+            "Fold on / at every level",
+            "Fold on / at every level, and on the first _ in the last part of a name",
+            "No folders: every ref listed on its own"
+          ],
+          "default": "auto",
+          "markdownDescription": "Gather refs that share a prefix into folders in **Branches & Tags**. A folder is made only for two names or more, and ticking one ticks everything in it."
+        },
         "weft.refreshDebounceMs": {
           "type": "number",
           "default": 600,

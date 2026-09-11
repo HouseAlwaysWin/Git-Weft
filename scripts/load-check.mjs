@@ -2941,6 +2941,71 @@ if (watchTest) {
     }
   }
 
+  /*
+   * Folders: refs sharing a prefix are gathered under it. Three branches here, two Dev_ and one Fix_,
+   * which fold as a Dev_ folder of two and a Fix_one on its own. A folder offers no branch's menu, and
+   * ticking it ticks what is inside.
+   */
+  runGit(repoPath, 'branch', 'Dev_one');
+  runGit(repoPath, 'branch', 'Dev_two');
+  runGit(repoPath, 'branch', 'Fix_one');
+  await refsProvider.reload();
+
+  const headsGroup = refsProvider.getChildren().find((g) => g.id === 'heads');
+  const folder = refsProvider.getChildren(headsGroup).find((node) => node.kind === 'folder');
+  const inside = folder === undefined ? [] : refsProvider.getChildren(folder);
+  const folderItem = folder === undefined ? null : refsProvider.getTreeItem(folder);
+  const loose = refsProvider
+    .getChildren(headsGroup)
+    .filter((node) => node.kind === 'ref')
+    .map((node) => refsProvider.getTreeItem(node).label);
+
+  console.log(
+    'folders        :',
+    folderItem === null ? 'NONE' : `${folderItem.label} (${folderItem.description})`,
+    '| inside',
+    JSON.stringify(inside.map((node) => refsProvider.getTreeItem(node).label)),
+    '| loose',
+    JSON.stringify(loose),
+  );
+
+  if (folderItem === null || folderItem.label !== 'Dev_' || inside.length !== 2) {
+    problems.push('Dev_one and Dev_two did not fold into a Dev_ folder of two: ' + JSON.stringify(folderItem?.label ?? null));
+  } else {
+    const folderOffers = refMenus.filter((entry) => matches(entry.when, folderItem.contextValue)).map((entry) => entry.command);
+
+    if (folderItem.contextValue !== 'weftFolder' || folderOffers.length > 0) {
+      problems.push(`a folder has context value ${folderItem.contextValue} and offers ${folderOffers.join(', ') || 'nothing'}`);
+    }
+
+    // From nothing ticked: the two arrived ticked, so a tick that reached neither would pass for one
+    // that reached both.
+    await commands.get('weft.untickAllRefs')();
+
+    const states = () => inside.map((node) => refsProvider.getTreeItem(node).checkboxState);
+    const before = states();
+    checkboxHandlers.get('weft.refs')({ items: [[folder, 1]] });
+    const ticked = states();
+    checkboxHandlers.get('weft.refs')({ items: [[folder, 0]] });
+    const unticked = states();
+
+    console.log('  folder tick  :', JSON.stringify(before), '->', JSON.stringify(ticked), '->', JSON.stringify(unticked));
+
+    if (!before.every((state) => state === 0)) {
+      problems.push('Untick All left a branch in the Dev_ folder ticked: ' + JSON.stringify(before));
+    } else if (!ticked.every((state) => state === 1) || !unticked.every((state) => state === 0)) {
+      problems.push('the Dev_ folder tick did not reach both branches inside it: ' + JSON.stringify({ ticked, unticked }));
+    }
+  }
+
+  if (!loose.includes('Fix_one')) {
+    problems.push('Fix_one, the only Fix_ branch, was folded: ' + JSON.stringify(loose));
+  }
+
+  runGit(repoPath, 'branch', '-D', 'Dev_one', 'Dev_two', 'Fix_one');
+  await commands.get('weft.showCurrentRefOnly')();
+  await refsProvider.reload();
+
   const offeredBy = (command) =>
     ['local', 'tag', 'remote'].filter((kind) =>
       refMenus.some(

@@ -83,11 +83,20 @@ for (const source of sources('src')) {
       continue;
     }
 
+    // A string in single quotes is a literal too - an enum's default is one - and it is compared as it
+    // is written, before the digit separators are taken out of anything that might be a number.
+    const quoted = /^'([^']*)'$/.exec(raw);
     const literal = raw.replace(/_/g, '');
     const fallback =
-      literal === 'true' ? true : literal === 'false' ? false : Number(literal);
+      quoted !== null
+        ? quoted[1]
+        : literal === 'true'
+          ? true
+          : literal === 'false'
+            ? false
+            : Number(literal);
 
-    if (Number.isNaN(fallback) && typeof fallback !== 'boolean') {
+    if (typeof fallback === 'number' && Number.isNaN(fallback)) {
       continue; // Not a literal - nothing to compare against.
     }
 

@@ -15,6 +15,8 @@ import * as vscode from 'vscode';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { describeAge } from './git/blame.ts';
+import type { BranchFolders, Folded } from './git/refFolders.ts';
+import { foldRefs, foldingFor } from './git/refFolders.ts';
 import type { RefSet, StoredTicks } from './refSets.ts';
 import { describeSet, except, hiddenBy, only, pruned, readPresets, readStoredTicks, withVisible } from './refSets.ts';
 
@@ -40,9 +42,24 @@ interface Ref {
    * this branch lately", and rebasing a year-old commit onto today is a branch that moved today.
    */
   readonly updated: number;
+  /** What it reads as inside a folder: the part of its name the folder has not already said. */
+  readonly display?: string;
 }
 
-type Node = Group | Ref;
+/**
+ * Refs that share a prefix, gathered under it - see `foldRefs`. A folder is made for two names or
+ * more, and ticking one ticks every ref listed inside it.
+ */
+interface Folder {
+  readonly kind: 'folder';
+  readonly group: Group;
+  /** The prefix, separators included: every name inside starts with it. */
+  readonly path: string;
+  readonly label: string;
+  readonly children: readonly Folded<Ref>[];
+}
+
+type Node = Group | Folder | Ref;
 
 /** What the list is sorted by. */
 export type RefOrder = 'name' | 'recent';
@@ -412,6 +429,11 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     return [...refs].sort((a, b) => b.updated - a.updated);
   }
 
+  /** The folding setting changed: the same refs, gathered differently. */
+  refold(): void {
+    this.changed.fire(undefined);
+  }
+
   /** Reorder the listing. The ticks, and what the graph walks, are untouched by it. */
   setOrder(order: RefOrder): void {
     if (this.order === order) {
@@ -556,10 +578,47 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     }
 
     if (node.kind === 'group') {
-      return refs.filter((ref) => ref.group.id === node.id);
+      return this.fold(node, refs.filter((ref) => ref.group.id === node.id));
+    }
+
+    if (node.kind === 'folder') {
+      return this.nodesOf(node.group, node.children);
     }
 
     return [];
+  }
+
+  /**
+   * A group's refs, folded - see `foldRefs`. Per group, because `auto` is a question about names, and
+   * local branches and tags can answer it differently. Remote branches from one remote are read without
+   * its name: a folder called `origin/` around all of them is one more click for nothing.
+   */
+  private fold(group: Group, refs: readonly Ref[]): Node[] {
+    const setting = vscode.workspace.getConfiguration('weft').get<BranchFolders>('branchFolders', 'auto');
+    const remotes = new Set(refs.map((ref) => ref.label.split('/')[0] ?? ''));
+    const strip = group.id === 'remotes' && remotes.size === 1 ? `${[...remotes][0] ?? ''}/` : '';
+    const names = refs.map((ref) => (strip.length > 0 ? ref.label.slice(strip.length) : ref.label));
+
+    return this.nodesOf(group, foldRefs(refs, (ref) => ref.label, foldingFor(names, setting), strip));
+  }
+
+  /** Folded entries as tree nodes: a ref keeps its name for git, and reads as what is left of it. */
+  private nodesOf(group: Group, folded: readonly Folded<Ref>[]): Node[] {
+    return folded.map((entry): Node => {
+      if (entry.kind === 'folder') {
+        return { kind: 'folder', group, path: entry.path, label: entry.label, children: entry.children };
+      }
+
+      return entry.label === entry.item.label ? entry.item : { ...entry.item, display: entry.label };
+    });
+  }
+
+  /** Every ref inside a folder, however deep. */
+  private refsIn(folder: Folder): Ref[] {
+    const inside = (nodes: readonly Folded<Ref>[]): Ref[] =>
+      nodes.flatMap((node) => (node.kind === 'leaf' ? [node.item] : inside(node.children)));
+
+    return inside(folder.children);
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -586,7 +645,27 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
       return item;
     }
 
-    const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+    if (node.kind === 'folder') {
+      const inside = this.refsIn(node);
+      const shown = inside.filter((ref) => !this.hidden.has(ref.refName)).length;
+
+      const item = new vscode.TreeItem(
+        node.label,
+        this.query.length > 0 || this.tickedOnly
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed,
+      );
+      item.id = `folder:${node.group.id}:${node.path}`;
+      item.description = shown === inside.length ? `${inside.length}` : `${shown}/${inside.length}`;
+      item.checkboxState = shown > 0 ? Checked : Unchecked;
+      // Never beginning "weftRef", for the reason the headings do not: a branch's menu would match it.
+      item.contextValue = 'weftFolder';
+      item.tooltip = `Everything starting ${node.path}\nUntick to keep all of it out of the graph`;
+      item.iconPath = new vscode.ThemeIcon('folder');
+      return item;
+    }
+
+    const item = new vscode.TreeItem(node.display ?? node.label, vscode.TreeItemCollapsibleState.None);
     item.id = `ref:${node.refName}`;
     /*
      * How long since it moved, so a branch nobody has touched since March says so before you check
@@ -643,7 +722,11 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
 
       for (const [node, state] of event.items) {
         const targets =
-          node.kind === 'group' ? this.refs.filter((ref) => ref.group.id === node.id) : [node];
+          node.kind === 'group'
+            ? this.refs.filter((ref) => ref.group.id === node.id)
+            : node.kind === 'folder'
+              ? this.refsIn(node)
+              : [node];
 
         for (const ref of targets) {
           (state === Checked ? show : hide).push(ref.refName);
