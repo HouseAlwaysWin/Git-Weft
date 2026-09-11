@@ -717,7 +717,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build --silent && node --test \"test/**/*.test.ts\" && node scripts/color-check.mjs && node scripts/column-check.mjs && node scripts/wiring-check.mjs && node scripts/comment-check.mjs && node scripts/ui-probe.mjs assert && node scripts/settings-check.mjs && node scripts/icon-check.mjs && node scripts/load-check.mjs --watch && node scripts/load-check.mjs --break-view=weft.files",
+    "test": "npm run build --silent && node --test \"test/**/*.test.ts\" && node scripts/color-check.mjs && node scripts/column-check.mjs && node scripts/wiring-check.mjs && node scripts/comment-check.mjs && node scripts/text-check.mjs && node scripts/ui-probe.mjs assert && node scripts/settings-check.mjs && node scripts/icon-check.mjs && node scripts/load-check.mjs --watch && node scripts/load-check.mjs --break-view=weft.files",
     "vscode:prepublish": "node esbuild.mjs --production",
     "smoke": "node scripts/smoke.mjs",
     "load-check": "node scripts/load-check.mjs",

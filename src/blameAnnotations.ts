@@ -320,7 +320,7 @@ export class BlameAnnotations {
   ): void {
     const entry = this.enabled() ? blame[line] : undefined;
     // What would be drawn, as text - the age included, so "just now" becoming "a minute ago" redraws.
-    const painting = entry === undefined ? '' : `${line} ${entry.sha} ${lineLabel(entry)}`;
+    const painting = entry === undefined ? '' : `${line}\0${entry.sha}\0${lineLabel(entry)}`;
 
     if (painting === this.paintedLine) {
       return;
