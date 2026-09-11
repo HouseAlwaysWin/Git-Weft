@@ -16,6 +16,11 @@
   for a new branch was read as the action having run: the whole history was walked again to draw
   what was already there, and the status bar said `Weft:` with nothing after it but `(was …)`.
 
+- **A status line says where HEAD was only when HEAD moved.** Every action's message had a way back
+  added to it - `(was 1a2b3c4d)` - including the ones that never moved HEAD. Deleting a branch
+  already ends in the branch's own, so its status line carried two shas, the second of them where
+  HEAD still was.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

@@ -1448,6 +1448,11 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   console.log('  menu path    : HEAD is', head(), '| asked', confirmations.length - beforeMenu, 'times');
 
+  // A checkout does move HEAD, so it keeps its way back.
+  if (!/\(was [0-9a-f]{8}\)/.test(statusMessages.at(-1) ?? '')) {
+    problems.push(`a checkout that moved HEAD did not say where it was: ${statusMessages.at(-1)}`);
+  }
+
   if (confirmations.length - beforeMenu !== 1) {
     problems.push(`checking out from a menu asked ${confirmations.length - beforeMenu} times, not once`);
   }
@@ -3213,6 +3218,16 @@ if (watchTest) {
     console.log('\ndelete branch  :', JSON.stringify(asked?.message ?? '(never asked)'));
     console.log('  git has it   :', inGit.length > 0 ? inGit : 'no');
     console.log('  tree lists it:', listed);
+
+    // One "(was …)": the branch's own. HEAD did not move, so a second one would be the panel adding
+    // where HEAD already is as if it were a way back.
+    const deletedSaid = statusMessages.at(-1) ?? '';
+    const suffixes = (deletedSaid.match(/\(was /g) ?? []).length;
+    console.log('  status line  :', JSON.stringify(deletedSaid));
+
+    if (suffixes !== 1) {
+      problems.push(`the delete's status line says "(was" ${suffixes} times: ${deletedSaid}`);
+    }
 
     if (asked === undefined) {
       problems.push('deleting a branch from the tree never asked for confirmation');

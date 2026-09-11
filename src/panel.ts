@@ -699,7 +699,15 @@ export class WeftPanel {
         // reflog too, but only someone who already knows that would go looking.
         const before = state.head;
         const outcome = await action.run(context);
-        return { outcome, before };
+
+        // And where HEAD is now, because a way back is only worth offering if HEAD moved. Read here,
+        // inside the lock, before anything else has had the chance to move it.
+        const after = outcome.ran
+          ? (await this.git.runRead(this.repo.root, ['rev-parse', '-q', '--verify', 'HEAD']).catch(() => '')).trim() ||
+            null
+          : before;
+
+        return { outcome, before, after };
       });
 
       if (result === null) {
@@ -722,7 +730,13 @@ export class WeftPanel {
       this.filters.refsMoved();
       await this.reload();
 
-      const back = result.before === null ? '' : `  (was ${result.before.slice(0, 8)})`;
+      /*
+       * Only when HEAD moved. Deleting a branch or a tag leaves HEAD where it was, and those messages
+       * already end in the deleted ref's own "(was …)" - so the status line read two shas, the second
+       * of them where HEAD still was.
+       */
+      const back =
+        result.before === null || result.after === result.before ? '' : `  (was ${result.before.slice(0, 8)})`;
       void vscode.window.setStatusBarMessage(`Weft: ${result.outcome.message}${back}`, 5000);
       return result.outcome.ran;
     } catch (err) {
