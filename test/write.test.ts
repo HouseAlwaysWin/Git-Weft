@@ -2244,3 +2244,15 @@ test('squashing refuses while something else is staged', async () => {
   // message is about the branch.
   assert.match(action?.unavailable(branch('feature'), state) ?? '', /already staged/);
 });
+
+test("a stash's menu does not offer a branch at the commit that holds it", async () => {
+  const repo = await open(makeRepo());
+  const state = await readRepoState(git, repo);
+  const offers = (target: Target) => buildMenu(target, state).some((item) => item.id === 'weft.createBranch');
+
+  assert.equal(offers(stashTarget('stash@{0}', '0'.repeat(40))), false);
+
+  // Still offered where it means something.
+  assert.equal(offers(branch('main')), true);
+  assert.equal(offers(commit(state.head!)), true);
+});

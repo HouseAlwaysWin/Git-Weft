@@ -35,6 +35,10 @@
   whenever something else next reloaded the graph - and without a walk of the history, since nothing
   a walk draws has moved.
 
+- **A stash's menu no longer offers to make a branch from it.** It made the branch at the commit git
+  uses internally to hold the stash - whose parents are your HEAD and your index - which is not what
+  `git stash branch` does, and not what the menu item said.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

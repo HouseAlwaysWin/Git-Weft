@@ -189,7 +189,12 @@ const createBranch: Action = {
 
   label: (target) => `Create branch from ${shortLabel(target)}…`,
 
-  appliesTo: () => true,
+  /*
+   * A commit or a ref, and not a stash. On a stash the branch was made at the commit git uses
+   * internally to hold it - whose parents are your HEAD and your index - which is not what
+   * `git stash branch` does, and not what anyone choosing "Create branch from stash@{0}" meant.
+   */
+  appliesTo: (target) => target.kind === 'commit' || target.kind === 'ref',
 
   unavailable: (_target, state) => blockedByOperation(state),
 
