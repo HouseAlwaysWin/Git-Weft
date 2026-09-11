@@ -12,6 +12,10 @@
   the check that refuses, so checking out the branch you are already on says so, instead of first
   asking whether you are sure.
 
+- **Backing out of an action's own question no longer reloads the graph.** Dismissing the name box
+  for a new branch was read as the action having run: the whole history was walked again to draw
+  what was already there, and the status bar said `Weft:` with nothing after it but `(was …)`.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

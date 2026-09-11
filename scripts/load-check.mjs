@@ -100,6 +100,12 @@ const statusMessages = [];
 let confirmed = true;
 
 /*
+ * What the next input boxes answer, in order; an empty queue dismisses. Dismissing is what the check
+ * that brought this in is about: an action whose own question goes unanswered must end right there.
+ */
+const inputAnswers = [];
+
+/*
  * Settings, so that a default is not the only value any of them can have. Every `get` used to
  * return the fallback it was handed, which meant the branches behind a non-default - a hidden
  * status bar, a timer that is switched on - could not be reached at all.
@@ -292,6 +298,8 @@ const vscodeStub = {
       confirmations.push({ message: m, detail: options?.detail ?? '', answered: choices[0] });
       return confirmed ? choices[0] : undefined;
     },
+    // An input box, answered from inputAnswers and dismissed when nothing is queued.
+    showInputBox: async () => inputAnswers.shift(),
     // Activation reports its own failure through this one, so it has to exist here - and anything
     // arriving on it is a failure by definition.
     showErrorMessage: async (m) => {
@@ -1539,6 +1547,37 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   }
 
   confirmed = true;
+}
+
+/*
+ * Backing out of an action's own question walks nothing.
+ *
+ * Dismissing the name box for a new branch was read as the action having run: the history was walked
+ * again from the top to draw what was already on screen, and the status bar said "Weft:" with nothing
+ * after it but "(was …)".
+ */
+{
+  const at = String(runGit(repoPath, 'rev-parse', 'main')).trim();
+  const postedBefore = posted.length;
+  const statusBefore = statusMessages.length;
+
+  inputAnswers.length = 0;
+  await messageHandler({ type: 'runAction', id: 'weft.createBranch', target: { kind: 'commit', sha: at, subject: 'main' } });
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const walked = posted.slice(postedBefore).filter((m) => m.type === 'reset' || m.type === 'done').length;
+  const said = statusMessages.slice(statusBefore);
+
+  console.log('');
+  console.log('backed out     :', walked === 0 ? 'nothing walked' : `${walked} reset/done posted`, '| status', JSON.stringify(said));
+
+  if (walked > 0) {
+    problems.push("dismissing a new branch's name box walked the history again");
+  }
+
+  if (said.some((m) => /^Weft:\s*(\(|$)/.test(m))) {
+    problems.push(`backing out left a status line with nothing to say: ${JSON.stringify(said)}`);
+  }
 }
 
 /*

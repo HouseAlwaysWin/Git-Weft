@@ -706,6 +706,19 @@ export class WeftPanel {
         return false;
       }
 
+      /*
+       * Backed out of the action's own question - a name box dismissed, a choice left unmade. Nothing
+       * moved, so nothing is walked: read as a run, it walked the whole history again to draw what
+       * was already on screen, and the status bar said "Weft:" with nothing after it but "(was …)".
+       *
+       * Only when there is nothing to say. An action that did not run and says why has news, and one
+       * kind of news is that the graph is behind: a stash that has moved since it was drawn. Walking
+       * again is how the graph catches up.
+       */
+      if (!result.outcome.ran && result.outcome.message.length === 0) {
+        return false;
+      }
+
       this.filters.refsMoved();
       await this.reload();
 
