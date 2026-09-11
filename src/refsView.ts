@@ -169,15 +169,15 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     await this.reload();
   }
 
-  /**
-   * The refs the graph should walk, or null for "everything" - which lets the caller use `--all`
-   * and skip listing hundreds of refs on the command line.
-   */
   /** Which repository this view is showing, so a caller can ask it the right question. */
   get repoRoot(): string | null {
     return this.repo?.root ?? null;
   }
 
+  /**
+   * The refs the graph should walk, or null for "everything" - which lets the caller use `--all`
+   * and skip listing hundreds of refs on the command line.
+   */
   visibleRefs(root: string): string[] | null {
     /*
      * Only the repository this view is showing.

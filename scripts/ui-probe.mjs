@@ -404,8 +404,9 @@ async function needBuild() {
  * Put each bug back, one at a time, and require the check to notice.
  *
  * The spec is a module whose default export lists `{ file, from, to, what, check, args }`. `check`
- * is `diff` (the recording differs from the healthy one), `assert` (an invariant breaks),
- * `load-check` or `unit` (that run fails). The file is restored before anything is reported, the
+ * is `diff` (the recording differs from the healthy one), `assert` (an invariant breaks), or
+ * `load-check`, `unit` or `node` (that run fails - `node` runs whatever script `args` names, for the
+ * guards that are scripts of their own). The file is restored before anything is reported, the
  * bytes are compared, and a run whose file did not come back stops here rather than reporting.
  */
 async function control(port, specPath) {
@@ -447,8 +448,13 @@ async function control(port, specPath) {
         const failures = broken(await record(port));
         verdict = failures.length > 0 ? 'caught' : 'MISSED';
         detail = failures.slice(0, 3).join('; ');
-      } else if (item.check === 'load-check' || item.check === 'unit') {
-        const args = item.check === 'unit' ? ['--test', ...(item.args ?? [])] : ['scripts/load-check.mjs', ...(item.args ?? [])];
+      } else if (item.check === 'load-check' || item.check === 'unit' || item.check === 'node') {
+        const args =
+          item.check === 'unit'
+            ? ['--test', ...(item.args ?? [])]
+            : item.check === 'load-check'
+              ? ['scripts/load-check.mjs', ...(item.args ?? [])]
+              : [...(item.args ?? [])];
         const ran = await run(process.execPath, args);
         verdict = ran.code !== 0 ? 'caught' : 'MISSED';
         detail = tail(ran.stderr || ran.stdout, 4);

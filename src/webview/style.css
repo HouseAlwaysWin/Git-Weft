@@ -71,10 +71,6 @@ body {
 }
 
 /*
- * Wrapping rather than squeezing: with a custom date range open there is more in this bar than a
- * narrow panel can hold, and a search box shrunk to four characters is worse than a second line.
- */
-/*
  * Two rows: the filters, then what is being looked at. Each row wraps on its own, so a narrow panel
  * folds the search switches without dragging the repository's name around with them.
  */
@@ -87,6 +83,10 @@ body {
   flex: 0 0 auto;
 }
 
+/*
+ * Wrapping rather than squeezing: with a custom date range open there is more in this bar than a
+ * narrow panel can hold, and a search box shrunk to four characters is worse than a second line.
+ */
 #header-controls,
 #header-status {
   display: flex;

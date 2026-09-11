@@ -475,13 +475,6 @@ export class WeftPanel {
   }
 
   /**
-   * Show one file's history in the graph.
-   *
-   * The view sets its own search box rather than the panel setting a filter behind it: a graph
-   * narrowed to a path while the box says something else is the disagreement the handshake exists
-   * to prevent.
-   */
-  /**
    * Bring the graph forward with the cursor on one commit.
    *
    * Sent twice, and not by mistake. A graph that is already showing the commit takes the first
@@ -495,6 +488,13 @@ export class WeftPanel {
     this.post({ type: 'reveal', sha });
   }
 
+  /**
+   * Show one file's history in the graph.
+   *
+   * The view sets its own search box rather than the panel setting a filter behind it: a graph
+   * narrowed to a path while the box says something else is the disagreement the handshake exists
+   * to prevent.
+   */
   showFileHistory(path: string): void {
     this.panel.reveal(this.panel.viewColumn);
     this.post({ type: 'showHistory', path });
@@ -605,13 +605,6 @@ export class WeftPanel {
   }
 
   /**
-   * Run one action, holding the repository lock across read-decide-act.
-   *
-   * The lock covers the whole sequence rather than just the git call: the state an action checked
-   * has to still be true when it acts, and the watcher must not reload the graph from underneath a
-   * half-finished operation.
-   */
-  /**
    * Ask before a checkout that one keystroke started.
    *
    * The switch box is a text field with Return bound to "check that branch out", which is the right
@@ -648,6 +641,13 @@ export class WeftPanel {
     return seconds > 0 ? seconds * 1000 : null;
   }
 
+  /**
+   * Run one action, holding the repository lock across read-decide-act.
+   *
+   * The lock covers the whole sequence rather than just the git call: the state an action checked
+   * has to still be true when it acts, and the watcher must not reload the graph from underneath a
+   * half-finished operation.
+   */
   private async runAction(
     id: string,
     target: Target,
@@ -837,10 +837,6 @@ export class WeftPanel {
   }
 
   /**
-   * Hand a conflicted file to VS Code. Its merge editor opens by itself for a file with conflict
-   * markers, and it is better at resolving them than anything that would fit in the graph.
-   */
-  /**
    * What two commits differ by.
    *
    * It shares `detailsLoading` with the single-commit path on purpose: both answer "what is
@@ -878,15 +874,15 @@ export class WeftPanel {
     }
   }
 
+  /**
+   * Hand a conflicted file to VS Code. Its merge editor opens by itself for a file with conflict
+   * markers, and it is better at resolving them than anything that would fit in the graph.
+   */
   private async openConflict(path: string): Promise<void> {
     const uri = vscode.Uri.joinPath(vscode.Uri.file(this.repo.root), path);
     await vscode.commands.executeCommand('vscode.open', uri);
   }
 
-  /**
-   * Tell the view what git is halfway through. Sent on every reload rather than only when it
-   * changes, because the view is rebuilt from scratch each time the tab is shown.
-   */
   /**
    * The working tree, and where the branch it sits on stands.
    *
@@ -955,6 +951,10 @@ export class WeftPanel {
     }
   }
 
+  /**
+   * Tell the view what git is halfway through. Sent on every reload rather than only when it
+   * changes, because the view is rebuilt from scratch each time the tab is shown.
+   */
   private postOperation(state: Awaited<ReturnType<typeof readRepoState>>): void {
     this.postWorking(state);
 

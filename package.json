@@ -710,7 +710,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build --silent && node --test \"test/**/*.test.ts\" && node scripts/color-check.mjs && node scripts/column-check.mjs && node scripts/wiring-check.mjs && node scripts/ui-probe.mjs assert && node scripts/settings-check.mjs && node scripts/icon-check.mjs && node scripts/load-check.mjs --watch && node scripts/load-check.mjs --break-view=weft.files",
+    "test": "npm run build --silent && node --test \"test/**/*.test.ts\" && node scripts/color-check.mjs && node scripts/column-check.mjs && node scripts/wiring-check.mjs && node scripts/comment-check.mjs && node scripts/ui-probe.mjs assert && node scripts/settings-check.mjs && node scripts/icon-check.mjs && node scripts/load-check.mjs --watch && node scripts/load-check.mjs --break-view=weft.files",
     "vscode:prepublish": "node esbuild.mjs --production",
     "smoke": "node scripts/smoke.mjs",
     "load-check": "node scripts/load-check.mjs",
@@ -721,7 +721,8 @@
     "test:unit": "node --test \"test/**/*.test.ts\"",
     "settings-check": "node scripts/settings-check.mjs",
     "wiring-check": "node scripts/wiring-check.mjs",
-    "ui-probe": "node scripts/ui-probe.mjs"
+    "ui-probe": "node scripts/ui-probe.mjs",
+    "comment-check": "node scripts/comment-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",

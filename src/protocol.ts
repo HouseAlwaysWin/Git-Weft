@@ -125,7 +125,6 @@ export type HostMessage =
        */
       readonly fetchedAt: number | null;
     }
-  /** A fresh load is starting. `filtered` is whether anything is narrowing it, from any source. */
   /** Every ref there is, so the header can offer them without asking for them. */
   | {
       readonly type: 'refs';
@@ -133,6 +132,7 @@ export type HostMessage =
       readonly branch: string | null;
       readonly refs: readonly RefEntry[];
     }
+  /** A fresh load is starting. `filtered` is whether anything is narrowing it, from any source. */
   | { readonly type: 'reset'; readonly filtered: boolean }
   /** Every filter has been dropped at once; put the boxes back without asking for another walk. */
   | { readonly type: 'filtersCleared' }

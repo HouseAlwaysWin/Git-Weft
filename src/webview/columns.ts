@@ -114,13 +114,6 @@ function applyColumns(): void {
 }
 
 /**
- * Put each grip on its column's left edge.
- *
- * Measured rather than computed: the tracks can be `ch`, the gap is its own value, and the header
- * carries a left padding that follows the graph's width. Reading the boxes back is the one way to
- * be right about all three at once.
- */
-/**
  * Decide whether the time fits, and repaint if the answer changed.
  *
  * Measured rather than compared against a pixel count, because the answer is about a font: the same
@@ -148,6 +141,13 @@ function measureDateWidth(): void {
   }
 }
 
+/**
+ * Put each grip on its column's left edge.
+ *
+ * Measured rather than computed: the tracks can be `ch`, the gap is its own value, and the header
+ * carries a left padding that follows the graph's width. Reading the boxes back is the one way to
+ * be right about all three at once.
+ */
 function placeGrips(): void {
   // Called from a drag and from a column being shown or hidden, neither of which is a frame - and
   // from the one frame in a hundred where the geometry moved, which is measuring the DOM here

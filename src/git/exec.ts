@@ -93,10 +93,10 @@ export interface GitLogEntry {
   readonly failed: boolean;
 }
 
-/** Config git is forced into for every call, so output is machine-readable and locale-proof. */
 /** How much of a failing command's complaint is worth keeping. Git's is a line or two. */
 const STDERR_KEPT = 8192;
 
+/** Config git is forced into for every call, so output is machine-readable and locale-proof. */
 const FORCED_CONFIG = [
   '-c',
   'core.quotepath=false',

@@ -172,6 +172,12 @@ export function workingChanges(files: readonly FileStatus[]): FileChange[] {
   }));
 }
 
+/** What the section is showing: one commit, the working tree, or the gap between two commits. */
+export type Subject =
+  | { readonly kind: 'commit'; readonly sha: string }
+  | { readonly kind: 'working' }
+  | { readonly kind: 'range'; readonly from: string; readonly to: string };
+
 /**
  * Open one file's diff in VS Code's own diff editor.
  *
@@ -182,12 +188,6 @@ export function workingChanges(files: readonly FileStatus[]): FileChange[] {
  * For the working tree there is neither a commit nor an OID to hand - the right side is the file as
  * it is on disk right now, which is the whole reason for looking at it.
  */
-/** What the section is showing: one commit, the working tree, or the gap between two commits. */
-export type Subject =
-  | { readonly kind: 'commit'; readonly sha: string }
-  | { readonly kind: 'working' }
-  | { readonly kind: 'range'; readonly from: string; readonly to: string };
-
 export async function openFileDiff(
   repo: string,
   subject: Subject,

@@ -147,6 +147,15 @@ export function readGroupAssignments(
 }
 
 /**
+ * The key for a spelling kept out of the fold.
+ *
+ * A fingerprint is letters and digits, so nothing it produces can start with a NUL - which makes
+ * this a namespace of its own and `Max_Chiue` and `max_chiue` two rows rather than one, even
+ * though every other rule here says they are the same name.
+ */
+const APART = '\u0000';
+
+/**
  * Fold spellings into people.
  *
  * `custom` overrules the spelling rule: it maps a spelling to the groups it belongs in, which is how
@@ -161,15 +170,6 @@ export function readGroupAssignments(
  * person each count that person's commits. That is what a label does, and the alternative is a row
  * that says a number no tick of it would produce.
  */
-/**
- * The key for a spelling kept out of the fold.
- *
- * A fingerprint is letters and digits, so nothing it produces can start with a NUL - which makes
- * this a namespace of its own and `Max_Chiue` and `max_chiue` two rows rather than one, even
- * though every other rule here says they are the same name.
- */
-const APART = '\u0000';
-
 export function groupAuthors(
   identities: readonly AuthorIdentity[],
   custom: ReadonlyMap<string, readonly string[]> = new Map(),
