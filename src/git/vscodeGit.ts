@@ -16,7 +16,11 @@ import * as vscode from 'vscode';
 
 interface Repository {
   readonly rootUri: vscode.Uri;
-  readonly state: { readonly onDidChange: vscode.Event<unknown> };
+  readonly state: {
+    readonly onDidChange: vscode.Event<unknown>;
+    /** Where HEAD is. A commit, a checkout, a reset or a pull moves it; saving a file does not. */
+    readonly HEAD?: { readonly commit?: string };
+  };
 }
 
 interface GitApi {
@@ -159,6 +163,55 @@ export function watchWorkingTree(root: string, onChange: () => void): { dispose(
 
     // The repository may not be open yet - Weft finds repositories the git extension has not been
     // asked about, and a bare one it will never open at all.
+    add(git.onDidOpenRepository(watch));
+  });
+}
+
+/**
+ * Call `onChange` when HEAD moves in any repository the git extension has open.
+ *
+ * What blame answers depends on two things: the text, which the editor versions, and the history,
+ * which nothing here watched. A commit changes no text, so a line that had just been committed went
+ * on being blamed as it was until somebody edited the file. The git extension's state changes for
+ * every file saved as well; comparing HEAD's commit keeps this to the changes that move an answer.
+ */
+export function watchRepositoryChanges(onChange: () => void): { dispose(): void } {
+  return pending(async (add) => {
+    const git = await api();
+
+    if (git === null) {
+      return;
+    }
+
+    // Guarded twice over, like watchWorkingTree's: the subscription and the callback are both run
+    // against whatever shape this version of the API hands over.
+    const watch = (repository: Repository): void => {
+      try {
+        let head = repository.state.HEAD?.commit;
+
+        add(
+          repository.state.onDidChange(() => {
+            try {
+              const now = repository.state.HEAD?.commit;
+
+              if (now !== head) {
+                head = now;
+                onChange();
+              }
+            } catch {
+              // One fewer trigger.
+            }
+          }),
+        );
+      } catch {
+        // One fewer trigger.
+      }
+    };
+
+    for (const repository of git.repositories) {
+      watch(repository);
+    }
+
     add(git.onDidOpenRepository(watch));
   });
 }

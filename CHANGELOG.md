@@ -70,6 +70,11 @@
   of thousands of lines, much of a second per edit for one line of grey text. A blame for a line the
   cursor has already left is stopped rather than finished, and is never kept as the answer.
 
+- **Blame is current after a commit.** It was kept for each version of the text, and a commit changes
+  no text - so a line that had just been committed went on being blamed as it was, "You, uncommitted
+  changes" included, until the file was edited. A commit, checkout or reset that moves HEAD now makes
+  the annotations ask again; the git extension's other reports, a file saved, still cost nothing.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

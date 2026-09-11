@@ -22,6 +22,7 @@ import type { RepoInfo } from './git/discovery.ts';
 import { discover } from './git/discovery.ts';
 import type { Blame, BlameLine } from './git/blame.ts';
 import { blameFile, describeAge } from './git/blame.ts';
+import { watchRepositoryChanges } from './git/vscodeGit.ts';
 
 /** Long enough that a held arrow key is one blame rather than forty, short enough not to lag. */
 const SETTLE_MS = 200;
@@ -83,8 +84,16 @@ export class BlameAnnotations {
    */
   private readonly cache = new Map<
     string,
-    { version: number; full: Promise<Blame> | null; lines: Map<number, Promise<Blame>> }
+    {
+      version: number;
+      generation: number;
+      full: Promise<Blame> | null;
+      lines: Map<number, Promise<Blame>>;
+    }
   >();
+
+  /** Bumped when HEAD moves anywhere: every blame kept before it is about an older history. */
+  private generation = 0;
 
   /** The one-line blame being waited for, stopped when the cursor moves on before it answers. */
   private inflight: AbortController | null = null;
@@ -135,6 +144,15 @@ export class BlameAnnotations {
           this.clear();
           this.schedule();
         }
+      }),
+      /*
+       * HEAD moved - a commit, a checkout, a reset. Nothing about the text changed, so nothing above
+       * would notice, and every blame kept is now about an older history: ask again, and redraw
+       * without waiting for the cursor to move.
+       */
+      watchRepositoryChanges(() => {
+        this.generation += 1;
+        this.schedule();
       }),
     );
 
@@ -372,8 +390,12 @@ export class BlameAnnotations {
     const key = document.uri.toString();
     let entry = this.cache.get(key);
 
-    if (entry === undefined || entry.version !== document.version) {
-      entry = { version: document.version, full: null, lines: new Map() };
+    if (
+      entry === undefined ||
+      entry.version !== document.version ||
+      entry.generation !== this.generation
+    ) {
+      entry = { version: document.version, generation: this.generation, full: null, lines: new Map() };
       this.cache.set(key, entry);
     }
 

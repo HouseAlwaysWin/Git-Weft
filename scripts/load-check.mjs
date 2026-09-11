@@ -470,7 +470,13 @@ const vscodeStub = {
                      * assertion means the same thing on every machine.
                      */
                     rootUri: uri(repoPath.replace(/\\/g, '/') + '/.git/..'),
-                    state: { onDidChange: repositoryState.event },
+                    state: {
+                      onDidChange: repositoryState.event,
+                      // Read from the repository itself, as the git extension's own is.
+                      get HEAD() {
+                        return { commit: runGit(repoPath, 'rev-parse', 'HEAD').trim() };
+                      },
+                    },
                   },
                 ],
                 onDidOpenRepository: repositoryOpened.event,
@@ -3611,6 +3617,21 @@ if (disposeHandler !== null) {
 
 
 /*
+ * Committed text, for the two annotations that are about commits - and the editor told, the way VS
+ * Code tells it when a file changes on disk: a new version of the document.
+ *
+ * The working-tree checks above leave f1.txt edited on disk, and both annotations blame the file as
+ * it is on disk. They used to pass anyway, handed a blame made at activation, before the edit, and
+ * kept for as long as the text's version stayed the same - which here it always did, since nothing is
+ * typed into this editor. Blame is asked again when HEAD moves now, and a blame asked while the file
+ * was edited said so: "You, uncommitted changes" - true of the file, and not what these checks are for.
+ */
+runGit(repoPath, 'checkout', '-q', '--', 'f1.txt');
+editorDocument.version += 1;
+documentChanged.fire({ document: editorDocument, contentChanges: [] });
+await new Promise((r) => setTimeout(r, 2000));
+
+/*
  * The line-end blame.
  *
  * It draws on a timer after activation and watches the window rather than the graph, so by now it
@@ -3700,14 +3721,6 @@ if (disposeHandler !== null) {
     decorations.flat().filter((entry) => entry?.renderOptions?.before !== undefined);
 
   const before = columns().length;
-
-  /*
-   * Committed text, for a column that is about commits. The working-tree checks above leave f1.txt
-   * edited on disk, and the column blames the file as it is on disk. It used to pass anyway, handed
-   * the whole-file blame the line-end annotation had made before the edit - which was no longer true
-   * of the file by the time the column drew it.
-   */
-  runGit(repoPath, 'checkout', '-q', '--', 'f1.txt');
 
   await commands.get('weft.toggleFileBlame')();
   await new Promise((r) => setTimeout(r, 2000));
@@ -3873,6 +3886,49 @@ if (disposeHandler !== null) {
 
   if (full?.truncated !== false) {
     problems.push('a walk that reached the end of the history claimed it was cut short');
+  }
+}
+
+/*
+ * Blame is current after a commit - and asks again only when HEAD moves.
+ *
+ * It was kept per version of the text, and a commit changes no text, so a line that had just been
+ * committed went on being blamed as it was until the file was edited. The git extension reports
+ * every file saved as well, and those change no answer: they must not cost a blame.
+ */
+{
+  const lineSays = () =>
+    decorations
+      .flat()
+      .map((entry) => entry?.renderOptions?.after?.contentText ?? '')
+      .filter((text) => text.length > 0)
+      .pop() ?? '';
+  const blamesRun = () => outputLines.filter((l) => l.startsWith('debug') && l.includes('git blame --porcelain')).length;
+
+  // Reports that move nothing: no HEAD change, so no blame.
+  const quietFrom = blamesRun();
+  repositoryState.fire();
+  repositoryState.fire();
+  await new Promise((r) => setTimeout(r, 800));
+  const quiet = blamesRun() - quietFrom;
+
+  writeFileSync(join(repoPath, 'f1.txt'), 'changed where the cursor is\n');
+  runGit(repoPath, 'commit', '-qam', 'the commit blame should name');
+  repositoryState.fire();
+
+  const by = Date.now() + 10_000;
+  while (Date.now() < by && !lineSays().includes('the commit blame should name')) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  console.log('\nblame on HEAD  :', quiet, 'blame(s) for reports that moved nothing | after a commit', JSON.stringify(lineSays()));
+
+  if (quiet !== 0) {
+    problems.push('a report from the git extension that moved nothing ran blame ' + quiet + ' time(s)');
+  }
+
+  if (!lineSays().includes('the commit blame should name')) {
+    problems.push('after a commit the line-end blame still said ' + JSON.stringify(lineSays()));
   }
 }
 
