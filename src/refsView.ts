@@ -524,7 +524,12 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
       item.id = `group:${node.id}`;
       item.description = shown === children.length ? `${children.length}` : `${shown}/${children.length}`;
       item.checkboxState = shown > 0 ? Checked : Unchecked;
-      item.contextValue = 'weftRefGroup';
+      /*
+       * Named by the group, and never starting "weftRef". The menus pick out branch commands with
+       * `viewItem =~ /^weftRef/`, and a heading that matched it offered Checkout, Show Only This,
+       * Show All and both copies - five things that did nothing when chosen on a heading.
+       */
+      item.contextValue = `weftGroup${node.id === 'tags' ? 'Tags' : node.id === 'remotes' ? 'Remotes' : 'Heads'}`;
       item.tooltip = `Untick to keep every one of these out of the graph`;
       return item;
     }

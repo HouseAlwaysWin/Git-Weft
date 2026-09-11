@@ -2645,6 +2645,27 @@ if (watchTest) {
     }
   }
 
+  /*
+   * And the headings, which offer nothing - or exactly what their allow-list says. Their context
+   * values are named by group and never begin "weftRef", because the menus select branch commands
+   * with viewItem =~ /^weftRef/, and a heading that matched offered five commands that did nothing.
+   */
+  const HEADING_MENUS = { weftGroupHeads: [], weftGroupRemotes: [], weftGroupTags: [] };
+
+  for (const group of groups) {
+    const value = refsProvider.getTreeItem(group).contextValue;
+    const offered = refMenus.filter((entry) => matches(entry.when, value)).map((entry) => entry.command);
+    const allowed = HEADING_MENUS[value];
+
+    if (allowed === undefined) {
+      problems.push(`the ${group.id} heading has context value ${value}, which no allow-list here names`);
+    } else if (offered.join() !== allowed.join()) {
+      problems.push(
+        `the ${group.id} heading offers ${offered.join(', ') || 'nothing'}, expected ${allowed.join(', ') || 'nothing'}`,
+      );
+    }
+  }
+
   const offeredBy = (command) =>
     ['local', 'tag', 'remote'].filter((kind) =>
       refMenus.some(

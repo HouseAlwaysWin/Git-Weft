@@ -21,6 +21,11 @@
   already ends in the branch's own, so its status line carried two shas, the second of them where
   HEAD still was.
 
+- **Right-clicking the Local Branches, Remote Branches or Tags heading offers nothing that does
+  nothing.** Checkout, Show Only This, Show All and both copies were meant for a branch, and reached
+  the headings because a pattern in the menus happened to match their names too. None of them did
+  anything there.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two
