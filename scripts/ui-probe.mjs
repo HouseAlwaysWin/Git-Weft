@@ -398,6 +398,36 @@ const INVARIANTS = [
     },
   ],
   [
+    'a branch is compared by its name, and the answer is headed with the names',
+    (found) => {
+      const offered = (found['=== a branch badge menu ==='] ?? '').includes('>Select for Compare<');
+      const asked = (sentIn(found, 'comparing a row with the marked branch sends') ?? []).find((m) => m.type === 'compare');
+      const marked = found['=== mark: a branch selected ==='] ?? '';
+      const mark = found['=== mark: a comparison ==='] ?? '';
+      const pane = found['=== pane: a comparison ==='] ?? '';
+
+      if (!offered) {
+        return 'the menu on a branch badge did not offer Select for Compare';
+      }
+
+      // By its full name, so it is the branch as it is when the comparison runs - not the commit it was on.
+      if (asked === undefined || asked.from?.rev !== `refs/heads/${asked.from?.label}`) {
+        return `it asked about ${JSON.stringify(asked?.from ?? null)}, not a branch by its name`;
+      }
+
+      if (!marked.includes(`text="compare from ${asked.from.label}"`) || !mark.includes('text="main → origin/uat"')) {
+        return `the mark read ${marked.slice(marked.indexOf(' text=') + 1).trim()}, then ${mark.slice(mark.indexOf(' text=') + 1).trim()}`;
+      }
+
+      if (!pane.includes('>main<') || !pane.includes('>origin/uat<') || !pane.includes('only on main')) {
+        return `the pane read: ${pane.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()}`;
+      }
+
+      // The pane's own Escape comes after this, and would only ever drop the comparison if it were still up.
+      return (found['=== mark: dropped by Escape ==='] ?? '').includes('hidden=true') ? null : 'Escape left the comparison up';
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null

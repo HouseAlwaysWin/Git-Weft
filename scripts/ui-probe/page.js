@@ -449,11 +449,37 @@
     take('pane: a commit', document.querySelector('#details'));
     state('pane: shown', '#details');
 
+    /*
+     * A branch compared by its name, off its badge on a row: the badge's menu takes the first step and
+     * another row's menu the second. What goes to the host is the branch rather than the commit it is
+     * on, so it is compared as it is when the comparison runs.
+     */
+    const lastMenu = () => [...document.querySelectorAll('.menu')].pop();
+    const menuItem = (label) =>
+      [...((lastMenu() || document).querySelectorAll('.menu-item'))].find((el) => el.textContent === label);
+    const badge = document.querySelector('#rows .row .ref.local');
+    const branch = badge ? badge.textContent : '(no branch badge)';
+
+    click(badge, 'contextmenu');
+    await settle(250);
+    take('a branch badge menu', lastMenu());
+    click(menuItem('Select for Compare'));
+    await settle(250);
+    state('mark: a branch selected', '#compare-mark');
+
+    click(document.querySelector('#rows .row:not(.uncommitted):not(.compare-anchor)'), 'contextmenu');
+    await settle(250);
+    const beforeCompare = sent().length;
+    click(menuItem('Compare with ' + branch));
+    await settle(250);
+    parts.push('=== comparing a row with the marked branch sends ===\n' + sentSince(beforeCompare));
+
+    // The host's answer names both ends as they were asked for - two branches, this time.
     window.postMessage(
       {
         type: 'comparison',
-        from: 'c91023ecc8178d63e2fe8c531df525db8096b546',
-        to: '3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a',
+        from: { rev: 'refs/heads/main', label: 'main', sha: 'c91023ecc8178d63e2fe8c531df525db8096b546' },
+        to: { rev: 'refs/remotes/origin/uat', label: 'origin/uat', sha: '3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a' },
         files: 7,
         onlyFrom: 3,
         onlyTo: 2,
@@ -462,18 +488,23 @@
     );
     await settle(400);
     take('pane: a comparison', document.querySelector('#details'));
+    state('mark: a comparison', '#compare-mark');
+
+    /*
+     * Escape goes innermost first - the branch menu opened above, which is still up, then the
+     * comparison, then the pane. So the menu is dismissed and the comparison dropped here, or the
+     * pane's own Escape below closes one of those and the pane never moves.
+     */
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 700, clientY: 400 }));
+    await settle(200);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(300);
+    state('mark: dropped by Escape', '#compare-mark');
 
     // The working-tree row, the third shape: no hash, no author, no message.
     click(document.querySelector('#rows .row.uncommitted'));
     await settle(400);
     take('pane: the working tree', document.querySelector('#details'));
-
-    /*
-     * Escape goes innermost first, and the branch menu opened above is still up - so it is dismissed
-     * before the pane is asked to close, or the keystroke closes the menu and the pane never moves.
-     */
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 700, clientY: 400 }));
-    await settle(200);
 
     // On a commit, because that is what the reopen was written for: the working tree holds none.
     const commitRow = () => document.querySelector('#rows .row:not(.uncommitted)');
