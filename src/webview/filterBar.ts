@@ -92,6 +92,17 @@ function queueSearch(): void {
   searchTimer = window.setTimeout(submitSearch, 300);
 }
 
+/**
+ * Each switch's own tooltip, as the markup gives it - kept, because a lock replaces it.
+ *
+ * Following renames locks the case switch and says why in its tooltip, and nothing ever put the
+ * original back: once path mode had followed a rename, "Match case" read "Following renames matches
+ * the path exactly" for the rest of the session. `Array.from` rather than a spread, because the DOM
+ * lib here has no `DOM.Iterable`.
+ */
+const TOGGLE_TITLES = new Map(
+  Array.from(searchToggles.querySelectorAll<HTMLButtonElement>('.toggle'), (button) => [button, button.title] as const),
+);
 
 function updateSearchToggles(): void {
   const supported = applicable();
@@ -113,9 +124,9 @@ function updateSearchToggles(): void {
     button.disabled = locked;
     button.classList.toggle('on', shown && (locked || searchOptions[toggle]));
 
-    if (locked) {
-      button.title = 'Following renames matches the path exactly: git will not follow a case-insensitive pathspec.';
-    }
+    button.title = locked
+      ? 'Following renames matches the path exactly: git will not follow a case-insensitive pathspec.'
+      : (TOGGLE_TITLES.get(button) ?? button.title);
   });
 }
 

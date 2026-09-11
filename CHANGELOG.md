@@ -39,6 +39,10 @@
   uses internally to hold the stash - whose parents are your HEAD and your index - which is not what
   `git stash branch` does, and not what the menu item said.
 
+- **The `Aa` switch says what it does again after following renames is switched off.** Following a
+  rename locks case matching on and the switch's tooltip says why, and nothing put the old tooltip
+  back when the lock came off - so it went on explaining a lock that was no longer there.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

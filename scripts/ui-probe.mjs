@@ -368,6 +368,15 @@ const INVARIANTS = [
         : null,
   ],
   [
+    'the case switch says what it does once the lock comes off',
+    (found) => {
+      const line = (found['=== toggles after following is switched off ==='] ?? '')
+        .split('\n')
+        .find((entry) => entry.startsWith('caseSensitive '));
+      return line !== undefined && line.endsWith(' Match case') ? null : `it reads: ${line ?? 'no such section'}`;
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null

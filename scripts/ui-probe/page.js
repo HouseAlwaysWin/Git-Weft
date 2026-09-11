@@ -301,6 +301,11 @@
     await settle(300);
     toggles('toggles following renames');
 
+    // And off again: the lock goes, and the case switch has to say what it does again.
+    click(document.querySelector('.toggle[data-toggle="follow"]'));
+    await settle(300);
+    toggles('toggles after following is switched off');
+
     // The date filter: picking custom opens a row that is not itself a filter.
     const range = document.querySelector('#date-range');
     range.value = 'custom';
