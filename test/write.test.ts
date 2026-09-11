@@ -2256,3 +2256,33 @@ test("a stash's menu does not offer a branch at the commit that holds it", async
   assert.equal(offers(branch('main')), true);
   assert.equal(offers(commit(state.head!)), true);
 });
+
+test('deleting a branch counts what it would strand once, and shows that it is counting', async () => {
+  const dir = makeRepo();
+  const repo = await open(dir);
+  const ran: string[][] = [];
+  const counting = new Git({ onCommand: (entry) => ran.push([...entry.args]) });
+  const state = await readRepoState(counting, repo);
+  const titles: string[] = [];
+  const ui: ActionUi = {
+    ...fakeUi(),
+    progress: async <T>(title: string, work: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+      titles.push(title);
+      return work(new AbortController().signal);
+    },
+  };
+
+  const action = findAction('weft.deleteBranch');
+  assert.notEqual(action, undefined);
+
+  const context = { git: counting, repo, state, target: branch('feature'), ui };
+  assert.equal(await confirmIfNeeded(action!, context), true);
+  const result = await action!.run(context);
+
+  const counts = ran.filter((args) => args[0] === 'rev-list' && args.includes('--count'));
+
+  assert.equal(result.ran, true);
+  assert.equal(counts.length, 1, 'the confirmation and the delete asked the same question twice');
+  assert.ok(titles.some((title) => title.startsWith('Counting')), `nothing on screen while counting: ${JSON.stringify(titles)}`);
+  assert.equal(sh(dir, 'branch', '--list', 'feature').trim(), '');
+});

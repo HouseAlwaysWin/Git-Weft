@@ -7,7 +7,7 @@
  * commits it is about to strand.
  */
 
-import type { Action } from './types.ts';
+import type { Action, ActionContext } from './types.ts';
 import { Tier, blockedByOperation, revisionOf, shortLabel } from './types.ts';
 import type { Git } from '../git/exec.ts';
 import type { RepoInfo } from '../git/discovery.ts';
@@ -284,6 +284,13 @@ async function orphanCount(git: Git, repo: RepoInfo, branch: string): Promise<nu
   }
 }
 
+/**
+ * The count a delete's confirmation made, for the delete itself to use. It is the same question,
+ * asked of the same repository moments apart and under one lock - and on a large repository it is
+ * a walk of everything the branch has that no other ref does, which asking twice paid for twice.
+ */
+const counted = new WeakMap<ActionContext, number>();
+
 const deleteBranch: Action = {
   id: 'weft.deleteBranch',
   group: 'danger',
@@ -313,7 +320,17 @@ const deleteBranch: Action = {
       return '';
     }
 
-    const orphans = await orphanCount(context.git, context.repo, context.target.label);
+    /*
+     * On screen while it runs: on a large repository this is a walk, and a confirmation that takes
+     * seconds to appear, with nothing showing for them, reads as a click that did nothing. Not
+     * cancellable - a count that did not finish must never read as "nothing is lost".
+     */
+    const label = context.target.label;
+    const orphans = await context.ui.progress(`Counting the commits only ${label} has`, () =>
+      orphanCount(context.git, context.repo, label),
+    );
+
+    counted.set(context, orphans);
 
     if (orphans === 0) {
       return 'Its commits are reachable from somewhere else, so nothing is lost.';
@@ -325,12 +342,15 @@ const deleteBranch: Action = {
     );
   },
 
-  async run({ git, repo, target, ui }) {
+  async run(context) {
+    const { git, repo, target, ui } = context;
+
     if (target.kind !== 'ref') {
       return { message: '', ran: false };
     }
 
-    const orphans = await orphanCount(git, repo, target.label);
+    // The confirmation counted already. Counting here is for a run that nobody was asked about.
+    const orphans = counted.get(context) ?? (await orphanCount(git, repo, target.label));
 
     // -d refuses to delete unmerged work; -D overrides that refusal. Reaching for -D is only
     // acceptable because confirmDetail has already said, with a number, what it overrides.

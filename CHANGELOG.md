@@ -61,6 +61,10 @@
   Not Now, or Never for This Repository, which is remembered. Both are git's own settings, off by
   default, and one somebody already set, to anything, is left alone.
 
+- **Deleting a branch counts the commits it would strand once, and says it is counting.** The
+  count - a walk of everything the branch has that no other ref does - ran for the confirmation and
+  again for the delete, with nothing on screen either time.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two
