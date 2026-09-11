@@ -75,6 +75,10 @@
   changes" included, until the file was edited. A commit, checkout or reset that moves HEAD now makes
   the annotations ask again; the git extension's other reports, a file saved, still cost nothing.
 
+- **The blame is repainted only when it has something new to say.** Every move of the cursor redrew
+  both annotations to draw what was already there - and with the file's column on, that was a
+  decoration for every line of the file, for each move.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

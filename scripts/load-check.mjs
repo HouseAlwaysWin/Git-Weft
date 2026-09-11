@@ -3933,6 +3933,29 @@ await new Promise((r) => setTimeout(r, 2000));
 }
 
 /*
+ * The cursor moving within one line repaints nothing.
+ *
+ * Every cursor event redrew both annotations to draw what was already there - and with the column
+ * on, that is a decoration for every line of the file, for each move of the cursor.
+ */
+{
+  await new Promise((r) => setTimeout(r, 400));
+  const paintedFrom = decorations.length;
+
+  for (let i = 0; i < 3; i += 1) {
+    selectionChanged.fire({ textEditor: activeEditor, selections: [activeEditor.selection] });
+    await new Promise((r) => setTimeout(r, 400));
+  }
+
+  const repainted = decorations.length - paintedFrom;
+  console.log('same line      :', repainted, 'repaint(s) for 3 cursor events on one line');
+
+  if (repainted !== 0) {
+    problems.push('the cursor moving within one line repainted the blame ' + repainted + ' time(s)');
+  }
+}
+
+/*
  * Every path that runs git has to stand back for a write in flight.
  *
  * Not a preference. git replaces a file by renaming a lock over it, and Windows refuses that

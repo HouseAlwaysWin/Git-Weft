@@ -95,6 +95,14 @@ export class BlameAnnotations {
   /** Bumped when HEAD moves anywhere: every blame kept before it is about an older history. */
   private generation = 0;
 
+  /**
+   * What each annotation last drew, so the same thing is not drawn twice: a cursor event arrives for
+   * every move within a line, and redrawing the column is a decoration for every line of the file.
+   * Null when not known - after a clear, nothing is taken to be on screen.
+   */
+  private paintedLine: string | null = null;
+  private paintedColumn: { blame: Blame; width: number; lines: number } | 'off' | null = null;
+
   /** The one-line blame being waited for, stopped when the cursor moves on before it answers. */
   private inflight: AbortController | null = null;
 
@@ -190,6 +198,7 @@ export class BlameAnnotations {
 
     if (this.annotated.delete(key)) {
       editor.setDecorations(this.fileDecoration, []);
+      this.paintedColumn = null;
       return;
     }
 
@@ -222,6 +231,8 @@ export class BlameAnnotations {
     this.decorated?.setDecorations(this.lineDecoration, []);
     this.decorated?.setDecorations(this.fileDecoration, []);
     this.decorated = null;
+    this.paintedLine = null;
+    this.paintedColumn = null;
   }
 
   private async refresh(): Promise<void> {
@@ -308,6 +319,14 @@ export class BlameAnnotations {
     root: string,
   ): void {
     const entry = this.enabled() ? blame[line] : undefined;
+    // What would be drawn, as text - the age included, so "just now" becoming "a minute ago" redraws.
+    const painting = entry === undefined ? '' : `${line} ${entry.sha} ${lineLabel(entry)}`;
+
+    if (painting === this.paintedLine) {
+      return;
+    }
+
+    this.paintedLine = painting;
 
     if (entry === undefined) {
       editor.setDecorations(this.lineDecoration, []);
@@ -332,11 +351,30 @@ export class BlameAnnotations {
     root: string,
   ): void {
     if (!wanted) {
-      editor.setDecorations(this.fileDecoration, []);
+      if (this.paintedColumn !== 'off') {
+        editor.setDecorations(this.fileDecoration, []);
+        this.paintedColumn = 'off';
+      }
+
       return;
     }
 
     const width = columnWidth(blame);
+    const lines = editor.document.lineCount;
+    const painted = this.paintedColumn;
+
+    // The same blame, at the same width, over the same lines, is the column already on screen.
+    if (
+      painted !== null &&
+      painted !== 'off' &&
+      painted.blame === blame &&
+      painted.width === width &&
+      painted.lines === lines
+    ) {
+      return;
+    }
+
+    this.paintedColumn = { blame, width, lines };
     const options: vscode.DecorationOptions[] = [];
 
     for (let line = 0; line < editor.document.lineCount; line++) {
