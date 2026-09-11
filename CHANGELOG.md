@@ -79,6 +79,12 @@
   both annotations to draw what was already there - and with the file's column on, that was a
   decoration for every line of the file, for each move.
 
+- **The ticks outlast the session, and a hand-picked set stays hand-picked.** Which branches the
+  graph draws is kept for each repository in the workspace, so reopening VS Code opens the graph as
+  it was left rather than on the default. And a set picked as "only these" - Show Only, Untick All,
+  or ticking away from the default - no longer takes in every branch fetched afterwards: a new branch
+  arrives unticked, like any other nobody picked. After Show All, whatever arrives is still drawn.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

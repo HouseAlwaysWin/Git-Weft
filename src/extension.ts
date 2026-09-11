@@ -331,7 +331,7 @@ function start(context: vscode.ExtensionContext): void {
     },
   });
 
-  const refs = new RefsProvider(git);
+  const refs = new RefsProvider(git, context.workspaceState);
   const refsView = vscode.window.createTreeView('weft.refs', {
     treeDataProvider: refs,
     showCollapseAll: true,

@@ -15,6 +15,8 @@ import * as vscode from 'vscode';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { describeAge } from './git/blame.ts';
+import type { RefSet, StoredTicks } from './refSets.ts';
+import { except, hiddenBy, only, pruned, readStoredTicks, withVisible } from './refSets.ts';
 
 interface Group {
   readonly kind: 'group';
@@ -51,6 +53,9 @@ const GROUPS: Group[] = [
   { kind: 'group', id: 'tags', label: 'Tags', prefix: 'refs/tags/' },
 ];
 
+/** Where each repository's ticks are kept between sessions, keyed by root. */
+const TICKS_KEY = 'weft.refTicks';
+
 export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private readonly git: Git;
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
@@ -82,21 +87,25 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private order: RefOrder = 'name';
 
   /**
-   * Refs the user has switched off. Storing the *hidden* set rather than the visible one means a
-   * branch created after the last refresh shows up by default, which is the behaviour that does not
-   * surprise anyone.
+   * Which refs are drawn, kept as the choice that was made - see `RefSet`. "Everything but these"
+   * draws a branch created after the choice, and "only these" does not; a choice kept as the refs it
+   * hid could only ever say the first.
    */
+  private set: RefSet = except([]);
+
+  /** What `set` leaves out, among the refs that exist now. Derived from it, never edited. */
   private hidden = new Set<string>();
 
   /**
-   * The unticked refs of every repository this session has looked at, keyed by root.
+   * The ticks of every repository this session has looked at, keyed by root - and kept in the
+   * workspace as well, so that they outlast the session.
    *
    * Two reasons it is not one set. Switching tabs between two graphs and back would otherwise
    * discard whatever you had unticked in the first, which is work. And the panels ask this view
    * what to walk *by root* - a set belonging to one repository, handed to another, names refs that
    * do not exist there and empties its graph.
    */
-  private readonly hiddenByRepo = new Map<string, Set<string>>();
+  private readonly setByRepo = new Map<string, RefSet>();
 
   /**
    * Whether the ticks are still the default rather than a set the user has chosen.
@@ -112,7 +121,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    */
   private following = true;
 
-  /** Whether each repository was still on the default, alongside `hiddenByRepo`. */
+  /** Whether each repository was still on the default, alongside `setByRepo`. */
   private readonly followingByRepo = new Map<string, boolean>();
 
   /**
@@ -141,8 +150,12 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private readonly orderChanged = new vscode.EventEmitter<void>();
   readonly onDidChangeOrder = this.orderChanged.event;
 
-  constructor(git: Git) {
+  /** Where the ticks outlast the session. None where there is no workspace to keep them in. */
+  private readonly memento: vscode.Memento | null;
+
+  constructor(git: Git, memento: vscode.Memento | null = null) {
     this.git = git;
+    this.memento = memento;
   }
 
   /** Point the view at a repository and reload its refs. */
@@ -156,16 +169,24 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     // under the incoming root hands one repository's ref names to another, which is the thing the
     // per-repository map exists to prevent.
     if (this.repo !== null) {
-      this.hiddenByRepo.set(this.repo.root, this.hidden);
+      this.setByRepo.set(this.repo.root, this.set);
       this.followingByRepo.set(this.repo.root, this.following);
       this.headByRepo.set(this.repo.root, this.head);
     }
 
     this.repo = repo;
-    // Kept rather than cleared: coming back to a graph should find it as you left it.
-    this.hidden = this.hiddenByRepo.get(repo?.root ?? '') ?? new Set<string>();
-    this.following = this.followingByRepo.get(repo?.root ?? '') ?? true;
-    this.head = this.headByRepo.get(repo?.root ?? '') ?? null;
+
+    /*
+     * Kept rather than cleared: coming back to a graph should find it as you left it, and coming back
+     * to a repository in a new session, as the last one left it. The head comes back with the ticks,
+     * or the first reload would read the reopening as a checkout and put them back to the default.
+     */
+    const root = repo?.root ?? '';
+    const kept = this.setByRepo.has(root) ? null : this.stored(root);
+
+    this.set = this.setByRepo.get(root) ?? kept?.set ?? except([]);
+    this.following = this.followingByRepo.get(root) ?? kept?.following ?? true;
+    this.head = this.headByRepo.has(root) ? (this.headByRepo.get(root) ?? null) : (kept?.head ?? null);
     await this.reload();
   }
 
@@ -214,12 +235,40 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   private applyDefault(): void {
     const head = this.refs.find((ref) => ref.isHead);
 
-    this.hidden =
-      head === undefined
-        ? new Set<string>()
-        : new Set(
-            this.refs.filter((ref) => ref.refName !== head.refName).map((ref) => ref.refName),
-          );
+    this.set = head === undefined ? except([]) : only([head.refName]);
+    this.derive();
+  }
+
+  /** What is hidden, from the choice and the refs there are now. */
+  private derive(): void {
+    this.hidden = hiddenBy(this.set, this.refs.map((ref) => ref.refName));
+  }
+
+  /** The ticks a repository was left with in an earlier session, when they were kept. */
+  private stored(root: string): StoredTicks | null {
+    return readStoredTicks(this.memento?.get<Record<string, unknown>>(TICKS_KEY, {})[root]);
+  }
+
+  /**
+   * Keep the ticks for the next session. Pruned to the refs that exist, so the record does not grow
+   * by every branch the repository has ever had - and never written from an empty read of the refs,
+   * which would prune it to nothing.
+   */
+  private persist(): void {
+    if (this.memento === null || this.repo === null || this.refs.length === 0) {
+      return;
+    }
+
+    const all = { ...this.memento.get<Record<string, unknown>>(TICKS_KEY, {}) };
+    const ticks: StoredTicks = {
+      v: 1,
+      head: this.head,
+      following: this.following,
+      set: pruned(this.set, this.refs.map((ref) => ref.refName)),
+    };
+
+    all[this.repo.root] = ticks;
+    void this.memento.update(TICKS_KEY, all);
   }
 
   async reload(): Promise<void> {
@@ -293,8 +342,13 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
 
     if (this.following) {
       this.applyDefault();
+    } else {
+      // A chosen set, against the refs there are now: in "only these" a branch that arrived since is
+      // left out, and in "everything but" it is drawn.
+      this.derive();
     }
 
+    this.persist();
     this.changed.fire(undefined);
     this.updateMessage();
   }
@@ -396,16 +450,12 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     // back to the branch HEAD is on.
     this.following = false;
 
-    const listed = new Set(this.listed().map((ref) => ref.refName));
     const before = this.hidden.size;
 
-    this.hidden.clear();
-
-    for (const ref of this.refs) {
-      if (!listed.has(ref.refName)) {
-        this.hidden.add(ref.refName);
-      }
-    }
+    // Only these: a branch that arrives later was not among what was listed, so it is not drawn.
+    this.set = only(this.listed().map((ref) => ref.refName));
+    this.derive();
+    this.persist();
 
     if (before === this.hidden.size && before === 0) {
       // Everything matched, so nothing changed and nothing is worth a re-walk for.
@@ -457,30 +507,25 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    * there is one hidden set, one event, and one reload.
    */
   setVisible(refNames: readonly string[], visible: boolean): void {
-    let moved = false;
-
-    for (const refName of refNames) {
-      if (this.hidden.has(refName) === !visible) {
-        continue;
-      }
-
-      moved = true;
-
-      if (visible) {
-        this.hidden.delete(refName);
-      } else {
-        this.hidden.add(refName);
-      }
-    }
-
     // Nothing changed, so nothing is announced: a group's tick set on an already-ticked group would
     // otherwise cost a full walk of the history to arrive at the same graph.
-    if (!moved) {
+    if (!refNames.some((refName) => this.hidden.has(refName) === visible)) {
       return;
     }
 
-    // The set is the user's from here. Left following, the next reload would undo this tick.
+    /*
+     * The set is the user's from here. Left following, the next reload would undo this tick. Out of
+     * the default it becomes "only" what the default was drawing - the branch HEAD is on - so a
+     * branch that arrives later waits to be ticked like every other one nobody picked.
+     */
+    if (this.following) {
+      this.set = only(this.refs.filter((ref) => !this.hidden.has(ref.refName)).map((ref) => ref.refName));
+    }
+
+    this.set = withVisible(this.set, refNames, visible);
     this.following = false;
+    this.derive();
+    this.persist();
 
     this.changed.fire(undefined);
     this.updateMessage();
@@ -677,6 +722,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     this.query = '';
     this.tickedOnly = false;
     this.applyDefault();
+    this.persist();
 
     const moved =
       before.size !== this.hidden.size || [...before].some((ref) => !this.hidden.has(ref));
@@ -722,13 +768,9 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
    */
   showOnly(refName: string): void {
     this.following = false;
-    this.hidden.clear();
-
-    for (const ref of this.refs) {
-      if (ref.refName !== refName) {
-        this.hidden.add(ref.refName);
-      }
-    }
+    this.set = only([refName]);
+    this.derive();
+    this.persist();
 
     this.changed.fire(undefined);
     this.updateMessage();
@@ -749,7 +791,10 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
 
     // A choice, and the furthest one from the default - so it stops the default applying.
     this.following = false;
-    this.hidden = new Set(this.refs.map((ref) => ref.refName));
+    // Nothing, and nothing that arrives later either: this is where "show me these three" starts.
+    this.set = only([]);
+    this.derive();
+    this.persist();
 
     this.changed.fire(undefined);
     this.updateMessage();
@@ -768,6 +813,7 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
 
     this.following = true;
     this.applyDefault();
+    this.persist();
 
     const moved =
       before.size !== this.hidden.size || [...before].some((ref) => !this.hidden.has(ref));
@@ -795,7 +841,10 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     // The opposite of the default, so it has to stop following: left on, the next reload would put
     // every other ref straight back behind an unticked box.
     this.following = false;
-    this.hidden.clear();
+    // Everything, and whatever arrives later too.
+    this.set = except([]);
+    this.derive();
+    this.persist();
     this.query = '';
     // Listing only the ticked, with everything ticked, is a filter that hides nothing - and one
     // left switched on is one somebody has to find again later.

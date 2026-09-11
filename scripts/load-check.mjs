@@ -2526,6 +2526,60 @@ if (watchTest) {
 
   runGit(repoPath, 'branch', '-D', 'far', 'near');
   await settle();
+
+  /*
+   * A hand-picked set stays hand-picked.
+   *
+   * The ticks were kept as the refs they hid, so a branch created after the choice was not among
+   * them - and joined a set nobody had picked it for. After Show All, though, whatever arrives is
+   * meant to be drawn, and still is.
+   */
+  const tickState = (label) => {
+    const provider = treeProviders.get('weft.refs');
+    const node = headsNodes().find((n) => n.label === label);
+    return node === undefined ? 'missing' : provider.getTreeItem(node).checkboxState === 1 ? 'ticked' : 'unticked';
+  };
+
+  await commands.get('weft.untickAllRefs')();
+  await settle();
+
+  const mainNode = headsNodes().find((n) => n.label === 'main');
+
+  if (mainNode !== undefined) {
+    checkboxHandlers.get('weft.refs')({ items: [[mainNode, 1]] });
+  }
+
+  await settle();
+  runGit(repoPath, 'branch', 'arrival', 'main');
+  await settle();
+  const inPicked = tickState('arrival');
+
+  await commands.get('weft.showAllRefs')();
+  await settle();
+  runGit(repoPath, 'branch', 'arrival-2', 'main');
+  await settle();
+  const inAll = tickState('arrival-2');
+
+  console.log('arrivals       : in a picked set', inPicked, '| after Show All', inAll);
+
+  if (inPicked !== 'unticked') {
+    problems.push('a branch created after picking only main arrived ' + inPicked + ', not unticked');
+  }
+
+  if (inAll !== 'ticked') {
+    problems.push('a branch created after Show All arrived ' + inAll + ', not ticked');
+  }
+
+  runGit(repoPath, 'branch', '-D', 'arrival', 'arrival-2');
+
+  // Gone from the sidebar before the ticks are put back. A reload for a filter that lands before the
+  // watcher has looked takes the watcher's news with it - and the next block reads the sidebar.
+  if (!(await until(() => !headsNodes().some((node) => node.label.startsWith('arrival')), 10_000))) {
+    problems.push('deleting two branches in a terminal never reached the sidebar');
+  }
+
+  await commands.get('weft.showCurrentRefOnly')();
+  await settle();
 }
 
 /*
@@ -4139,6 +4193,70 @@ await new Promise((r) => setTimeout(r, 2000));
 
   for (const [path, , complaint] of missing) {
     problems.push(`${path} ${complaint}`);
+  }
+}
+
+/*
+ * The ticks outlast the session.
+ *
+ * What a repository was drawing is kept in the workspace, and a new session - a fresh copy of the
+ * extension over the same workspace - opens it the same way. The head is kept with the ticks, or the
+ * first reload would read the reopening as a checkout and put them back to the default.
+ *
+ * Last, because it replaces the extension under everything else in this run.
+ */
+{
+  const provider = treeProviders.get('weft.refs');
+  const ticked = (p) =>
+    p
+      .getChildren()
+      .flatMap((group) => p.getChildren(group))
+      .filter((node) => p.getTreeItem(node).checkboxState === 1)
+      .map((node) => node.refName)
+      .sort();
+
+  // Something other than the default, so opening on the default cannot pass for remembering.
+  await commands.get('weft.untickAllRefs')();
+  await new Promise((r) => setTimeout(r, 800));
+
+  const tag = provider.getChildren(provider.getChildren().find((g) => g.id === 'tags'))[0];
+  checkboxHandlers.get('weft.refs')({ items: [[tag, 1]] });
+  await new Promise((r) => setTimeout(r, 800));
+
+  const before = ticked(provider);
+  const kept = Object.values(workspaceMemory.get('weft.refTicks') ?? {})[0];
+
+  /*
+   * A new session: the old one's listeners taken down and its registrations gone, as they are in a
+   * new extension host - then a fresh copy of the bundle, over the same workspace.
+   */
+  for (const disposable of context.subscriptions) {
+    disposable?.dispose?.();
+  }
+
+  extension.deactivate?.();
+
+  for (const registry of [commands, contentProviders, treeProviders, treeViewOptions, checkboxHandlers, treeViews]) {
+    registry.clear();
+  }
+
+  delete require_.cache[require_.resolve(resolve('dist/extension.js'))];
+  require_(resolve('dist/extension.js')).activate({ ...context, subscriptions: [] });
+  await new Promise((r) => setTimeout(r, 800));
+
+  await commands.get('weft.openGraph')();
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const after = ticked(treeProviders.get('weft.refs'));
+
+  console.log('\nticks kept     :', JSON.stringify(kept?.set ?? null), '| before', JSON.stringify(before), '| after a restart', JSON.stringify(after));
+
+  if (kept?.v !== 1 || kept?.set?.mode !== 'only') {
+    problems.push('the ticks were not kept in the workspace as a set: ' + JSON.stringify(kept));
+  }
+
+  if (JSON.stringify(after) !== JSON.stringify(before)) {
+    problems.push('a new session opened on ' + JSON.stringify(after) + ', not the ' + JSON.stringify(before) + ' it was left with');
   }
 }
 

@@ -93,7 +93,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   **Show All Branches & Tags** is one click away, and between checkouts the ticks are yours - the
   first one you move stops the default applying, and Clear Filters hands it back. Switching branch
   starts again from the new one, hand-picked set included: a graph still drawing the branch you
-  left is drawing the wrong thing
+  left is drawing the wrong thing. The ticks are kept for each repository, across sessions, and a
+  set picked as only these leaves a branch that arrives later unticked - after Show All, whatever
+  arrives is drawn
 - Three buttons for the three answers worth one click - everything, nothing, and the branch you are
   on - over the branch list and again in the graph's own header. Ticking three refs out of fourteen
   hundred starts by unticking the rest, which is not something anybody does a box at a time
