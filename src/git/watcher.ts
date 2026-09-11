@@ -23,6 +23,7 @@ import type { FSWatcher } from 'node:fs';
 import type { Git } from './exec.ts';
 import type { RepoInfo } from './discovery.ts';
 import { readOperation } from './repoState.ts';
+import type { Operation } from './repoState.ts';
 
 /** Churn that says nothing about what the user would see. */
 export function isNoise(path: string): boolean {
@@ -110,18 +111,33 @@ export class RepoWatcher {
 }
 
 /**
- * A cheap fingerprint of everything the graph draws from: every ref and where HEAD points.
+ * What the graph is drawn from, in two parts that cost different amounts to act on.
  *
- * This is what stops a filesystem event from costing a full reload. `for-each-ref` on a repository
- * with a few hundred refs is a couple of milliseconds, against seconds to re-walk a large history,
- * so the common case - an editor wrote a file, git touched a lock - settles for the price of one
- * comparison.
+ * `refs` is every ref and where it points, with `*` on the branch HEAD is on, and HEAD's own commit
+ * for when it is on none. It used to name HEAD by its commit alone, so checking out another branch
+ * at the same commit changed nothing here - no reload, and a graph following the branch you are on
+ * went on drawing the one you had left. `%(HEAD)` says which branch without a process of its own.
+ *
+ * `operation` is what git is halfway through, from the marker files in the git dir. A merge that
+ * stops on a conflict moves no ref, so without this it drew no banner until something else happened
+ * to reload the graph - and when only this part changes, the banner is all there is to redraw.
+ *
+ * Still what stops a filesystem event from costing a full reload: `for-each-ref` is a couple of
+ * milliseconds against seconds to re-walk a large history, and the operation is a handful of file
+ * checks with no process at all.
  */
-export async function refSignature(git: Git, repo: RepoInfo): Promise<string> {
-  const [refs, head] = await Promise.all([
-    git.runRead(repo.root, ['for-each-ref', '--format=%(objectname)%(refname)']),
+export interface Fingerprint {
+  readonly refs: string;
+  readonly operation: Operation;
+}
+
+/** Both parts at once: two cheap reads and a handful of file checks. */
+export async function repoFingerprint(git: Git, repo: RepoInfo): Promise<Fingerprint> {
+  const [refs, head, operation] = await Promise.all([
+    git.runRead(repo.root, ['for-each-ref', '--format=%(HEAD)%(objectname)%(refname)']),
     git.runRead(repo.root, ['rev-parse', 'HEAD']).catch(() => ''),
+    readOperation(repo.gitDir),
   ]);
 
-  return `${head.trim()}\n${refs}`;
+  return { refs: `${head.trim()}\n${refs}`, operation };
 }

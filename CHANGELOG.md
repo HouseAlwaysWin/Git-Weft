@@ -26,6 +26,15 @@
   the headings because a pattern in the menus happened to match their names too. None of them did
   anything there.
 
+- **The graph notices a checkout made somewhere else, even to a branch at the same commit.** It
+  fingerprinted HEAD by its commit alone, so switching between two branches that point at one commit
+  reloaded nothing - and a graph following the branch you are on went on drawing the one you had
+  left.
+
+- **A merge that stops on a conflict in a terminal gets its banner straight away**, instead of
+  whenever something else next reloaded the graph - and without a walk of the history, since nothing
+  a walk draws has moved.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

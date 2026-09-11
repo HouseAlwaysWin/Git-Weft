@@ -2318,6 +2318,108 @@ if (watchTest) {
   } else {
     console.log('quiet churn    : ignored, as it should be');
   }
+
+  const settle = (ms = 2500) => new Promise((r) => setTimeout(r, ms));
+  const until = async (test, ms) => {
+    const by = Date.now() + ms;
+
+    while (Date.now() < by) {
+      if (test()) {
+        return true;
+      }
+
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    return false;
+  };
+
+  /*
+   * A checkout to a branch at the same commit, made in a terminal. HEAD was fingerprinted by its
+   * commit alone, so this reloaded nothing, and a graph following the branch you are on went on
+   * drawing the one you had left.
+   */
+  runGit(repoPath, 'branch', 'twin');
+  await settle();
+
+  const twinFrom = posted.length;
+  runGit(repoPath, 'checkout', '-q', 'twin');
+
+  const twinReloaded = await until(
+    () => posted.slice(twinFrom).some((m) => m.type === 'done') && posted.slice(twinFrom).some((m) => m.type === 'refs'),
+    15_000,
+  );
+  const named = posted.slice(twinFrom).filter((m) => m.type === 'refs').pop()?.branch ?? null;
+
+  console.log('same commit    :', twinReloaded ? 'reloaded, names ' + named : 'NO RELOAD');
+
+  if (!twinReloaded) {
+    problems.push('checking out a branch at the same commit did not reload the graph');
+  } else if (named !== 'twin') {
+    problems.push('after checking out twin in a terminal the graph names ' + named);
+  }
+
+  runGit(repoPath, 'checkout', '-q', 'main');
+  await settle();
+  runGit(repoPath, 'branch', '-D', 'twin');
+  await settle();
+
+  /*
+   * A merge that stops on a conflict, started in a terminal. It moves no ref, so it walked nothing and
+   * drew no banner until something else happened to reload the graph. The banner should come straight
+   * away, and cost no walk.
+   */
+  const base = runGit(repoPath, 'rev-parse', 'main').trim();
+  runGit(repoPath, 'checkout', '-q', '-b', 'clash-theirs');
+  writeFileSync(join(repoPath, 'clash.txt'), 'theirs\n');
+  runGit(repoPath, 'add', 'clash.txt');
+  runGit(repoPath, 'commit', '-q', '-m', 'theirs');
+  runGit(repoPath, 'checkout', '-q', '-b', 'clash-ours', base);
+  writeFileSync(join(repoPath, 'clash.txt'), 'ours\n');
+  runGit(repoPath, 'add', 'clash.txt');
+  runGit(repoPath, 'commit', '-q', '-m', 'ours');
+  await settle();
+
+  const mergeFrom = posted.length;
+
+  try {
+    runGit(repoPath, 'merge', '-q', 'clash-theirs');
+  } catch {
+    // git exits 1 when the merge stops on the conflict, which is the case being made.
+  }
+
+  const banner = await until(
+    () => posted.slice(mergeFrom).some((m) => m.type === 'operation' && m.operation === 'merge'),
+    15_000,
+  );
+  const walkedForIt = posted.slice(mergeFrom).some((m) => m.type === 'done');
+
+  console.log('terminal merge :', banner ? 'banner drawn' : 'NO BANNER', '|', walkedForIt ? 'walked the history' : 'nothing walked');
+
+  if (!banner) {
+    problems.push('a merge that stopped on a conflict in a terminal drew no banner');
+  }
+
+  if (walkedForIt) {
+    problems.push('the banner for a terminal merge cost a walk of the history');
+  }
+
+  const abortFrom = posted.length;
+  runGit(repoPath, 'merge', '--abort');
+
+  const cleared = await until(
+    () => posted.slice(abortFrom).some((m) => m.type === 'operation' && m.operation === 'none'),
+    15_000,
+  );
+
+  if (!cleared) {
+    problems.push('aborting the terminal merge did not take the banner down');
+  }
+
+  runGit(repoPath, 'checkout', '-q', 'main');
+  await settle();
+  runGit(repoPath, 'branch', '-D', 'clash-theirs', 'clash-ours');
+  await settle();
 }
 
 /*

@@ -14,7 +14,8 @@ import type { CommitDetails } from './git/details.ts';
 import type { FileStatus } from './git/repoState.ts';
 import type { Comparison } from './git/details.ts';
 import { compareCommits, loadCommitDetails } from './git/details.ts';
-import { RepoWatcher, refSignature } from './git/watcher.ts';
+import { RepoWatcher, repoFingerprint } from './git/watcher.ts';
+import type { Fingerprint } from './git/watcher.ts';
 import type { Search } from './git/search.ts';
 import type { AuthorPick } from './git/search.ts';
 import { filterArgs } from './git/search.ts';
@@ -221,9 +222,12 @@ export class WeftPanel {
   private loading: AbortController | null = null;
   private detailsLoading: AbortController | null = null;
   private readonly watcher: RepoWatcher;
-  /** Fingerprint of the refs the last load was built from, to tell a real change from churn. */
-  private signature: string | null = null;
-  private signaturePromise: Promise<string | null> | null = null;
+  /**
+   * What the last load was built from - the refs, and what git was halfway through - to tell a real
+   * change from churn, and a change that needs a walk from one that needs only the banner redrawn.
+   */
+  private signature: Fingerprint | null = null;
+  private signaturePromise: Promise<Fingerprint | null> | null = null;
   private search: Search | null = null;
   private dates: DateRange | null = null;
   /**
@@ -409,25 +413,39 @@ export class WeftPanel {
     // flight. Comparing against a half-set baseline would either miss a change or invent one.
     await this.signaturePromise;
 
-    let signature: string;
+    let signature: Fingerprint;
 
     try {
-      signature = await refSignature(this.git, this.repo);
+      signature = await repoFingerprint(this.git, this.repo);
     } catch {
       return;
     }
 
-    if (signature === this.signature) {
+    const previous = this.signature;
+    this.signature = signature;
+
+    // No baseline yet: this is the first look, and there is nothing to compare it with.
+    if (previous === null) {
       return;
     }
 
-    const first = this.signature === null;
-    this.signature = signature;
-
-    if (!first) {
+    if (signature.refs !== previous.refs) {
       this.filters.refsMoved();
       this.post({ type: 'reloading', reason: 'repository changed' });
       await this.reload();
+      return;
+    }
+
+    /*
+     * Only what git is halfway through changed - a merge that stopped on a conflict, started in a
+     * terminal, moves no ref at all. So the banner and the working tree are drawn from a fresh read
+     * of the state, and the history is left alone: nothing a walk would draw has moved, and a walk
+     * to say "you are in the middle of a merge" is the whole history spent on one line of text.
+     */
+    if (signature.operation !== previous.operation) {
+      await readRepoState(this.git, this.repo)
+        .then((state) => this.postOperation(state))
+        .catch(() => undefined);
     }
   }
 
@@ -1074,7 +1092,7 @@ export class WeftPanel {
      * walk finished: if a ref moves mid-walk the fingerprint is already stale, so the next event
      * reloads, which is the safe direction to be wrong in.
      */
-    this.signaturePromise = refSignature(this.git, this.repo).catch(() => null);
+    this.signaturePromise = repoFingerprint(this.git, this.repo).catch(() => null);
     void this.signaturePromise.then((value) => {
       this.signature = value;
     });
