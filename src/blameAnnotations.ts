@@ -77,8 +77,17 @@ export class BlameAnnotations {
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   });
 
-  /** The last blame asked for, per file, with the version of the text it was asked about. */
-  private readonly cache = new Map<string, { version: number; blame: Promise<Blame> }>();
+  /**
+   * The blames asked for, per file, with the version of the text they were asked about: the whole
+   * file once the column wants it, and single lines for the annotation at the end of one.
+   */
+  private readonly cache = new Map<
+    string,
+    { version: number; full: Promise<Blame> | null; lines: Map<number, Promise<Blame>> }
+  >();
+
+  /** The one-line blame being waited for, stopped when the cursor moves on before it answers. */
+  private inflight: AbortController | null = null;
 
   /** Which repository each directory belongs to, or null for none. Directories do not move. */
   private readonly repos = new Map<string, Promise<RepoInfo | null>>();
@@ -238,7 +247,23 @@ export class BlameAnnotations {
       return;
     }
 
-    const blame = await this.blameOf(repo, document);
+    // The one before, still running for a line the cursor has left, is not worth finishing.
+    this.inflight?.abort();
+    const controller = new AbortController();
+    this.inflight = controller;
+
+    let blame: Blame;
+
+    try {
+      blame = await this.blameOf(repo, document, wanted ? null : line, controller.signal);
+    } catch {
+      // Stopped for a newer question: that question paints, not this one.
+      return;
+    } finally {
+      if (this.inflight === controller) {
+        this.inflight = null;
+      }
+    }
 
     /*
      * Everything above was awaited, so the editor may have moved on: a different file, a different
@@ -329,12 +354,34 @@ export class BlameAnnotations {
     return found;
   }
 
-  private blameOf(repo: RepoInfo, document: vscode.TextDocument): Promise<Blame> {
+  /**
+   * The blame of the whole file when `line` is null, and of that one line otherwise - kept for the
+   * version of the text either way.
+   *
+   * Only a one-line blame is stopped when the cursor moves on. The whole file is the column's, which
+   * wants every line whichever one the cursor is on, and a cursor held moving down a long file would
+   * otherwise restart it until the column never came at all. A stopped blame is forgotten rather
+   * than kept, so the next time its line is asked about it is asked again, not handed a rejection.
+   */
+  private blameOf(
+    repo: RepoInfo,
+    document: vscode.TextDocument,
+    line: number | null,
+    signal: AbortSignal,
+  ): Promise<Blame> {
     const key = document.uri.toString();
-    const known = this.cache.get(key);
+    let entry = this.cache.get(key);
 
-    if (known !== undefined && known.version === document.version) {
-      return known.blame;
+    if (entry === undefined || entry.version !== document.version) {
+      entry = { version: document.version, full: null, lines: new Map() };
+      this.cache.set(key, entry);
+    }
+
+    // The whole file answers every line, so a line asked about after it is already known.
+    const known = entry.full ?? (line === null ? undefined : entry.lines.get(line));
+
+    if (known !== undefined) {
+      return known;
     }
 
     const blame = blameFile(
@@ -344,9 +391,23 @@ export class BlameAnnotations {
       // Only when it would differ from the file on disk. Handing git a megabyte on stdin to be told
       // what it could have read itself is a cost with nothing on the other side of it.
       document.isDirty ? document.getText() : undefined,
+      line === null ? {} : { line, signal },
     );
 
-    this.cache.set(key, { version: document.version, blame });
+    const kept = entry;
+
+    if (line === null) {
+      kept.full = blame;
+    } else {
+      kept.lines.set(line, blame);
+
+      blame.catch(() => {
+        if (kept.lines.get(line) === blame) {
+          kept.lines.delete(line);
+        }
+      });
+    }
+
     return blame;
   }
 }

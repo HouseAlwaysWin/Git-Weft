@@ -108,24 +108,41 @@ export function parseBlame(out: string): Blame {
  *
  * A file git will not blame - untracked, outside the repository, binary - comes back empty rather
  * than throwing. There is nothing to show for it, which is a state and not a failure.
+ *
+ * `line` asks about one line, which is all the annotation at the end of one needs: git then works
+ * out that line's history rather than every line of the file. `signal` stops it, and a stopped blame
+ * rejects rather than coming back empty - an answer nobody waited for is not "nothing to show".
  */
 export async function blameFile(
   git: Git,
   repo: RepoInfo,
   path: string,
   contents?: string,
+  options: { readonly line?: number; readonly signal?: AbortSignal } = {},
 ): Promise<Blame> {
   const args = [
     'blame',
     '--porcelain',
+    ...(options.line === undefined ? [] : ['-L', `${options.line + 1},${options.line + 1}`]),
     ...(contents === undefined ? [] : ['--contents', '-']),
     '--',
     path,
   ];
 
   const out = await git
-    .runRead(repo.root, args, contents === undefined ? {} : { stdin: contents })
-    .catch(() => '');
+    .runRead(repo.root, args, {
+      ...(contents === undefined ? {} : { stdin: contents }),
+      // Spelled out rather than taken from exec.ts's `until`: the webview imports this module for
+      // describeAge, and a value import of exec.ts would carry a child process into a browser bundle.
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    })
+    .catch((err: unknown) => {
+      if (options.signal?.aborted === true) {
+        throw err;
+      }
+
+      return '';
+    });
 
   return parseBlame(out);
 }

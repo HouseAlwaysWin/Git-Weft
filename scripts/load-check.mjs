@@ -3637,6 +3637,20 @@ if (disposeHandler !== null) {
   }
 
   /*
+   * About its one line, not the file. Blaming every line of a file of thousands to annotate the one
+   * the cursor is on was the question asked at its most expensive, again for each new version of the
+   * text. The column, further down, is the thing that wants every line.
+   */
+  const blames = outputLines.filter((l) => l.startsWith('debug') && l.includes('git blame --porcelain'));
+  const oneLine = blames.filter((l) => l.includes(' -L '));
+
+  console.log('blame asked    :', blames.length, 'time(s),', oneLine.length, 'about one line');
+
+  if (blames.length > 0 && oneLine.length !== blames.length) {
+    problems.push(`the line-end blame blamed the whole file ${blames.length - oneLine.length} time(s) for one line`);
+  }
+
+  /*
    * And the way through to the graph.
    *
    * The link lives in the hover because a decoration's trailing text is drawn rather than built,
@@ -3686,6 +3700,14 @@ if (disposeHandler !== null) {
     decorations.flat().filter((entry) => entry?.renderOptions?.before !== undefined);
 
   const before = columns().length;
+
+  /*
+   * Committed text, for a column that is about commits. The working-tree checks above leave f1.txt
+   * edited on disk, and the column blames the file as it is on disk. It used to pass anyway, handed
+   * the whole-file blame the line-end annotation had made before the edit - which was no longer true
+   * of the file by the time the column drew it.
+   */
+  runGit(repoPath, 'checkout', '-q', '--', 'f1.txt');
 
   await commands.get('weft.toggleFileBlame')();
   await new Promise((r) => setTimeout(r, 2000));

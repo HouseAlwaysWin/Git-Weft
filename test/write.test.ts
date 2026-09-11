@@ -2286,3 +2286,21 @@ test('deleting a branch counts what it would strand once, and shows that it is c
   assert.ok(titles.some((title) => title.startsWith('Counting')), `nothing on screen while counting: ${JSON.stringify(titles)}`);
   assert.equal(sh(dir, 'branch', '--list', 'feature').trim(), '');
 });
+
+test('blame of one line asks about that line alone, and a stopped blame is not an empty one', async () => {
+  const dir = makeRepo();
+  const repo = await open(dir);
+
+  writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n');
+  sh(dir, 'commit', '-qam', 'second line');
+
+  const second = await blameFile(git, repo, join(dir, 'a.txt'), undefined, { line: 1 });
+
+  assert.equal(second[1]?.summary, 'second line');
+  assert.equal(second[0], undefined, 'nothing but the line asked about');
+
+  const stopped = new AbortController();
+  stopped.abort();
+
+  await assert.rejects(blameFile(git, repo, join(dir, 'a.txt'), undefined, { line: 0, signal: stopped.signal }));
+});

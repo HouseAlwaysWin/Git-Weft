@@ -65,6 +65,11 @@
   count - a walk of everything the branch has that no other ref does - ran for the confirmation and
   again for the delete, with nothing on screen either time.
 
+- **The annotation at the end of a line blames that line, not the whole file.** It asked git about
+  every line of the file to show one of them, and again for each new version of the text - on a file
+  of thousands of lines, much of a second per edit for one line of grey text. A blame for a line the
+  cursor has already left is stopped rather than finished, and is never kept as the answer.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two
