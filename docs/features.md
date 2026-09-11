@@ -35,11 +35,13 @@ landing page that lists two hundred things tells you nothing about any of them.
   narrows to that path. Renames are not followed unless you ask: `--follow` detects copies as well,
   so a file scaffolded by copying its neighbour is followed into the neighbour's history without
   saying so. The `follow` switch is there for a file you know was moved
-- The branch button in the header lists every branch: click a name to check it out, or use the
-  ticks to choose which branches the graph draws. The ticks are the same ones as in **Branches &
-  Tags**, not a second copy. Local and Remote roll up, and each heading has a tick for all of
-  them - which acts on what the filter box has left listed, so narrowing and then unticking hides
-  exactly what you can see
+- The branch button in the header chooses which branches the graph draws - the same ticks as in
+  **Branches & Tags**, not a second copy. A name is its tick's label, so clicking either does the
+  same thing, and neither ever checks anything out. What the graph is drawing sits in a **Drawn**
+  section at the top, local and remote together and each saying which it is; the rest follow under
+  Local and Remote, in the order Branches & Tags is sorted by. Local and Remote roll up, and each
+  heading has a tick for all of them - which acts on what the filter box has left listed, so
+  narrowing and then unticking hides exactly what you can see
 - Right-click to copy: a commit's hash or subject, a branch or tag's name - and its full ref name,
   which is the one git resolves rather than the one you read. Files in **Commit Files** copy their
   path either way round, relative or absolute
