@@ -22,6 +22,7 @@ import { MERGE_ACTIONS } from './merge.ts';
 import { NETWORK_ACTIONS } from './network.ts';
 import { REMOTE_ACTIONS } from './remotes.ts';
 import { STASH_ACTIONS } from './stash.ts';
+import { WEB_ACTIONS } from './web.ts';
 
 export type {
   Action,
@@ -46,10 +47,11 @@ export const ACTIONS: readonly Action[] = [
   ...NETWORK_ACTIONS,
   ...REMOTE_ACTIONS,
   ...STASH_ACTIONS,
+  ...WEB_ACTIONS,
 ];
 
 /** Menu sections, top to bottom. Anything unlisted sorts to the end, before danger. */
-const GROUP_ORDER = ['branch', 'create', 'commit', 'stash', 'remote', 'operation', 'danger'];
+const GROUP_ORDER = ['branch', 'create', 'commit', 'stash', 'remote', 'web', 'operation', 'danger'];
 
 export function buildMenu(target: Target, state: RepoState): MenuItem[] {
   const rank = (group: string): number => {

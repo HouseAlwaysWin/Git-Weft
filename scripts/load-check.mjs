@@ -4326,6 +4326,63 @@ await new Promise((r) => setTimeout(r, 2000));
 }
 
 /*
+ * Open on the web, through the panel. A server nothing identifies is refused with the setting that
+ * names it, and the refusal walks nothing - nothing moved; named there, the commit opens at the address
+ * its server gives it, handed to VS Code as it is spelled.
+ */
+{
+  runGit(repoPath, 'remote', 'add', 'origin', 'http://10.20.30.40/erp/dlp.git');
+  runGit(repoPath, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  // Said outright, so no provider configured on the machine running this can answer for it.
+  runGit(repoPath, 'config', 'credential.http://10.20.30.40.provider', 'generic');
+
+  const head = String(runGit(repoPath, 'rev-parse', 'HEAD')).trim();
+  const commit = { kind: 'commit', sha: head, subject: 'the commit' };
+  const until = async (done) => {
+    const by = Date.now() + 10_000;
+
+    while (Date.now() < by && !done()) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+
+  // A remote arriving is refs arriving: whatever that walks has finished before walks are counted.
+  await new Promise((r) => setTimeout(r, 2500));
+  opened.length = 0;
+  const mark = posted.length;
+
+  await messageHandler({ type: 'runAction', id: 'weft.openOnWeb', target: commit });
+  await until(() => posted.slice(mark).some((m) => m.type === 'error'));
+  await new Promise((r) => setTimeout(r, 1000));
+
+  const refusal = posted.slice(mark).find((m) => m.type === 'error');
+  const walked = posted.slice(mark).some((m) => m.type === 'reset');
+
+  settings.set('weft.remoteHosts', { '10.20.30.40': 'gitlab' });
+  await messageHandler({ type: 'runAction', id: 'weft.openOnWeb', target: commit });
+  await until(() => opened.length > 0);
+
+  console.log('\nopen on web    :', JSON.stringify(refusal?.message ?? '(not refused)'), '|', JSON.stringify(opened));
+
+  if (refusal === undefined || !refusal.message.includes('weft.remoteHosts')) {
+    problems.push('a server nothing identifies was not refused with the setting that names it');
+  }
+
+  if (walked) {
+    problems.push('refusing to open a commit on the web walked the graph again');
+  }
+
+  if (JSON.stringify(opened) !== JSON.stringify([`http://10.20.30.40/erp/dlp/-/commit/${head}`])) {
+    problems.push('opening a commit on the web opened ' + JSON.stringify(opened));
+  }
+
+  settings.delete('weft.remoteHosts');
+  runGit(repoPath, 'config', '--unset', 'credential.http://10.20.30.40.provider');
+  runGit(repoPath, 'remote', 'remove', 'origin');
+  await new Promise((r) => setTimeout(r, 2500));
+}
+
+/*
  * Every path that runs git has to stand back for a write in flight.
  *
  * Not a preference. git replaces a file by renaming a lock over it, and Windows refuses that

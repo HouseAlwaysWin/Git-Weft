@@ -104,6 +104,10 @@ export interface ActionUi {
   log(line: string): void;
   /** `weft.protectedBranches`: names no clean-up offers, whatever else is true of them. */
   protectedBranches(): readonly string[];
+  /** Open a web address in the browser, as it is spelled. */
+  openUrl(url: string): Promise<boolean>;
+  /** `weft.remoteHosts`, as written: what serves a host that says nothing about itself. */
+  remoteHosts(): Readonly<Record<string, string>>;
 }
 
 export interface ActionContext {
@@ -120,6 +124,11 @@ export interface ActionResult {
   readonly message: string;
   /** False when the user backed out - not an error, just nothing happened. */
   readonly ran: boolean;
+  /**
+   * Set when the action found, once it had looked, that it cannot run - what `unavailable` would
+   * have said, had it been knowable without asking git. Shown as a refusal is, and nothing is walked.
+   */
+  readonly refused?: boolean;
 }
 
 export interface Action {

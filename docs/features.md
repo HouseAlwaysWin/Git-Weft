@@ -59,6 +59,9 @@ landing page that lists two hundred things tells you nothing about any of them.
 - Ticket ids as links, with `weft.ticketLinks`: an id in a commit message opens where the tracker
   keeps it, from the details pane or a branch badge's menu. Only an id that matches a pattern whole
   opens, and only to an http or https address the extension builds itself
+- Open on the web: a commit, branch or tag opens on GitHub, GitLab, Gitea, Bitbucket or Azure DevOps,
+  from its menu in the graph or in Branches & Tags. A self-hosted server is known by its name, its
+  paths or Git Credential Manager's `credential.<url>.provider`; `weft.remoteHosts` names the rest
 - Click a file there to open it in VS Code's own diff editor, renames included
 - Search by message, author, committer, diff content (`-G`) or path, pushed down into `git log`.
   Match case, regular expression, all-words and invert are switches inside the box, each offered

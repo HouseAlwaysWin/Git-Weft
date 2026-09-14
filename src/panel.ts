@@ -361,6 +361,8 @@ export class WeftPanel {
       return picked === undefined ? null : picked.map((item) => item.label);
     },
     log: (line) => output?.info(line),
+    openUrl: async (url) => openUrl(url),
+    remoteHosts: () => vscode.workspace.getConfiguration('weft').get<{ [host: string]: string }>('remoteHosts', {}),
     protectedBranches: () =>
       vscode.workspace
         .getConfiguration('weft')
@@ -861,6 +863,23 @@ export class WeftPanel {
       });
 
       if (result === null) {
+        return false;
+      }
+
+      /*
+       * Refused once it had looked - what `unavailable` says before anything runs, from an action that
+       * had to ask git to know it: which server a remote is, whether a branch was ever pushed. Said the
+       * way a refusal is said, and nothing is walked, because nothing moved.
+       */
+      if (result.outcome.refused === true) {
+        const reason = result.outcome.message;
+        const refusal = `${action.label(target)}: ${reason.charAt(0).toLowerCase()}${reason.slice(1)}`;
+        this.post({ type: 'error', message: refusal });
+
+        if (announce) {
+          void vscode.window.showWarningMessage(`Weft: ${refusal}`);
+        }
+
         return false;
       }
 

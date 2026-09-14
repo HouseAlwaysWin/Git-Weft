@@ -144,6 +144,14 @@
   to open it. The address is built by the extension from the id alone: the id must match a pattern
   whole, what goes into the address is encoded, and only http and https are opened.
 
+- **Open on the web.** A commit, a branch or a tag opens on the site that hosts the repository, from
+  its menu in the graph or in Branches & Tags: GitHub, GitLab, Gitea and Forgejo, Bitbucket Cloud and
+  Server, Azure DevOps. A self-hosted server is known by its name, by the shape of its paths, or by
+  what Git Credential Manager has been told it is (`credential.<url>.provider`) - so a GitLab on a
+  bare address needs no setting - and anything else can be named in `weft.remoteHosts`. The address
+  keeps the remote's own scheme; a branch with no upstream opens as the remote's branch of the same
+  name; and a commit the remote has not been seen to have is asked about before it opens.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

@@ -97,6 +97,11 @@
         "category": "Git Weft"
       },
       {
+        "command": "weft.openRefOnWeb",
+        "title": "Open on the Web",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.compareBranches",
         "title": "Compare Two Branches…",
         "category": "Git Weft"
@@ -358,6 +363,10 @@
           "when": "false"
         },
         {
+          "command": "weft.openRefOnWeb",
+          "when": "false"
+        },
+        {
           "command": "weft.deleteRef",
           "when": "false"
         },
@@ -516,6 +525,11 @@
           "command": "weft.compareRef",
           "when": "view == weft.refs && viewItem =~ /^weftRef/",
           "group": "compare@1"
+        },
+        {
+          "command": "weft.openRefOnWeb",
+          "when": "view == weft.refs && viewItem =~ /^weftRef/",
+          "group": "web@1"
         },
         {
           "command": "weft.cleanUpBranches",
@@ -738,6 +752,22 @@
           },
           "default": [],
           "markdownDescription": "Ticket ids that become links in commit messages and on branch badges, for example `{ \"pattern\": \"ERP-[0-9]+\", \"url\": \"https://tracker.example/browse/$0\" }`. An id opens only when it matches a pattern whole, and only an `http` or `https` address is opened."
+        },
+        "weft.remoteHosts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "github",
+              "gitlab",
+              "gitea",
+              "bitbucket",
+              "bitbucket-server",
+              "azure-devops"
+            ]
+          },
+          "default": {},
+          "markdownDescription": "What serves a remote Weft cannot tell by itself, by host: `{ \"git.example.internal\": \"gitlab\" }`. Used to open commits, branches and tags on the web. Well-known hosts, hosts whose name says what they are, and servers Git Credential Manager has been told about (`credential.<url>.provider`) need no entry."
         },
         "weft.refreshDebounceMs": {
           "type": "number",

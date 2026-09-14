@@ -34,7 +34,7 @@ import { readRepoState } from '../git/repoState.ts';
 const PROGRESS = '--progress';
 
 /** The remote a ref name like `origin/feature/x` belongs to. Remote names cannot contain a slash. */
-function remoteOf(ref: string, remotes: readonly string[]): string | null {
+export function remoteOf(ref: string, remotes: readonly string[]): string | null {
   const slash = ref.indexOf('/');
 
   if (slash < 0) {

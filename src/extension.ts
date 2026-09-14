@@ -830,6 +830,24 @@ function start(context: vscode.ExtensionContext): void {
       panel.runTargetAction('weft.deleteRemoteBranch', { kind: 'ref', ...target });
     }),
 
+    // Through the panel like the others: it is the graph's action, and the graph's lock it runs under.
+    vscode.commands.registerCommand('weft.openRefOnWeb', (node: unknown) => {
+      const target = refs.targetOf(node);
+
+      if (target === null) {
+        return;
+      }
+
+      const panel = WeftPanel.any();
+
+      if (panel === null) {
+        void vscode.window.showInformationMessage('Weft: open the graph first.');
+        return;
+      }
+
+      panel.runTargetAction('weft.openOnWeb', { kind: 'ref', ...target });
+    }),
+
     vscode.commands.registerCommand('weft.showAllAuthors', () => authors.showAll()),
 
     /*

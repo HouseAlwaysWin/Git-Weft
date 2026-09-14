@@ -97,6 +97,7 @@ function fakeUi(
     /** Answers for `pick`, in order: the labels ticked when it is accepted. Running out is a cancel. */
     picks?: string[][];
     protectedBranches?: string[];
+    remoteHosts?: Record<string, string>;
   } = {},
 ): ActionUi & {
   confirmations: string[];
@@ -104,6 +105,7 @@ function fakeUi(
   questions: string[];
   picked: PickRequest[];
   logged: string[];
+  opened: string[];
 } {
   const confirmations: string[] = [];
   const prompts: string[] = [];
@@ -113,6 +115,7 @@ function fakeUi(
   const picks = [...(options.picks ?? [])];
   const picked: PickRequest[] = [];
   const logged: string[] = [];
+  const opened: string[] = [];
 
   return {
     confirmations,
@@ -120,12 +123,18 @@ function fakeUi(
     questions,
     picked,
     logged,
+    opened,
     pick: async (request) => {
       picked.push(request);
       return picks.shift() ?? null;
     },
     log: (line) => void logged.push(line),
     protectedBranches: () => options.protectedBranches ?? ['main', 'release/*'],
+    openUrl: async (url) => {
+      opened.push(url);
+      return true;
+    },
+    remoteHosts: () => options.remoteHosts ?? {},
     choose: async (request) => {
       questions.push(request.title);
       return choices.shift() ?? null;
@@ -2551,4 +2560,61 @@ test('a branch whose upstream is gone is offered unticked, and goes only by a ch
   assert.equal(second.ran, true);
   assert.equal(sh(dir, 'branch', '--list', 'feature').trim(), '');
   assert.ok(gone.logged.some((line) => line.includes(tip)));
+});
+
+test('open on the web: a GitLab only Git Credential Manager names, a commit the remote lacks, branches pushed by hand', async () => {
+  const dir = makeRepo();
+  sh(dir, 'remote', 'add', 'origin', 'http://10.20.30.40/erp/dlp.git');
+  sh(dir, 'update-ref', 'refs/remotes/origin/main', 'main');
+  sh(dir, 'config', 'credential.http://10.20.30.40.provider', 'gitlab');
+
+  const repo = await open(dir);
+  const state = await readRepoState(git, repo);
+  const action = findAction('weft.openOnWeb');
+  assert.notEqual(action, undefined);
+
+  const main = sh(dir, 'rev-parse', 'main').trim();
+  const feature = sh(dir, 'rev-parse', 'feature').trim();
+  const ui = fakeUi({ confirm: false });
+  const run = (target: Target) => action?.run({ git, repo, state, target, ui });
+
+  await run({ kind: 'commit', sha: main, subject: 'first' });
+  assert.deepEqual(ui.opened, [`http://10.20.30.40/erp/dlp/-/commit/${main}`], 'in the remote\'s own scheme');
+  assert.equal(ui.confirmations.length, 0, 'a commit origin has opens without a question');
+
+  await run({ kind: 'commit', sha: feature, subject: 'second' });
+  assert.equal(ui.confirmations.length, 1, 'a commit origin has not been seen to have is asked about');
+  assert.equal(ui.opened.length, 1, 'and not opened when the answer is no');
+
+  // Pushed by hand, no upstream set: origin's branch of the same name is the one it was pushed as.
+  sh(dir, 'update-ref', 'refs/remotes/origin/feature', 'feature');
+  await run(branch('feature'));
+  assert.equal(ui.opened.at(-1), 'http://10.20.30.40/erp/dlp/-/tree/feature');
+
+  sh(dir, 'update-ref', 'refs/remotes/origin/release/v1.3', 'main');
+  await run({ kind: 'ref', refName: 'refs/remotes/origin/release/v1.3', label: 'origin/release/v1.3', refKind: 'remote' });
+  assert.equal(ui.opened.at(-1), 'http://10.20.30.40/erp/dlp/-/tree/release/v1.3');
+
+  sh(dir, 'branch', 'Dev_ACR080VN_ERP-10147', 'main');
+  const unpushed = await run(branch('Dev_ACR080VN_ERP-10147'));
+  assert.equal(unpushed?.refused, true, 'a branch no remote has is refused, not guessed at');
+  assert.match(unpushed?.message ?? '', /No remote has Dev_ACR080VN_ERP-10147 yet/);
+  assert.equal(ui.opened.length, 3);
+
+  // Told nothing, it refuses and names the setting; named there, it opens.
+  sh(dir, 'config', 'credential.http://10.20.30.40.provider', 'generic');
+  const unknown = await run({ kind: 'commit', sha: main, subject: 'first' });
+  assert.equal(unknown?.refused, true);
+  assert.match(unknown?.message ?? '', /weft\.remoteHosts/);
+
+  const told = fakeUi({ remoteHosts: { '10.20.30.40': 'gitea' } });
+  await action?.run({ git, repo, state, target: { kind: 'commit', sha: main, subject: 'first' }, ui: told });
+  assert.deepEqual(told.opened, [`http://10.20.30.40/erp/dlp/commit/${main}`]);
+
+  // And with no remote at all, the menu says so before anything is asked.
+  const alone = await open(makeRepo());
+  const entry = buildMenu({ kind: 'commit', sha: main, subject: 'first' }, await readRepoState(git, alone)).find(
+    (item) => item.id === 'weft.openOnWeb',
+  );
+  assert.equal(entry?.disabledReason, 'No remote to open it on');
 });
