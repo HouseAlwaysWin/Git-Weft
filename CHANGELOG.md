@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 - **Checking out asks first from Branches & Tags too, and when it detaches onto a commit.** 0.8.0
   said checking out asks first wherever it was asked for, and two ways in did not: Checkout on a
