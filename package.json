@@ -717,6 +717,28 @@
           ],
           "markdownDescription": "Branches **Clean Up Merged Branches** never offers to delete, whatever else is true of them. `*` matches any run of characters, `/` included, and names are matched with their case."
         },
+        "weft.ticketLinks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "description": "A regular expression matching one whole ticket id, such as ERP-[0-9]+"
+              },
+              "url": {
+                "type": "string",
+                "description": "Where it opens: $0 is the whole id, $1 its first group, each percent-encoded. http or https only."
+              }
+            },
+            "required": [
+              "pattern",
+              "url"
+            ]
+          },
+          "default": [],
+          "markdownDescription": "Ticket ids that become links in commit messages and on branch badges, for example `{ \"pattern\": \"ERP-[0-9]+\", \"url\": \"https://tracker.example/browse/$0\" }`. An id opens only when it matches a pattern whole, and only an `http` or `https` address is opened."
+        },
         "weft.refreshDebounceMs": {
           "type": "number",
           "default": 600,

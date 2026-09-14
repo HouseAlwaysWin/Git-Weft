@@ -92,6 +92,8 @@ const contentProviders = new Map();
 const diffsOpened = [];
 const contextKeys = new Map();
 const copied = [];
+/** Addresses handed to the operating system to open. */
+const opened = [];
 const confirmations = [];
 const progressTitles = [];
 const statusMessages = [];
@@ -509,7 +511,13 @@ const vscodeStub = {
           }
         : undefined,
   },
-  env: { clipboard: { writeText: async (text) => void copied.push(text) } },
+  env: {
+    clipboard: { writeText: async (text) => void copied.push(text) },
+    openExternal: async (target) => {
+      opened.push(String(target));
+      return true;
+    },
+  },
 };
 
 // The bundle does `require('vscode')`, which only exists inside the extension host.
@@ -4291,6 +4299,30 @@ await new Promise((r) => setTimeout(r, 2000));
   if (repainted !== 0) {
     problems.push('the cursor moving within one line repainted the blame ' + repainted + ' time(s)');
   }
+}
+
+/*
+ * Ticket ids as links. The view sends the text that was clicked and nothing else: the host matches it
+ * whole against weft.ticketLinks, fills the address in itself, and opens only http and https.
+ */
+{
+  settings.set('weft.ticketLinks', [
+    { pattern: 'ERP-[0-9]+', url: 'https://tracker.example/browse/$0' },
+    { pattern: 'EVIL-[0-9]+', url: 'file:///C:/Windows/System32/calc.exe?$0' },
+  ]);
+  opened.length = 0;
+
+  for (const text of ['ERP-10147', 'see ERP-10147', 'EVIL-1', 'ERP-1/../../x']) {
+    await messageHandler({ type: 'openTicket', text });
+  }
+
+  console.log('\nticket links   :', JSON.stringify(opened));
+
+  if (JSON.stringify(opened) !== JSON.stringify(['https://tracker.example/browse/ERP-10147'])) {
+    problems.push('opening ticket ids opened ' + JSON.stringify(opened) + ', not the one tracker address');
+  }
+
+  settings.delete('weft.ticketLinks');
 }
 
 /*

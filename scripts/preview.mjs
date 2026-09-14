@@ -264,6 +264,8 @@ ${BODY_MARKUP}
     rowHeight: 24,
     authorColors: true,
     kind: repo.isBare ? 'bare' : repo.isLinkedWorktree ? 'linked worktree' : null,
+    // weft.ticketLinks is a setting, and a preview has none: no id is a link here.
+    ticketPatterns: [],
   })};
   function replay() {
     window.postMessage(INIT, '*');

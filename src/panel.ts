@@ -93,6 +93,8 @@ export interface FilterSource {
 import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
+import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
+import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
 import type { BranchFolders } from './git/refFolders.ts';
@@ -721,6 +723,9 @@ export class WeftPanel {
       case 'openConflict':
         await this.openConflict(message.path);
         break;
+      case 'openTicket':
+        await this.openTicket(message.text);
+        break;
       default:
         break;
     }
@@ -1081,6 +1086,19 @@ export class WeftPanel {
   }
 
   /**
+   * Open a clicked ticket id where its tracker keeps it. The address is built here, from the text
+   * alone - so nothing the view sends, and nothing a commit message says, chooses where it goes.
+   */
+  private async openTicket(text: string): Promise<void> {
+    const links = readTicketLinks(vscode.workspace.getConfiguration('weft').get<unknown[]>('ticketLinks', []));
+    const url = ticketUrl(links, text);
+
+    if (url !== null) {
+      await openUrl(url);
+    }
+  }
+
+  /**
    * Hand a conflicted file to VS Code. Its merge editor opens by itself for a file with conflict
    * markers, and it is better at resolving them than anything that would fit in the graph.
    */
@@ -1235,6 +1253,7 @@ export class WeftPanel {
       rowHeight: config.get<number>('rowHeight', 24),
       authorColors: config.get<boolean>('authorColors', true),
       kind: describe(this.repo),
+      ticketPatterns: readTicketLinks(config.get<unknown[]>('ticketLinks', [])).map((link) => link.pattern),
     });
 
     const loader = new HistoryLoader(this.git, this.repo);

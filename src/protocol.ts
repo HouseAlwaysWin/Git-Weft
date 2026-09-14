@@ -100,6 +100,11 @@ export type HostMessage =
       readonly authorColors: boolean;
       /** Set when the repository is anything other than an ordinary clone, for the header. */
       readonly kind: string | null;
+      /**
+       * The patterns of `weft.ticketLinks` that can be used, for the view to find ids by. Patterns
+       * only: where an id opens is the host's to work out, from the text alone.
+       */
+      readonly ticketPatterns: readonly string[];
     }
   | {
       readonly type: 'page';
@@ -276,4 +281,6 @@ export type WebviewMessage =
   | { readonly type: 'saveRefsPreset' }
   | { readonly type: 'manageRefsPresets' }
   /** Hand a conflicted file to VS Code, whose merge editor is better at this than anything here. */
-  | { readonly type: 'openConflict'; readonly path: string };
+  | { readonly type: 'openConflict'; readonly path: string }
+  /** A ticket id that was clicked - the text, never an address: where it goes is the host's business. */
+  | { readonly type: 'openTicket'; readonly text: string };

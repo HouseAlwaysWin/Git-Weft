@@ -16,6 +16,7 @@ import type { CommitInfo } from '../protocol.ts';
 import type { WebviewMessage } from '../protocol.ts';
 import type { SideCommit } from '../git/details.ts';
 import { describeAge } from '../git/blame.ts';
+import { findTickets } from '../git/ticketLinks.ts';
 import { span } from './dom.ts';
 
 /** The working tree as the host last described it - the counts, and where they would land. */
@@ -35,6 +36,9 @@ const splitter = document.getElementById('splitter') as HTMLElement;
 
 let detailsHeight = 200;
 let currentDetails: CommitInfo | null = null;
+
+/** The ticket patterns the host sent: ids in a commit message are marked by them. */
+let ticketPatterns: readonly string[] = [];
 
 /** `2026-07-28T13:37:20+08:00` -> `2026-07-28 13:37:20`, without pretending to know a locale. */
 function formatDate(iso: string): string {
@@ -335,14 +339,47 @@ function renderDetails(details: CommitInfo): void {
   // wall of text.
   const lines = details.body.split('\n');
   const body = document.createDocumentFragment();
-  body.append(span('body-subject', lines[0] ?? ''));
+  body.append(linked('body-subject', lines[0] ?? ''));
 
   const rest = lines.slice(1).join('\n').trim();
   if (rest.length > 0) {
-    body.append(span('body-rest', rest));
+    body.append(linked('body-rest', rest));
   }
 
   detailBodyEl.replaceChildren(body);
+}
+
+/**
+ * Text with its ticket ids marked, each one a link: clicked, or Enter or Space on it, it asks the host
+ * to open it - by its text, since where tickets live is the host's to know. The key is taken as
+ * handled, so the document's own keys - which move the selection - leave it alone.
+ */
+function linked(className: string, text: string): HTMLElement {
+  const el = span(className, '');
+  let at = 0;
+
+  for (const [start, end] of findTickets(ticketPatterns, text)) {
+    const id = text.slice(start, end);
+    const ticket = span('ticket', id);
+    const open = (): void => post({ type: 'openTicket', text: id });
+
+    ticket.setAttribute('role', 'link');
+    ticket.tabIndex = 0;
+    ticket.title = `Open ${id}`;
+    ticket.addEventListener('click', open);
+    ticket.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        open();
+      }
+    });
+
+    el.append(text.slice(at, start), ticket);
+    at = end;
+  }
+
+  el.append(text.slice(at));
+  return el;
 }
 
 /** What the view supplies, because none of it is this module's to know. */
@@ -370,6 +407,11 @@ export function connect(options: {
 /** Show a commit. */
 export function show(details: CommitInfo): void {
   renderDetails(details);
+}
+
+/** The ticket patterns, as the host sent them with the rest of what the view reads at the start. */
+export function setTicketPatterns(patterns: readonly string[]): void {
+  ticketPatterns = patterns;
 }
 
 /** Show the working tree. */

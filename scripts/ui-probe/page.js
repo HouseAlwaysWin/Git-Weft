@@ -716,6 +716,52 @@
     await settle(300);
     state('empty: git said why', '#empty');
     state('empty: the bar is off', '#progress');
+
+    /*
+     * Ticket ids in a commit message, marked from the patterns the host sends and opened by their text,
+     * clicked or from the keyboard. Last, because it sends an init of its own.
+     */
+    window.postMessage(
+      {
+        type: 'init',
+        repoName: 'weft-ui-probe-demo',
+        repoRoot: '/demo',
+        rowHeight: 24,
+        authorColors: true,
+        kind: null,
+        ticketPatterns: ['ERP-[0-9]+'],
+      },
+      '*',
+    );
+    window.postMessage(
+      {
+        type: 'details',
+        details: {
+          sha: 'e'.repeat(40),
+          parents: [],
+          author: 'Weft Test',
+          authorEmail: 'test@example.invalid',
+          authorDate: '2026-01-01T00:00:00+00:00',
+          committer: 'Weft Test',
+          committerDate: '2026-01-01T00:00:00+00:00',
+          body: 'Fix the total for ERP-10147\n\nAlso ERP-2, and not XERP-3.',
+        },
+      },
+      '*',
+    );
+    await settle(250);
+    take('ticket links', document.querySelector('#detail-body'));
+
+    const beforeTicket = sent().length;
+    const tickets = document.querySelectorAll('#detail-body .ticket');
+    click(tickets[0]);
+
+    if (tickets[1]) {
+      tickets[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+
+    await settle(200);
+    parts.push('=== opening ticket ids sends ===\n' + sentSince(beforeTicket));
   } catch (error) {
     // Written rather than lost: a probe that dies partway leaves a recording that looks deliberate.
     parts.push('=== probe failed ===\n' + String((error && error.stack) || error));

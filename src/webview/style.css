@@ -621,6 +621,19 @@ body.vscode-high-contrast.author-tint .row .author {
   background: var(--vscode-button-secondaryHoverBackground, rgba(255, 255, 255, 0.2));
 }
 
+/* A ticket id in a commit message: a link, and one the keyboard reaches. */
+.ticket {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+.ticket:hover,
+.ticket:focus-visible {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+  text-decoration: underline;
+}
+
 #search-box {
   display: flex;
   gap: 4px;

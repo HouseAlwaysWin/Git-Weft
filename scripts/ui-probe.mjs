@@ -444,6 +444,22 @@ const INVARIANTS = [
     },
   ],
   [
+    'a ticket id in a commit message opens by its text, clicked or from the keyboard',
+    (found) => {
+      const marked = (found['=== ticket links ==='] ?? '').match(/class="ticket"/g) ?? [];
+      const sent = sentIn(found, 'opening ticket ids sends');
+      const ok =
+        marked.length === 2 &&
+        JSON.stringify(sent) ===
+          JSON.stringify([
+            { type: 'openTicket', text: 'ERP-10147' },
+            { type: 'openTicket', text: 'ERP-2' },
+          ]);
+
+      return ok ? null : `marked ${marked.length} of 2, sent ${JSON.stringify(sent)}`;
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null

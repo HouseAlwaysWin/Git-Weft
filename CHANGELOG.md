@@ -138,6 +138,12 @@
   Every tip is written to the Weft log before anything is deleted, and git is asked with `-d`, so it
   still refuses what it does not count as merged - and those are named, not forced.
 
+- **Ticket ids are links.** With `weft.ticketLinks` set - `{ "pattern": "ERP-[0-9]+", "url":
+  "https://tracker.example/browse/$0" }`, say - an id in a commit message is a link in the details
+  pane, clicked or reached from the keyboard, and a branch or tag badge whose name holds one offers
+  to open it. The address is built by the extension from the id alone: the id must match a pattern
+  whole, what goes into the address is encoded, and only http and https are opened.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

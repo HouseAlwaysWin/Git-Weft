@@ -56,6 +56,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   palette's Compare Two Branches - and the pane and Commit Files name the two ends. The pane lists
   the commits only on each side, newest first, each a click from its row in the graph, and draws a
   branch the graph is not drawing in one more
+- Ticket ids as links, with `weft.ticketLinks`: an id in a commit message opens where the tracker
+  keeps it, from the details pane or a branch badge's menu. Only an id that matches a pattern whole
+  opens, and only to an http or https address the extension builds itself
 - Click a file there to open it in VS Code's own diff editor, renames included
 - Search by message, author, committer, diff content (`-G`) or path, pushed down into `git log`.
   Match case, regular expression, all-words and invert are switches inside the box, each offered

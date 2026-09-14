@@ -32,6 +32,7 @@ import type { CommitOrder, RefEntry } from '../protocol.ts';
 import type { SearchMode, SearchToggle } from '../git/search.ts';
 import { looksLikeCommitId } from '../git/search.ts';
 import { describeAge } from '../git/blame.ts';
+import { findTickets } from '../git/ticketLinks.ts';
 import type { Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
 import { authorHue } from './authorColor.ts';
@@ -337,6 +338,9 @@ interface CompareMark {
 function commitEnd(sha: string): CompareMark {
   return { rev: sha, label: sha.slice(0, 8), sha };
 }
+
+/** The ticket patterns the host sent - see `ticketLinks` - for a badge's name to be read by. */
+let ticketPatterns: readonly string[] = [];
 /** The lane colours, re-read every frame from the stylesheet - see `measureFrame`. */
 const palette: string[] = [];
 let pending = false;
@@ -912,6 +916,7 @@ function localMenuItems(target: Target): LocalItem[] {
     const what = target.refKind === 'tag' ? 'Tag' : 'Branch';
 
     return [
+      ...ticketItems(target.label),
       // By its name, so as it is when the comparison runs - and only off a row, where its commit is known.
       ...(target.sha === undefined ? [] : compareItems({ rev: target.refName, label: target.label, sha: target.sha })),
       copyItem(`Copy ${what} Name`, target.label),
@@ -955,6 +960,14 @@ function compareItems(end: CompareMark): LocalItem[] {
     { label: `Compare with ${compareFrom.label}`, group: 'compare', run: () => compareWith(end) },
     { label: 'Select for Compare', group: 'compare', run: () => markForCompare(end) },
   ];
+}
+
+/** An "Open ERP-10147" for each ticket id a branch or tag's name holds. */
+function ticketItems(name: string): LocalItem[] {
+  return findTickets(ticketPatterns, name).map(([start, end]) => {
+    const id = name.slice(start, end);
+    return { label: `Open ${id}`, group: 'ticket', run: () => vscode.postMessage({ type: 'openTicket', text: id }) };
+  });
 }
 
 /**
@@ -1135,6 +1148,8 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
         : `${message.repoName}  (${message.kind})`;
       titleEl.title = message.repoRoot;
       document.body.classList.toggle('author-tint', message.authorColors);
+      ticketPatterns = message.ticketPatterns;
+      detailsPane.setTicketPatterns(message.ticketPatterns);
       break;
 
     case 'reset':
