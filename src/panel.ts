@@ -100,6 +100,7 @@ import { watchWorkingTree } from './git/vscodeGit.ts';
 import type { BranchFolders } from './git/refFolders.ts';
 import { listStashes } from './git/stash.ts';
 import { Remedy, mapGitError } from './git/errors.ts';
+import { explainStaleLock } from './git/staleLock.ts';
 import { describeAge } from './git/blame.ts';
 import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
@@ -925,7 +926,7 @@ export class WeftPanel {
   }
 
   private async reportError(err: unknown, retry: (() => Promise<unknown>) | null = null): Promise<void> {
-    const mapped = mapGitError(err);
+    const mapped = await explainStaleLock(mapGitError(err), this.repo.root);
     const detail = mapped.paths.length === 0 ? '' : `\n\n${mapped.paths.map((p) => `  ${p}`).join('\n')}`;
 
     output?.warn(`${mapped.message}\n${mapped.raw}`);

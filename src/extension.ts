@@ -16,6 +16,8 @@ import { LineHistoryProvider } from './lineHistoryView.ts';
 import { lineHistory } from './git/lineHistory.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
 import { SlowReads, fsmonitorCanRun, statusOffer } from './git/statusAdvice.ts';
+import { mapGitError } from './git/errors.ts';
+import { explainStaleLock } from './git/staleLock.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -294,9 +296,17 @@ async function offerFasterStatus(git: Git, root: string, memento: vscode.Memento
       }
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    output?.warn(`could not change git's settings in ${root}: ${message}`);
-    void vscode.window.showWarningMessage(`Weft: could not change git's settings in ${name}: ${message}`);
+    // Mapped as an action's failure is, so a lock git left behind is named rather than shown as git's text.
+    const mapped = await explainStaleLock(mapGitError(err), root);
+    output?.warn(`could not change git's settings in ${root}: ${mapped.message}\n${mapped.raw}`);
+
+    void vscode.window
+      .showWarningMessage(`Weft: could not change git's settings in ${name}. ${mapped.message}`, 'Show Log')
+      .then((choice) => {
+        if (choice === 'Show Log') {
+          output?.show();
+        }
+      });
     return;
   }
 

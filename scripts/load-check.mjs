@@ -13,11 +13,14 @@ import Module from 'node:module';
 import { resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
+  rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -3829,6 +3832,69 @@ if (watchTest) {
   runGit(repoPath, 'branch', '-D', 'release/kept');
   runGit(repoPath, 'update-ref', 'refs/heads/main', mainWas);
   await new Promise((r) => setTimeout(r, 2000));
+}
+
+/*
+ * A lock file git left behind is named, with how to be rid of it.
+ *
+ * A config.lock stayed in a repository for eight months after a command stopped part-way, and every write
+ * to git's settings failed on it - which Weft called another git process using the repository, to be
+ * waited for. Nothing was running, and the wait had no end. A rename writes the config as well as the
+ * ref, so it meets a lock left two days ago: the warning has to say which file, and that deleting it is
+ * the fix, and the lock has to be there still - Weft deletes nothing under .git by itself.
+ */
+{
+  const configLock = join(repoPath, '.git', 'config.lock');
+  const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000);
+
+  runGit(repoPath, 'branch', 'lockbound', 'main');
+  writeFileSync(configLock, readFileSync(join(repoPath, '.git', 'config')));
+  utimesSync(configLock, twoDaysAgo, twoDaysAgo);
+
+  confirmed = true;
+  inputAnswers.push('lockbound-renamed');
+  const warnedFrom = confirmations.length;
+
+  await messageHandler({
+    type: 'runAction',
+    id: 'weft.renameBranch',
+    target: { kind: 'ref', refName: 'refs/heads/lockbound', label: 'lockbound', refKind: 'local' },
+  });
+
+  const warnedBy = Date.now() + 15_000;
+  while (Date.now() < warnedBy && confirmations.length === warnedFrom) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  const warned = confirmations
+    .slice(warnedFrom)
+    .map((entry) => entry.message)
+    .join(' | ');
+  const kept = existsSync(configLock);
+
+  console.log('\nstale lock     :', JSON.stringify(warned.slice(0, 110)), '| the lock still there:', kept);
+
+  if (!warned.includes('.git/config.lock') || !warned.includes('delete it')) {
+    problems.push('an old config.lock was not named, with how to be rid of it: ' + JSON.stringify(warned));
+  }
+
+  if (!kept) {
+    problems.push('Weft deleted a lock file under .git by itself');
+  }
+
+  rmSync(configLock, { force: true });
+
+  // Renamed or not, depending on how far git got before the lock stopped it.
+  const leftover = runGit(repoPath, 'branch', '--list', 'lockbound', 'lockbound-renamed')
+    .split('\n')
+    .map((line) => line.replace(/^[*+ ]+/, '').trim())
+    .filter((line) => line.length > 0);
+
+  if (leftover.length > 0) {
+    runGit(repoPath, 'branch', '-D', ...leftover);
+  }
+
+  await new Promise((r) => setTimeout(r, 1500));
 }
 
 /*

@@ -144,7 +144,7 @@ const RULES: Rule[] = [
     remedies: [Remedy.Retry, Remedy.ShowLog],
   },
   {
-    match: /(cannot lock ref|Unable to create .*\.lock|File exists)/,
+    match: /(cannot lock ref|Unable to create .*\.lock|could not lock config file|File exists)/,
     message: () =>
       'Another git process is using this repository. Wait for it to finish and try again.',
     remedies: [],
@@ -219,6 +219,43 @@ const RULES: Rule[] = [
     remedies: [],
   },
 ];
+
+/**
+ * The lock file git could not create, as git names it: a config file's lock, or the one named outright.
+ * null when the failure is not about a lock that is already there.
+ */
+export function lockNamed(raw: string): string | null {
+  const created = /Unable to create '([^']+\.lock)': File exists/.exec(raw);
+
+  if (created !== null) {
+    return created[1] ?? null;
+  }
+
+  // With ": File exists" from git config, and without a reason from a rename or a delete, which rewrite
+  // the config through another path. That the lock is there, and how old, is for the caller to look at.
+  const config = /could not lock config file (.+?)(?:: File exists)?\s*$/m.exec(raw);
+  return config === null ? null : `${config[1] ?? ''}.lock`;
+}
+
+/** How old a lock has to be before it is taken for one left behind: no git command holds one that long. */
+export const STALE_LOCK_MS = 10 * 60 * 1000;
+
+/**
+ * What to say about a lock that has been there longer than any command runs: which file, since when, and
+ * that deleting it is the fix - git's own advice, passed on rather than acted on. null for a lock young
+ * enough to be somebody's work in progress.
+ */
+export function staleLockMessage(lock: string, since: Date, now: Date): string | null {
+  if (now.getTime() - since.getTime() < STALE_LOCK_MS) {
+    return null;
+  }
+
+  return (
+    `${lock} has been there since ${since.toISOString().slice(0, 10)}, left behind by a git command that ` +
+    'stopped part-way, and git will not change that file while it is there. If no git command is running ' +
+    'in this repository, delete it.'
+  );
+}
 
 /**
  * Map a failure to something worth showing. Anything unrecognised keeps git's own first line -

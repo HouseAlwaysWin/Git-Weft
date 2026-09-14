@@ -158,6 +158,13 @@
   closes the menu and gives focus back - in the column headers' menu too. The event the browser
   follows Shift+F10 with is swallowed, so VS Code's own menu does not open on top of Weft's.
 
+- **A lock file git left behind is named, with how to be rid of it.** A git command that stops
+  part-way leaves its lock - `.git/config.lock`, say - and every write to that file fails from then on.
+  Weft called that another git process using the repository, to be waited for; with nothing running,
+  the wait never ended. A lock older than any command runs is now named, with the day it was left and
+  that deleting it is the fix, for an action's failure and for the slow `git status` offer's settings
+  alike. Weft deletes nothing under `.git` itself.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two
