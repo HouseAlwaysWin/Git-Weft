@@ -712,15 +712,7 @@ function renderRows(indent: number, first: number, last: number): void {
       select(i);
     });
 
-    el.addEventListener('contextmenu', (event) =>
-      contextMenu.request(
-        event,
-        // A stash row is a commit underneath, but the actions worth offering are entirely different.
-        row.stash === undefined
-          ? { kind: 'commit', sha: row.sha, subject: row.subject }
-          : { kind: 'stash', name: row.stash, sha: row.sha, message: row.subject },
-      ),
-    );
+    el.addEventListener('contextmenu', (event) => contextMenu.request(event, rowTarget(row)));
 
     frag.append(el);
   }
@@ -738,6 +730,30 @@ function scrollRowIntoView(index: number): void {
   } else if (bottom > viewport.scrollTop + viewport.clientHeight) {
     viewport.scrollTop = bottom - viewport.clientHeight;
   }
+}
+
+/** What a row's menu is about. A stash row is a commit underneath, but the actions worth offering are entirely different. */
+function rowTarget(row: Row): Target {
+  return row.stash === undefined
+    ? { kind: 'commit', sha: row.sha, subject: row.subject }
+    : { kind: 'stash', name: row.stash, sha: row.sha, message: row.subject };
+}
+
+/**
+ * The selected row's menu, from the keyboard - Shift+F10 or the menu key - opened where a right-click
+ * would have opened it: under the row, near the start of its line. The working tree has no menu.
+ */
+function openMenuFromKeyboard(): void {
+  const row = view[selected];
+
+  if (row === undefined || row.uncommitted === true) {
+    return;
+  }
+
+  scrollRowIntoView(selected);
+
+  const box = viewport.getBoundingClientRect();
+  contextMenu.requestAt(rowTarget(row), box.left + 24, box.top + (selected + 1) * rowHeight - viewport.scrollTop, true);
 }
 
 /** Follow a parent link. The commit may not be loaded if a search is narrowing the view. */
@@ -1395,20 +1411,29 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
+  // An open menu has the keys - moving through it, choosing, closing - before anything below moves
+  // the commit selection underneath it.
+  if (contextMenu.handleKey(event)) {
+    event.preventDefault();
+    return;
+  }
+
+  // Shift+F10, or the menu key: the selected row's menu, as a right-click on the row would open it.
+  if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+    openMenuFromKeyboard();
+    event.preventDefault();
+    return;
+  }
+
   const page = Math.max(1, Math.floor(viewport.clientHeight / rowHeight) - 1);
   const from = selected < 0 ? -1 : selected;
 
   if (event.key === 'Escape') {
-    // Innermost first: the menu, then the comparison, then the pane. Closing more than one of them
-    // at a time would be one keystroke doing something the user did not ask for.
+    // Innermost first: the branch list, then the comparison, then the pane - a right-click menu,
+    // innermost of all, has had the key already. Closing more than one of them at a time would be one
+    // keystroke doing something the user did not ask for.
     if (branches.listOpen()) {
       branches.closeAll();
-      return;
-    }
-
-    if (contextMenu.isOpen()) {
-      contextMenu.close();
-      event.preventDefault();
       return;
     }
 

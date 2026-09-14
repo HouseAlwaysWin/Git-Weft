@@ -895,12 +895,19 @@ body.vscode-high-contrast.author-tint .row .author {
   cursor: pointer;
 }
 
-.menu-item:not(.disabled):hover {
+/* The keyboard's place in a menu looks like the pointer's: the pointer moves it, and so do the arrows. */
+.menu-item:focus {
+  outline: none;
+}
+
+.menu-item:not(.disabled):hover,
+.menu-item:not(.disabled):focus {
   background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
   color: var(--vscode-menu-selectionForeground, inherit);
 }
 
-.menu-item.destructive:not(.disabled):hover {
+.menu-item.destructive:not(.disabled):hover,
+.menu-item.destructive:not(.disabled):focus {
   background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
 }
 

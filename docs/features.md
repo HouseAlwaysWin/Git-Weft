@@ -62,6 +62,8 @@ landing page that lists two hundred things tells you nothing about any of them.
 - Open on the web: a commit, branch or tag opens on GitHub, GitLab, Gitea, Bitbucket or Azure DevOps,
   from its menu in the graph or in Branches & Tags. A self-hosted server is known by its name, its
   paths or Git Credential Manager's `credential.<url>.provider`; `weft.remoteHosts` names the rest
+- The commit menu from the keyboard: Shift+F10 or the menu key opens the selected row's menu, and
+  the arrows, Home, End, Enter and Escape work it - the column headers' menu as well
 - Click a file there to open it in VS Code's own diff editor, renames included
 - Search by message, author, committer, diff content (`-G`) or path, pushed down into `git log`.
   Match case, regular expression, all-words and invert are switches inside the box, each offered

@@ -152,6 +152,12 @@
   keeps the remote's own scheme; a branch with no upstream opens as the remote's branch of the same
   name; and a commit the remote has not been seen to have is asked about before it opens.
 
+- **The commit menu from the keyboard.** Shift+F10, or the menu key, opens the selected row's menu
+  where a right-click would, with the first thing on it that can be chosen focused. The arrows move
+  past what is greyed out, Home and End go to the ends, Enter or Space chooses, and Escape or Tab
+  closes the menu and gives focus back - in the column headers' menu too. The event the browser
+  follows Shift+F10 with is swallowed, so VS Code's own menu does not open on top of Weft's.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

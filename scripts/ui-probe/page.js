@@ -762,6 +762,112 @@
 
     await settle(200);
     parts.push('=== opening ticket ids sends ===\n' + sentSince(beforeTicket));
+
+    /*
+     * The commit menu from the keyboard. Shift+F10 on the selected row asks for its menu, and the first
+     * thing on it that can be chosen takes focus; the arrows go past what cannot be; Enter chooses;
+     * Escape hands focus back. The contextmenu event a real Shift+F10 is followed by is swallowed, or
+     * VS Code's own menu opens over this one. And the column menu is worked the same way.
+     */
+    {
+      // The steps before this one leave the graph empty, and a menu from the keyboard is a selected row's:
+      // the demo history is drawn again first, the way the page first drew it.
+      if (typeof replay === 'function') {
+        replay();
+        await settle(800);
+      }
+
+      click(document.querySelector('#rows .row:not(.uncommitted)'));
+      await settle(200);
+
+      // From the graph, not from a box: a control with focus owns its keys, and an earlier step can
+      // leave focus in one. Where it was is recorded, so a step that leaves it there can be found.
+      const heldFocus = document.activeElement;
+      const heldBy =
+        heldFocus instanceof HTMLElement && heldFocus !== document.body
+          ? heldFocus.tagName.toLowerCase() + (heldFocus.id ? '#' + heldFocus.id : '')
+          : 'nothing';
+
+      if (heldFocus instanceof HTMLElement && heldFocus !== document.body) {
+        heldFocus.blur();
+      }
+
+      const key = (name, options) =>
+        (document.activeElement || document.body).dispatchEvent(
+          new KeyboardEvent('keydown', Object.assign({ key: name, bubbles: true, cancelable: true }, options || {})),
+        );
+      const inMenu = () => document.activeElement !== null && document.activeElement.closest('.menu') !== null;
+      const focused = () => (inMenu() ? document.activeElement.textContent : '(outside the menu)');
+      const closedState = () =>
+        (document.querySelector('.menu') ? 'open' : 'closed') + (inMenu() ? ', focus inside' : ', focus outside');
+      const said = ['focus was held by: ' + heldBy];
+
+      const beforeKey = sent().length;
+      key('F10', { shiftKey: true });
+      await settle(100);
+
+      const asked = sent().slice(beforeKey).find((m) => m.type === 'requestMenu');
+      const echo = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      document.body.dispatchEvent(echo);
+
+      // Answered by the page's stand-in for the host, as every request is: the real items, and one of them
+      // greyed out.
+      await settle(250);
+
+      said.push('asked: ' + (asked ? JSON.stringify(asked.target.kind) : 'nothing'));
+      said.push('echo swallowed: ' + echo.defaultPrevented);
+      said.push(
+        'choosable: ' + JSON.stringify([...document.querySelectorAll('.menu .menu-item:not(.disabled)')].map((el) => el.textContent)),
+      );
+      said.push('opened on: ' + focused());
+      key('End');
+      said.push('end: ' + focused());
+      key('Home');
+      said.push('home: ' + focused());
+
+      // To the item just before the greyed-out one, then down past it, and back up - where Enter chooses.
+      const items = [...document.querySelectorAll('.menu .menu-item')];
+      const greyed = items.findIndex((el) => el.classList.contains('disabled'));
+      const around = [
+        greyed > 0 ? items[greyed - 1].textContent : '',
+        greyed >= 0 && items[greyed + 1] ? items[greyed + 1].textContent : '',
+      ];
+      said.push('around the greyed-out one: ' + JSON.stringify(around));
+
+      for (let i = 0; i < 12 && focused() !== around[0]; i += 1) {
+        key('ArrowDown');
+      }
+
+      key('ArrowDown');
+      said.push('past the greyed-out one: ' + focused());
+      key('ArrowUp');
+      said.push('and back: ' + focused());
+
+      const beforeChoose = sent().length;
+      key('Enter');
+      await settle(150);
+      said.push('chose: ' + sentSince(beforeChoose));
+      said.push('after choosing: ' + closedState());
+
+      key('F10', { shiftKey: true });
+      await settle(350);
+      key('Escape');
+      await settle(100);
+      said.push('after escape: ' + closedState());
+
+      if (columns) {
+        columns.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 10 }));
+      }
+
+      await settle(200);
+      key('ArrowDown');
+      said.push('column menu: ' + focused());
+      key('Escape');
+      await settle(100);
+      said.push('column menu after escape: ' + closedState());
+
+      parts.push('=== the commit menu from the keyboard ===\n' + said.join('\n'));
+    }
   } catch (error) {
     // Written rather than lost: a probe that dies partway leaves a recording that looks deliberate.
     parts.push('=== probe failed ===\n' + String((error && error.stack) || error));

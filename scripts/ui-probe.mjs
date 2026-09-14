@@ -460,6 +460,55 @@ const INVARIANTS = [
     },
   ],
   [
+    'the commit menu opens from the keyboard, and the keyboard works it',
+    (found) => {
+      const lines = (found['=== the commit menu from the keyboard ==='] ?? '').split('\n');
+      const said = (name) => {
+        const line = lines.find((entry) => entry.startsWith(`${name}: `));
+        return line === undefined ? null : line.slice(name.length + 2);
+      };
+      let choosable = [];
+
+      try {
+        choosable = JSON.parse(said('choosable') ?? '[]');
+      } catch {
+        // Read as nothing, and failed below.
+      }
+
+      let around = [];
+
+      try {
+        around = JSON.parse(said('around the greyed-out one') ?? '[]');
+      } catch {
+        // Read as nothing, and failed below.
+      }
+
+      const column = said('column menu') ?? '(outside the menu)';
+      const wrong = [
+        said('asked') === '"commit"' ? null : `Shift+F10 asked for ${said('asked')}`,
+        said('echo swallowed') === 'true' ? null : 'the contextmenu after Shift+F10 was left to VS Code',
+        choosable.length > 2 && said('opened on') === choosable[0] ? null : `it opened on ${said('opened on')}`,
+        said('end') === choosable.at(-1) && said('home') === choosable[0] ? null : `End and Home went to ${said('end')} and ${said('home')}`,
+        around.length === 2 &&
+        around[0] !== '' &&
+        around[1] !== '' &&
+        said('past the greyed-out one') === around[1] &&
+        said('and back') === around[0]
+          ? null
+          : `the arrows went to ${said('past the greyed-out one')} and back to ${said('and back')}, around ${JSON.stringify(around)}`,
+        /"type":"runAction".*"kind":"commit"/.test(said('chose') ?? '') ? null : `Enter sent ${said('chose') || 'nothing'}`,
+        said('after choosing') === 'closed, focus outside' && said('after escape') === 'closed, focus outside'
+          ? null
+          : `after choosing: ${said('after choosing')}; after Escape: ${said('after escape')}`,
+        column !== '(outside the menu)' && !column.includes('Description') && said('column menu after escape') === 'closed, focus outside'
+          ? null
+          : `the column menu went to ${column}, then ${said('column menu after escape')}`,
+      ].filter((problem) => problem !== null);
+
+      return wrong.length === 0 ? null : wrong.join('; ');
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null
