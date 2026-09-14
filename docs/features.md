@@ -53,7 +53,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   it, because the two commits worth comparing are rarely both on screen - and the mark is held by
   hash, so searching for the far one does not throw it away. Escape drops both. Branches and tags
   compare the same way, by name - from their badge on a row, from **Branches & Tags**, or with the
-  palette's Compare Two Branches - and the pane and Commit Files name the two ends
+  palette's Compare Two Branches - and the pane and Commit Files name the two ends. The pane lists
+  the commits only on each side, newest first, each a click from its row in the graph, and draws a
+  branch the graph is not drawing in one more
 - Click a file there to open it in VS Code's own diff editor, renames included
 - Search by message, author, committer, diff content (`-G`) or path, pushed down into `git log`.
   Match case, regular expression, all-words and invert are switches inside the box, each offered

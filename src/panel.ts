@@ -232,6 +232,14 @@ export class WeftPanel {
   }
 
   /**
+   * Whether the graph is drawing what `rev` names. A branch or tag is drawn when the last walk named
+   * it, or named everything; a commit was picked off the graph, so it is there.
+   */
+  private drawing(rev: string): boolean {
+    return !rev.startsWith('refs/') || this.drawnRefs === null || this.drawnRefs.includes(rev);
+  }
+
+  /**
    * Whether a write is in flight against this repository.
    *
    * Exposed because the rule it enforces is not the panel's: anything that runs git against a
@@ -1026,11 +1034,13 @@ export class WeftPanel {
       if (!controller.signal.aborted) {
         this.post({
           type: 'comparison',
-          from: { rev: from.rev, label: from.label, sha: fromSha },
-          to: { rev: to.rev, label: to.label, sha: toSha },
+          from: { rev: from.rev, label: from.label, sha: fromSha, drawn: this.drawing(from.rev) },
+          to: { rev: to.rev, label: to.label, sha: toSha, drawn: this.drawing(to.rev) },
           files: comparison.files.length,
           onlyFrom: comparison.onlyFrom,
           onlyTo: comparison.onlyTo,
+          onlyFromCommits: comparison.onlyFromCommits,
+          onlyToCommits: comparison.onlyToCommits,
         });
 
         commitFiles?.compared(this.repo.root, comparison, { from: from.label, to: to.label });

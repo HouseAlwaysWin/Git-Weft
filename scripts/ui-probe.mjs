@@ -428,6 +428,22 @@ const INVARIANTS = [
     },
   ],
   [
+    'a comparison lists each side, and draws the end the graph is not drawing',
+    (found) => {
+      const listed = found['=== comparison commits ==='] ?? '';
+      const sent = sentIn(found, 'drawing the undrawn end of a comparison sends');
+      const ok =
+        listed.includes('Only on origin/uat - the newest 2 of 250') &&
+        listed.includes('the newest on uat') &&
+        sent !== null &&
+        sent.length === 1 &&
+        sent[0].type === 'setRefsVisible' &&
+        JSON.stringify(sent[0].refNames) === JSON.stringify(['refs/remotes/origin/uat']);
+
+      return ok ? null : `listed: ${listed.split('\n').join(' / ')} | sent ${describe(sent)}`;
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null

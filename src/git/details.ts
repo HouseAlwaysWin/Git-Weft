@@ -115,6 +115,18 @@ export function parseRawDiff(output: string): FileChange[] {
   return files;
 }
 
+/** How many of the commits on each side a comparison lists: the newest, being the ones asked about. */
+export const SIDE_LIMIT = 100;
+
+/** A commit on one side of a comparison only, as the pane lists it. */
+export interface SideCommit {
+  readonly sha: string;
+  readonly subject: string;
+  readonly author: string;
+  /** Author time, epoch milliseconds. */
+  readonly date: number;
+}
+
 /** What two commits differ by, and how far apart they are. */
 export interface Comparison {
   readonly from: string;
@@ -123,6 +135,9 @@ export interface Comparison {
   /** Commits reachable from `from` but not `to`, and the other way round. */
   readonly onlyFrom: number;
   readonly onlyTo: number;
+  /** The newest of those, up to a limit: the counts above say how many more there are. */
+  readonly onlyFromCommits: SideCommit[];
+  readonly onlyToCommits: SideCommit[];
 }
 
 /**
@@ -141,10 +156,35 @@ export async function compareCommits(
   from: string,
   to: string,
   signal?: AbortSignal,
+  limit = SIDE_LIMIT,
 ): Promise<Comparison> {
   const options = signal === undefined ? {} : { signal };
 
-  const [raw, counts] = await Promise.all([
+  /*
+   * The commits one side has and the other does not, newest first and no more than `limit` of them.
+   * Two branches that went their own ways can be thousands apart - uat was 5,100 ahead of the release
+   * it came from - and what is wanted is the newest few, with the count saying the rest.
+   */
+  const only = (side: string, other: string): Promise<SideCommit[]> =>
+    git
+      .runRead(
+        repo.root,
+        [
+          'log',
+          '--no-show-signature',
+          '--format=%H%x00%aN%x00%at%x00%s',
+          `--max-count=${limit}`,
+          side,
+          '--not',
+          other,
+          '--',
+        ],
+        options,
+      )
+      .then(parseSide)
+      .catch(() => []);
+
+  const [raw, counts, onlyFromCommits, onlyToCommits] = await Promise.all([
     git.runRead(
       repo.root,
       ['diff', '--format=', '-z', '--raw', '-M', '-C', from, to],
@@ -153,6 +193,8 @@ export async function compareCommits(
     git
       .runRead(repo.root, ['rev-list', '--left-right', '--count', `${from}...${to}`], options)
       .catch(() => '0\t0'),
+    only(from, to),
+    only(to, from),
   ]);
 
   const [left = '0', right = '0'] = counts.trim().split(/\s+/);
@@ -163,7 +205,20 @@ export async function compareCommits(
     files: parseRawDiff(raw),
     onlyFrom: Number(left) || 0,
     onlyTo: Number(right) || 0,
+    onlyFromCommits,
+    onlyToCommits,
   };
+}
+
+/** `%H %aN %at %s`, NUL between the fields, a commit to a line. */
+function parseSide(out: string): SideCommit[] {
+  return out
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [sha = '', author = '', at = '', subject = ''] = line.split('\x00');
+      return { sha, author, date: (Number(at) || 0) * 1000, subject };
+    });
 }
 
 export async function loadCommitDetails(

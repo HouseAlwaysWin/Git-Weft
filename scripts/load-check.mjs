@@ -3398,6 +3398,10 @@ if (watchTest) {
   const mainNode = heads.find((node) => node.label === 'main');
   const before = posted.filter((m) => m.type === 'comparison').length;
 
+  // The branch HEAD is on drawn and nothing else, so the tag is an end the graph is not drawing.
+  await commands.get('weft.showCurrentRefOnly')();
+  await new Promise((r) => setTimeout(r, 800));
+
   pickAnswers.push('v1.0');
   await commands.get('weft.compareRef')(mainNode);
 
@@ -3424,6 +3428,25 @@ if (watchTest) {
 
   if (!heading.startsWith('main → v1.0')) {
     problems.push('Commit Files headed the comparison ' + JSON.stringify(heading) + ', not with the two names');
+  }
+
+  if (answer !== undefined) {
+    console.log(
+      '  sides        :',
+      answer.onlyFromCommits.length, 'of', answer.onlyFrom, 'and', answer.onlyToCommits.length, 'of', answer.onlyTo,
+      'listed | drawn', answer.from.drawn, answer.to.drawn,
+    );
+
+    if (
+      answer.onlyFromCommits.length !== Math.min(100, answer.onlyFrom) ||
+      answer.onlyToCommits.length !== Math.min(100, answer.onlyTo)
+    ) {
+      problems.push(`the comparison listed ${answer.onlyFromCommits.length} and ${answer.onlyToCommits.length} commits for sides of ${answer.onlyFrom} and ${answer.onlyTo}`);
+    }
+
+    if (answer.from.drawn !== true || answer.to.drawn !== false) {
+      problems.push(`with main drawn and v1.0 not, the comparison said ${answer.from.drawn} and ${answer.to.drawn}`);
+    }
   }
 }
 

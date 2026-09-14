@@ -14,6 +14,8 @@
 
 import type { CommitInfo } from '../protocol.ts';
 import type { WebviewMessage } from '../protocol.ts';
+import type { SideCommit } from '../git/details.ts';
+import { describeAge } from '../git/blame.ts';
 import { span } from './dom.ts';
 
 /** The working tree as the host last described it - the counts, and where they would land. */
@@ -28,6 +30,7 @@ export interface WorkingTree {
 const detailsEl = document.getElementById('details') as HTMLElement;
 const detailMetaEl = document.getElementById('detail-meta') as HTMLElement;
 const detailBodyEl = document.getElementById('detail-body') as HTMLElement;
+const detailCommitsEl = document.getElementById('detail-commits') as HTMLElement;
 const splitter = document.getElementById('splitter') as HTMLElement;
 
 let detailsHeight = 200;
@@ -137,10 +140,23 @@ function renderWorking(working: WorkingTree): void {
   detailMetaEl.replaceChildren(meta);
   detailBodyEl.replaceChildren();
   detailBodyEl.hidden = true;
+  detailCommitsEl.replaceChildren();
+  detailCommitsEl.hidden = true;
 }
 
 /** One end of a comparison, as the pane names it. */
-type End = { readonly label: string; readonly sha: string };
+type End = { readonly rev: string; readonly label: string; readonly sha: string; readonly drawn: boolean };
+
+/** What the pane is told about a comparison. */
+type ComparisonMessage = {
+  readonly from: End;
+  readonly to: End;
+  readonly files: number;
+  readonly onlyFrom: number;
+  readonly onlyTo: number;
+  readonly onlyFromCommits: readonly SideCommit[];
+  readonly onlyToCommits: readonly SideCommit[];
+};
 
 /**
  * The pane for a comparison.
@@ -149,13 +165,7 @@ type End = { readonly label: string; readonly sha: string };
  * other - a single "N commits" would have to pick a side, and picking the wrong one is worse than
  * spending a line saying both.
  */
-function renderComparison(message: {
-  from: End;
-  to: End;
-  files: number;
-  onlyFrom: number;
-  onlyTo: number;
-}): void {
+function renderComparison(message: ComparisonMessage): void {
   currentDetails = null;
   detailsEl.hidden = false;
   splitter.hidden = false;
@@ -205,11 +215,76 @@ Click to copy`;
   detailMetaEl.replaceChildren(meta);
   detailBodyEl.replaceChildren();
   detailBodyEl.hidden = true;
+  renderSides(message);
+}
+
+/**
+ * The commits each side has and the other does not, newest first, a row each that goes to it in the
+ * graph - and, when a branch the comparison names is not drawn, the one click that draws it, since its
+ * commits are what those rows are for going to.
+ */
+function renderSides(message: ComparisonMessage): void {
+  const sides = document.createDocumentFragment();
+
+  for (const [end, total, commits] of [
+    [message.from, message.onlyFrom, message.onlyFromCommits],
+    [message.to, message.onlyTo, message.onlyToCommits],
+  ] as const) {
+    if (total === 0) {
+      continue;
+    }
+
+    const side = document.createElement('div');
+    side.className = 'side';
+    side.append(
+      span(
+        'side-heading',
+        commits.length < total
+          ? `Only on ${end.label} - the newest ${commits.length} of ${total.toLocaleString('en-US')}`
+          : `Only on ${end.label}`,
+      ),
+    );
+
+    for (const commit of commits) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'side-commit';
+      row.title = `${commit.sha}\nGo to it in the graph`;
+      row.append(
+        span('side-sha', commit.sha.slice(0, 8)),
+        span('side-subject', commit.subject),
+        span('side-when', `${commit.author}, ${describeAge(commit.date)}`),
+      );
+      row.addEventListener('click', () => jump(commit.sha));
+      side.append(row);
+    }
+
+    sides.append(side);
+  }
+
+  const undrawn = [message.from, message.to].filter((end) => !end.drawn);
+
+  if (undrawn.length > 0) {
+    const draw = document.createElement('button');
+    draw.type = 'button';
+    draw.className = 'side-draw';
+    draw.textContent = undrawn.length === 2 ? 'Draw both' : `Draw ${undrawn[0]?.label ?? ''}`;
+    draw.title = 'Tick in Branches & Tags, so the graph draws the commits these rows go to';
+    draw.addEventListener('click', () =>
+      post({ type: 'setRefsVisible', refNames: undrawn.map((end) => end.rev), visible: true }),
+    );
+    sides.append(draw);
+  }
+
+  detailCommitsEl.replaceChildren(sides);
+  detailCommitsEl.hidden = !detailCommitsEl.hasChildNodes();
 }
 
 function renderDetails(details: CommitInfo): void {
   currentDetails = details;
   detailBodyEl.hidden = false;
+  detailCommitsEl.replaceChildren();
+  detailCommitsEl.hidden = true;
   detailsEl.hidden = false;
   splitter.hidden = false;
   applyDetailsHeight(detailsHeight);
@@ -303,13 +378,7 @@ export function showWorking(working: WorkingTree): void {
 }
 
 /** Show a comparison between two commits. */
-export function showComparison(message: {
-  from: End;
-  to: End;
-  files: number;
-  onlyFrom: number;
-  onlyTo: number;
-}): void {
+export function showComparison(message: ComparisonMessage): void {
   renderComparison(message);
 }
 

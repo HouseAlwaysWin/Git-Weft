@@ -278,6 +278,44 @@
     await settle(200);
     parts.push('=== branch folders, one opened ===\n' + listed());
 
+    /*
+     * A comparison's commits, a side each, and the click that draws a branch the graph is not drawing.
+     * Posted in as the host answers, with uat undrawn and more commits on it than the list holds.
+     */
+    window.postMessage(
+      {
+        type: 'comparison',
+        from: { rev: 'refs/heads/main', label: 'main', sha: 'a'.repeat(40), drawn: true },
+        to: { rev: 'refs/remotes/origin/uat', label: 'origin/uat', sha: 'b'.repeat(40), drawn: false },
+        files: 3,
+        onlyFrom: 0,
+        onlyTo: 250,
+        onlyFromCommits: [],
+        onlyToCommits: [
+          { sha: 'c'.repeat(40), subject: 'the newest on uat', author: 'Weft Test', date: 0 },
+          { sha: 'd'.repeat(40), subject: 'the one before it', author: 'Weft Test', date: 0 },
+        ],
+      },
+      '*',
+    );
+    await settle(250);
+    take('comparison commits', document.querySelector('#detail-commits'));
+
+    const beforeDraw = sent().length;
+    click(document.querySelector('#detail-commits .side-draw'));
+    await settle(200);
+    parts.push('=== drawing the undrawn end of a comparison sends ===\n' + sentSince(beforeDraw));
+
+    /*
+     * And let go of, so the steps after this one start with nothing marked - a branch's menu offers
+     * Select for Compare only while no comparison holds it. Escape closes the innermost thing open
+     * first, and the branch menu opened above is still up, so it can take more than one.
+     */
+    for (let i = 0; i < 3 && !document.querySelector('#compare-mark').hidden; i += 1) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle(100);
+    }
+
     // The right-click menu on a commit row. The host answers that one, so the answer is posted
     // directly - which is what the menu is given either way.
     window.postMessage(
@@ -478,11 +516,21 @@
     window.postMessage(
       {
         type: 'comparison',
-        from: { rev: 'refs/heads/main', label: 'main', sha: 'c91023ecc8178d63e2fe8c531df525db8096b546' },
-        to: { rev: 'refs/remotes/origin/uat', label: 'origin/uat', sha: '3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a' },
+        from: { rev: 'refs/heads/main', label: 'main', sha: 'c91023ecc8178d63e2fe8c531df525db8096b546', drawn: true },
+        to: { rev: 'refs/remotes/origin/uat', label: 'origin/uat', sha: '3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a', drawn: true },
         files: 7,
         onlyFrom: 3,
         onlyTo: 2,
+        // Every commit on each side, so neither list says it is the newest few of more.
+        onlyFromCommits: [
+          { sha: '1'.repeat(40), subject: 'the newest on main', author: 'Weft Test', date: 0 },
+          { sha: '2'.repeat(40), subject: 'the one before it', author: 'Weft Test', date: 0 },
+          { sha: '3'.repeat(40), subject: 'the oldest on main', author: 'Weft Test', date: 0 },
+        ],
+        onlyToCommits: [
+          { sha: '4'.repeat(40), subject: 'the newest on uat', author: 'Weft Test', date: 0 },
+          { sha: '5'.repeat(40), subject: 'the oldest on uat', author: 'Weft Test', date: 0 },
+        ],
       },
       '*',
     );

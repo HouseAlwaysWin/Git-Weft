@@ -126,6 +126,10 @@
   in that read, so the watcher found nothing to report and the sidebar went on without it until
   another ref moved.
 
+- **A comparison lists the commits each side has that the other does not**, newest first - the
+  hundred newest of each, the count saying how many more - and each row goes to its commit in the
+  graph. When a branch it names is not being drawn, one click draws it.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

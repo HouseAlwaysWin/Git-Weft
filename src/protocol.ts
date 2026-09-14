@@ -12,7 +12,7 @@
 
 import type { GraphDelta } from './graph/layout.ts';
 import type { GitRef } from './git/logParser.ts';
-import type { CommitDetails } from './git/details.ts';
+import type { CommitDetails, SideCommit } from './git/details.ts';
 import type { Search } from './git/search.ts';
 import type { DateRange } from './git/dates.ts';
 import type { BranchFolders } from './git/refFolders.ts';
@@ -163,12 +163,18 @@ export type HostMessage =
    */
   | {
       readonly type: 'comparison';
-      /** Each end as it was asked for, and the commit it came to when the comparison ran. */
-      readonly from: CompareEnd & { readonly sha: string };
-      readonly to: CompareEnd & { readonly sha: string };
+      /**
+       * Each end as it was asked for, the commit it came to when the comparison ran, and whether the
+       * graph is drawing it: a branch that is not drawn has commits the lists name and the graph lacks.
+       */
+      readonly from: CompareEnd & { readonly sha: string; readonly drawn: boolean };
+      readonly to: CompareEnd & { readonly sha: string; readonly drawn: boolean };
       readonly files: number;
       readonly onlyFrom: number;
       readonly onlyTo: number;
+      /** The newest commits only on each side - see `SIDE_LIMIT` - the counts saying how many there are. */
+      readonly onlyFromCommits: readonly SideCommit[];
+      readonly onlyToCommits: readonly SideCommit[];
     }
   /** The repository changed under us and the graph has been reloaded from scratch. */
   | { readonly type: 'reloading'; readonly reason: string }

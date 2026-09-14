@@ -158,4 +158,5 @@ export const BODY_MARKUP = `<header id="header">
   <button id="detail-close" type="button" title="Close (Esc)" aria-label="Close details">✕</button>
   <div id="detail-meta"></div>
   <pre id="detail-body"></pre>
+  <div id="detail-commits" hidden></div>
 </section>`;

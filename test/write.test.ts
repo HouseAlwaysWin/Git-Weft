@@ -41,6 +41,7 @@ import { RepoLock } from '../src/git/lock.ts';
 import { listStashes } from '../src/git/stash.ts';
 import { nameProblem, readRemotes } from '../src/git/remotes.ts';
 import { HistoryLoader } from '../src/git/history.ts';
+import { compareCommits } from '../src/git/details.ts';
 
 const git = new Git({});
 const made: string[] = [];
@@ -2454,4 +2455,29 @@ test('blame of one line asks about that line alone, and a stopped blame is not a
   stopped.abort();
 
   await assert.rejects(blameFile(git, repo, join(dir, 'a.txt'), undefined, { line: 0, signal: stopped.signal }));
+});
+
+test('a comparison lists the commits only on each side, newest first and no more than asked', async () => {
+  const dir = makeRepo();
+  const repo = await open(dir);
+
+  sh(dir, 'checkout', '-q', 'feature');
+  writeFileSync(join(dir, 'c.txt'), 'three\n');
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', 'third');
+  sh(dir, 'checkout', '-q', 'main');
+
+  const main = sh(dir, 'rev-parse', 'main').trim();
+  const feature = sh(dir, 'rev-parse', 'feature').trim();
+  const all = await compareCommits(git, repo, main, feature);
+  const one = await compareCommits(git, repo, main, feature, undefined, 1);
+
+  assert.equal(all.onlyTo, 2);
+  assert.deepEqual(all.onlyToCommits.map((commit) => commit.subject), ['third', 'second']);
+  assert.equal(all.onlyFromCommits.length, 0);
+  assert.ok(all.onlyToCommits.every((commit) => commit.sha.length === 40 && commit.author === 'Weft Test' && commit.date > 0));
+
+  // The count still says two; the list stops where it was told to, at the newest.
+  assert.equal(one.onlyTo, 2);
+  assert.deepEqual(one.onlyToCommits.map((commit) => commit.subject), ['third']);
 });
