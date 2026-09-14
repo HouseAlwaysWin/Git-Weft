@@ -74,6 +74,13 @@ export interface ChooseRequest {
   readonly options: readonly string[];
 }
 
+export interface PickRequest {
+  readonly title: string;
+  readonly placeholder: string;
+  /** In the order to list them; the `picked` ones start ticked. */
+  readonly items: readonly { readonly label: string; readonly description: string; readonly picked: boolean }[];
+}
+
 /** Everything an action needs from the outside world. */
 export interface ActionUi {
   confirm(request: ConfirmRequest): Promise<boolean>;
@@ -91,6 +98,12 @@ export interface ActionUi {
    */
   progress<T>(title: string, work: (signal: AbortSignal) => Promise<T>, cancellable?: boolean): Promise<T>;
   notify(message: string): void;
+  /** Several of a list, some ticked to begin with. null when it was dismissed; an empty list is an answer. */
+  pick(request: PickRequest): Promise<string[] | null>;
+  /** A line for the record - the Weft log - kept whatever happens next. */
+  log(line: string): void;
+  /** `weft.protectedBranches`: names no clean-up offers, whatever else is true of them. */
+  protectedBranches(): readonly string[];
 }
 
 export interface ActionContext {

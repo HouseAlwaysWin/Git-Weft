@@ -130,6 +130,14 @@
   hundred newest of each, the count saying how many more - and each row goes to its commit in the
   graph. When a branch it names is not being drawn, one click draws it.
 
+- **Clean Up Merged Branches.** From the Branches & Tags title bar, the Local Branches heading or the
+  palette: the local branches already merged into a base - what origin calls its main line, or the
+  branch you are on - offered ticked and oldest first, with branches whose upstream is gone listed
+  after them, unticked, and deleted only by a choice of their own. HEAD's branch, the base, one
+  checked out in another worktree and whatever `weft.protectedBranches` names are never offered.
+  Every tip is written to the Weft log before anything is deleted, and git is asked with `-d`, so it
+  still refuses what it does not count as merged - and those are named, not forced.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

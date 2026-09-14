@@ -16,6 +16,7 @@ import { Tier } from './types.ts';
 import type { RepoState } from '../git/repoState.ts';
 import { workAtRisk } from '../git/repoState.ts';
 import { BRANCH_ACTIONS } from './branches.ts';
+import { CLEANUP_ACTIONS } from './cleanup.ts';
 import { COMMIT_ACTIONS } from './commit.ts';
 import { MERGE_ACTIONS } from './merge.ts';
 import { NETWORK_ACTIONS } from './network.ts';
@@ -31,6 +32,7 @@ export type {
   ConfirmRequest,
   InputRequest,
   MenuItem,
+  PickRequest,
   Target,
 } from './types.ts';
 export { Tier } from './types.ts';
@@ -38,6 +40,7 @@ export { Tier } from './types.ts';
 /** Menu order follows this list, so destructive things stay at the bottom. */
 export const ACTIONS: readonly Action[] = [
   ...BRANCH_ACTIONS,
+  ...CLEANUP_ACTIONS,
   ...COMMIT_ACTIONS,
   ...MERGE_ACTIONS,
   ...NETWORK_ACTIONS,

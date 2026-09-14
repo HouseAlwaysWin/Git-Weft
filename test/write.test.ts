@@ -35,7 +35,7 @@ import { Remedy, mapGitError } from '../src/git/errors.ts';
 import type { Author } from '../src/git/authors.ts';
 import { groupAuthors, listAuthors, readGroupAssignments } from '../src/git/authors.ts';
 import { blameFile } from '../src/git/blame.ts';
-import type { ActionUi, Target } from '../src/actions/registry.ts';
+import type { ActionUi, PickRequest, Target } from '../src/actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from '../src/actions/registry.ts';
 import { RepoLock } from '../src/git/lock.ts';
 import { listStashes } from '../src/git/stash.ts';
@@ -94,18 +94,38 @@ function fakeUi(
     choices?: string[];
     /** Runs while the confirmation is "open" - for testing what a race actually does. */
     whileConfirming?: () => void;
+    /** Answers for `pick`, in order: the labels ticked when it is accepted. Running out is a cancel. */
+    picks?: string[][];
+    protectedBranches?: string[];
   } = {},
-): ActionUi & { confirmations: string[]; prompts: string[]; questions: string[] } {
+): ActionUi & {
+  confirmations: string[];
+  prompts: string[];
+  questions: string[];
+  picked: PickRequest[];
+  logged: string[];
+} {
   const confirmations: string[] = [];
   const prompts: string[] = [];
   const questions: string[] = [];
   const inputs = [...(options.inputs ?? [])];
   const choices = [...(options.choices ?? [])];
+  const picks = [...(options.picks ?? [])];
+  const picked: PickRequest[] = [];
+  const logged: string[] = [];
 
   return {
     confirmations,
     prompts,
     questions,
+    picked,
+    logged,
+    pick: async (request) => {
+      picked.push(request);
+      return picks.shift() ?? null;
+    },
+    log: (line) => void logged.push(line),
+    protectedBranches: () => options.protectedBranches ?? ['main', 'release/*'],
     choose: async (request) => {
       questions.push(request.title);
       return choices.shift() ?? null;
@@ -2480,4 +2500,55 @@ test('a comparison lists the commits only on each side, newest first and no more
   // The count still says two; the list stops where it was told to, at the newest.
   assert.equal(one.onlyTo, 2);
   assert.deepEqual(one.onlyToCommits.map((commit) => commit.subject), ['third']);
+});
+
+test('cleaning up deletes the merged branches picked, and logs every tip before it does', async () => {
+  const dir = makeRepo();
+  sh(dir, 'branch', 'done_one', 'main');
+  sh(dir, 'branch', 'done_two', 'main');
+  sh(dir, 'branch', 'release/keep', 'main');
+  const tip = sh(dir, 'rev-parse', 'done_one').trim();
+
+  const ui = fakeUi({ picks: [['done_one', 'done_two']] });
+  const result = await run(dir, 'weft.cleanUpBranches', { kind: 'repo' }, ui);
+  const offered = ui.picked[0]?.items ?? [];
+
+  assert.deepEqual(offered.filter((item) => item.picked).map((item) => item.label).sort(), ['done_one', 'done_two']);
+  assert.ok(!offered.some((item) => ['release/keep', 'main', 'feature'].includes(item.label)), JSON.stringify(offered));
+  assert.equal(result.ran, true);
+  assert.equal(sh(dir, 'branch', '--list', 'done_one', 'done_two').trim(), '');
+  assert.match(sh(dir, 'branch', '--list', 'release/keep'), /release\/keep/);
+  assert.ok(ui.logged.some((line) => line.includes('done_one') && line.includes(tip)), 'the tip is in the log');
+  assert.match(ui.confirmations[0] ?? '', /done_one/);
+});
+
+test('a branch whose upstream is gone is offered unticked, and goes only by a choice of its own', async () => {
+  const dir = makeRepo();
+  const remote = mkdtempSync(join(tmpdir(), 'weft-cleanup-remote-')).split('\\').join('/');
+  made.push(remote);
+
+  sh(remote, 'init', '-q', '--bare');
+  sh(dir, 'remote', 'add', 'origin', remote);
+  sh(dir, 'push', '-q', '-u', 'origin', 'feature');
+  sh(dir, 'push', '-q', 'origin', '--delete', 'feature');
+  sh(dir, 'fetch', '-q', '--prune', 'origin');
+
+  // Ticked, then "merged only": the unmerged one stays where it is.
+  const kept = fakeUi({ picks: [['feature']], choices: ['Merged Only'] });
+  const first = await run(dir, 'weft.cleanUpBranches', { kind: 'repo' }, kept);
+  const offered = kept.picked[0]?.items.find((item) => item.label === 'feature');
+
+  assert.equal(offered?.picked, false, 'offered, and not ticked');
+  assert.match(offered?.description ?? '', /upstream gone, 1 commit only here/);
+  assert.equal(first.ran, false);
+  assert.match(sh(dir, 'branch', '--list', 'feature'), /feature/);
+
+  // Ticked, then "delete them too": now it goes, and its tip is in the log.
+  const tip = sh(dir, 'rev-parse', 'feature').trim();
+  const gone = fakeUi({ picks: [['feature']], choices: ['Delete Them Too'] });
+  const second = await run(dir, 'weft.cleanUpBranches', { kind: 'repo' }, gone);
+
+  assert.equal(second.ran, true);
+  assert.equal(sh(dir, 'branch', '--list', 'feature').trim(), '');
+  assert.ok(gone.logged.some((line) => line.includes(tip)));
 });

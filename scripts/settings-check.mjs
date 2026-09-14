@@ -86,21 +86,34 @@ for (const source of sources('src')) {
     // A string in single quotes is a literal too - an enum's default is one - and it is compared as it
     // is written, before the digit separators are taken out of anything that might be a number.
     const quoted = /^'([^']*)'$/.exec(raw);
+    // A list of quoted strings, on one line or several - the protected branches' default is one.
+    const list = /^\[([\s\S]*)\]$/.exec(raw);
+    let listed;
+
+    try {
+      listed = list === null ? undefined : JSON.parse(`[${(list[1] ?? '').replace(/'/g, '"').replace(/,\s*$/, '')}]`);
+    } catch {
+      continue; // A list of something other than literals - nothing to compare against.
+    }
+
     const literal = raw.replace(/_/g, '');
     const fallback =
       quoted !== null
         ? quoted[1]
-        : literal === 'true'
-          ? true
-          : literal === 'false'
-            ? false
-            : Number(literal);
+        : listed !== undefined
+          ? listed
+          : literal === 'true'
+            ? true
+            : literal === 'false'
+              ? false
+              : Number(literal);
 
     if (typeof fallback === 'number' && Number.isNaN(fallback)) {
       continue; // Not a literal - nothing to compare against.
     }
 
-    if (fallback !== property.default) {
+    // As JSON, so that two lists of the same names in the same order are the same list.
+    if (JSON.stringify(fallback) !== JSON.stringify(property.default)) {
       problems.push(
         `weft.${name} defaults to ${JSON.stringify(property.default)} in the manifest and to ${JSON.stringify(fallback)} in the code`,
       );

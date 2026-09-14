@@ -1135,6 +1135,7 @@ function start(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('weft.showOnlyListedAuthors', () => authors.showOnlyListed()),
 
     vscode.commands.registerCommand('weft.stash', () => repoAction('weft.stashPush')),
+    vscode.commands.registerCommand('weft.cleanUpBranches', () => repoAction('weft.cleanUpBranches')),
 
     /*
      * Fetch, pull and push, whose command ids are their action ids. Force push is deliberately not

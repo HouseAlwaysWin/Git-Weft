@@ -327,9 +327,19 @@ const vscodeStub = {
       const list = await items;
       const label = (item) => (typeof item === 'string' ? item : item.label);
 
-      picks.push({ title: options?.title ?? '', labels: list.map(label) });
+      picks.push({
+        title: options?.title ?? '',
+        labels: list.map(label),
+        ticked: list.filter((item) => item.picked === true).map(label),
+      });
 
       const want = pickAnswers.shift();
+
+      // Several at once, answered with the labels ticked when it was accepted; nothing queued is Escape.
+      if (options?.canPickMany === true) {
+        return want === undefined ? undefined : list.filter((item) => want.includes(label(item)));
+      }
+
       return list.find((item) => label(item) === want);
     },
     // Activation reports its own failure through this one, so it has to exist here - and anything
@@ -2984,7 +2994,8 @@ if (watchTest) {
     const hits = ['local', 'tag', 'remote']
       .filter((kind) => matches(entry.when, emitted[kind] ?? `weftRef${kind[0].toUpperCase()}${kind.slice(1)}`));
 
-    if (hits.length === 0) {
+    // An entry for a heading matches no ref by design; the allow-list below is what holds it.
+    if (hits.length === 0 && !/viewItem == weftGroup/.test(entry.when)) {
       problems.push(`${entry.command} is in the manifest but its when clause matches no ref`);
     }
   }
@@ -2994,7 +3005,7 @@ if (watchTest) {
    * values are named by group and never begin "weftRef", because the menus select branch commands
    * with viewItem =~ /^weftRef/, and a heading that matched offered five commands that did nothing.
    */
-  const HEADING_MENUS = { weftGroupHeads: [], weftGroupRemotes: [], weftGroupTags: [] };
+  const HEADING_MENUS = { weftGroupHeads: ['weft.cleanUpBranches'], weftGroupRemotes: [], weftGroupTags: [] };
 
   for (const group of groups) {
     const value = refsProvider.getTreeItem(group).contextValue;
@@ -3750,6 +3761,66 @@ if (watchTest) {
   settings.set('weft.statusBar.enabled', true);
   configurationChanged.fire(['weft.statusBar.enabled']);
   await new Promise((r) => setTimeout(r, 400));
+}
+
+/*
+ * Clean Up Merged Branches, end to end: the merged ones offered ticked and oldest first, a protected
+ * branch and HEAD's never offered, what was picked deleted, and every tip in the log before it went.
+ */
+{
+  /*
+   * Tips a day apart, both in main, so oldest first has something to go by. The commits this run has
+   * made were all made within a second or two, and branches whose tips are equally old keep git's order,
+   * which is by name - swept_new before swept_old. main moves onto the two for the clean-up, its tree
+   * unchanged, and back to where it was afterwards.
+   */
+  const mainWas = runGit(repoPath, 'rev-parse', 'main').trim();
+  const mainAt = Number(runGit(repoPath, 'log', '-1', '--format=%ct', 'main').trim());
+  const olderTip = runGitAt(repoPath, `${mainAt + 3600} +0000`, 'commit-tree', 'main^{tree}', '-p', mainWas, '-m', 'swept, the older').trim();
+  const newerTip = runGitAt(repoPath, `${mainAt + 86400} +0000`, 'commit-tree', 'main^{tree}', '-p', olderTip, '-m', 'swept, the newer').trim();
+
+  runGit(repoPath, 'update-ref', 'refs/heads/main', newerTip);
+  runGit(repoPath, 'branch', 'swept_old', olderTip);
+  runGit(repoPath, 'branch', 'swept_new', newerTip);
+  runGit(repoPath, 'branch', 'release/kept', 'main');
+
+  confirmed = true;
+  pickAnswers.push(['swept_old', 'swept_new']);
+  await commands.get('weft.cleanUpBranches')();
+
+  const by = Date.now() + 15_000;
+  while (Date.now() < by && runGit(repoPath, 'branch', '--list', 'swept_old', 'swept_new').trim() !== '') {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  await new Promise((r) => setTimeout(r, 1000));
+
+  const offer = picks.at(-1);
+  const ticked = offer?.ticked ?? [];
+  const left = runGit(repoPath, 'branch', '--list', 'swept_old', 'swept_new', 'release/kept').trim();
+  const logged = outputLines.filter((line) => line.startsWith('info') && line.includes('clean-up: swept_'));
+
+  console.log('\nclean up       :', JSON.stringify(ticked), '| left', JSON.stringify(left), '|', logged.length, 'tips logged');
+
+  if (ticked.indexOf('swept_old') < 0 || ticked.indexOf('swept_new') < ticked.indexOf('swept_old')) {
+    problems.push('the clean-up did not offer the merged branches ticked, oldest first: ' + JSON.stringify(ticked));
+  }
+
+  if ((offer?.labels ?? []).some((label) => label === 'release/kept' || label === 'main')) {
+    problems.push('the clean-up offered a protected branch, or the one HEAD is on: ' + JSON.stringify(offer?.labels));
+  }
+
+  if (left !== 'release/kept') {
+    problems.push('after the clean-up, git still has ' + JSON.stringify(left));
+  }
+
+  if (logged.length < 2) {
+    problems.push('the clean-up deleted branches without writing their tips to the log first');
+  }
+
+  runGit(repoPath, 'branch', '-D', 'release/kept');
+  runGit(repoPath, 'update-ref', 'refs/heads/main', mainWas);
+  await new Promise((r) => setTimeout(r, 2000));
 }
 
 /*

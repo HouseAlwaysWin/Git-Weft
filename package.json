@@ -102,6 +102,12 @@
         "category": "Git Weft"
       },
       {
+        "command": "weft.cleanUpBranches",
+        "title": "Clean Up Merged Branches…",
+        "category": "Git Weft",
+        "icon": "$(trash)"
+      },
+      {
         "command": "weft.sortRefsByRecent",
         "title": "Sort Branches & Tags by Most Recent",
         "category": "Git Weft",
@@ -512,6 +518,11 @@
           "group": "compare@1"
         },
         {
+          "command": "weft.cleanUpBranches",
+          "when": "view == weft.refs && viewItem == weftGroupHeads",
+          "group": "cleanup@1"
+        },
+        {
           "command": "weft.groupAuthor",
           "when": "view == weft.authors && viewItem =~ /^weftAuthor/",
           "group": "group@1"
@@ -577,6 +588,11 @@
           "command": "weft.manageRefPresets",
           "when": "view == weft.refs",
           "group": "presets@1"
+        },
+        {
+          "command": "weft.cleanUpBranches",
+          "when": "view == weft.refs",
+          "group": "cleanup@1"
         },
         {
           "command": "weft.untickAllRefs",
@@ -682,6 +698,24 @@
           ],
           "default": "auto",
           "markdownDescription": "Gather refs that share a prefix into folders in **Branches & Tags** and the header's branch menu. A folder is made only for two names or more, and ticking one ticks everything in it."
+        },
+        "weft.protectedBranches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master",
+            "develop",
+            "release/*",
+            "hotfix/*",
+            "uat",
+            "sit",
+            "staging",
+            "production"
+          ],
+          "markdownDescription": "Branches **Clean Up Merged Branches** never offers to delete, whatever else is true of them. `*` matches any run of characters, `/` included, and names are matched with their case."
         },
         "weft.refreshDebounceMs": {
           "type": "number",

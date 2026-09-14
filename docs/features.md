@@ -84,6 +84,10 @@ landing page that lists two hundred things tells you nothing about any of them.
   branches, create lightweight or annotated tags, delete branches and tags. A checkout asks first,
   wherever it was started - the graph, its menus or Branches & Tags - and one that detaches HEAD
   says so
+- Clean Up Merged Branches, from **Branches & Tags** or the palette: the local branches already in a
+  base, ticked and oldest first, with those whose upstream is gone listed apart and left unticked.
+  HEAD's branch, the base, a branch checked out elsewhere and `weft.protectedBranches` are never
+  offered; every tip is logged before anything is deleted, and git's own `-d` has the last word
 - Merge and rebase, with a banner while either is unfinished: Continue, Skip, Abort, and the
   conflicted files as links into VS Code's merge editor
 - Cherry-pick, revert, and reset (soft, mixed or hard) from any commit

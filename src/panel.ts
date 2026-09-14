@@ -103,7 +103,7 @@ import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
 
 /** Set by the extension so panels can write to - and reveal - the same output channel. */
-type Logger = { warn(message: string): void; show(): void };
+type Logger = { info(message: string): void; warn(message: string): void; show(): void };
 
 let output: Logger | undefined;
 
@@ -349,6 +349,30 @@ export class WeftPanel {
         },
       ),
     notify: (message) => void vscode.window.setStatusBarMessage(`Weft: ${message}`, 4000),
+    pick: async (request) => {
+      const picked = await vscode.window.showQuickPick(
+        request.items.map((item) => ({ label: item.label, description: item.description, picked: item.picked })),
+        // Held open when the focus wanders: a list of a hundred branches is read, not glanced at.
+        { title: request.title, placeHolder: request.placeholder, canPickMany: true, ignoreFocusOut: true },
+      );
+
+      return picked === undefined ? null : picked.map((item) => item.label);
+    },
+    log: (line) => output?.info(line),
+    protectedBranches: () =>
+      vscode.workspace
+        .getConfiguration('weft')
+        .get<string[]>('protectedBranches', [
+          'main',
+          'master',
+          'develop',
+          'release/*',
+          'hotfix/*',
+          'uat',
+          'sit',
+          'staging',
+          'production',
+        ]),
   };
 
   static show(

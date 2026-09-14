@@ -260,7 +260,7 @@ const renameBranch: Action = {
 };
 
 /** How many commits live only on this branch - the ones a forced delete would strand. */
-async function orphanCount(git: Git, repo: RepoInfo, branch: string): Promise<number> {
+export async function orphanCount(git: Git, repo: RepoInfo, branch: string): Promise<number> {
   try {
     const out = await git.runRead(repo.root, [
       'rev-list',
