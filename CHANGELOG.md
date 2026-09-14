@@ -119,6 +119,13 @@
   walked on to the end. The whole process tree is ended now, and once git itself has gone, a command
   that was given up on is over, whatever it left behind.
 
+- **A branch made or deleted in a terminal reaches Branches & Tags, whatever the graph was doing.**
+  The sidebar hears of refs when the watcher finds them moved, and every walk of the graph kept its
+  own read of the refs as what the watcher compares against - a read taken after the sidebar's. A
+  branch that moved just as a walk started, for a filter or for the watcher itself, was then already
+  in that read, so the watcher found nothing to report and the sidebar went on without it until
+  another ref moved.
+
 ## 0.8.0
 
 - **The branch dropdown filters the graph. It no longer checks anything out.** Every row held two

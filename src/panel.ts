@@ -439,6 +439,24 @@ export class WeftPanel {
     // up. The working-tree row would otherwise sit stale until something else caused a reload.
     this.disposables.push(watchWorkingTree(repo.root, () => this.scheduleWorking()));
 
+    /*
+     * The watcher's first baseline: the refs as they are before the sidebar is pointed at this
+     * repository and reads them.
+     *
+     * Before the sidebar's read, never after - and so is every baseline since: the watcher's, which it
+     * reads before telling the sidebar, and an action's. The sidebar hears of refs only when the
+     * watcher finds its baseline behind them, so a baseline read after the sidebar's own read can hold
+     * a ref the sidebar never saw - a branch made or deleted in a terminal in between - and the
+     * watcher's next look finds nothing to tell it. A walk once kept its own read of the refs as the
+     * baseline, taken alongside the walk, and that is how a branch deleted in a terminal stayed in
+     * Branches & Tags until another ref moved: after a walk for a filter that landed inside the
+     * debounce, and after the watcher's own walk.
+     */
+    this.signaturePromise = repoFingerprint(git, repo).catch(() => null);
+    void this.signaturePromise.then((value) => {
+      this.signature = value;
+    });
+
     this.setActive(true);
   }
 
@@ -454,8 +472,8 @@ export class WeftPanel {
       return;
     }
 
-    // The baseline is captured alongside the walk rather than before it, so it may still be in
-    // flight. Comparing against a half-set baseline would either miss a change or invent one.
+    // The first baseline is read as the panel opens, and may still be in flight. Comparing against a
+    // half-set baseline would either miss a change or invent one.
     await this.signaturePromise;
 
     let signature: Fingerprint;
@@ -820,6 +838,13 @@ export class WeftPanel {
        */
       if (!result.outcome.ran && result.outcome.message.length === 0) {
         return false;
+      }
+
+      // The watcher's baseline, read before the sidebar reads the refs - see the constructor.
+      const baseline = await repoFingerprint(this.git, this.repo).catch(() => null);
+
+      if (baseline !== null) {
+        this.signature = baseline;
       }
 
       // Awaited: the walk reads the ticks, and a checkout moves them.
@@ -1210,21 +1235,6 @@ export class WeftPanel {
     void readRepoState(this.git, this.repo, controller.signal)
       .then((state) => this.postOperation(state))
       .catch(() => undefined);
-
-    /*
-     * Fingerprint the refs alongside the walk, not before it. Awaiting here put two more process
-     * spawns on the critical path between the user's click and the first row on screen, which on
-     * Windows - where spawning git costs tens of milliseconds before it does any work, more with a
-     * virus scanner in the way - is latency nobody is getting anything for.
-     *
-     * Starting it first and resolving it later still gives the watcher a baseline from before the
-     * walk finished: if a ref moves mid-walk the fingerprint is already stale, so the next event
-     * reloads, which is the safe direction to be wrong in.
-     */
-    this.signaturePromise = repoFingerprint(this.git, this.repo).catch(() => null);
-    void this.signaturePromise.then((value) => {
-      this.signature = value;
-    });
 
     const drawnRefs = this.filters.refs(this.repo.root);
     this.drawnRefs = drawnRefs;

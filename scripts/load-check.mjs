@@ -2585,11 +2585,58 @@ if (watchTest) {
 
   runGit(repoPath, 'branch', '-D', 'arrival', 'arrival-2');
 
-  // Gone from the sidebar before the ticks are put back. A reload for a filter that lands before the
-  // watcher has looked takes the watcher's news with it - and the next block reads the sidebar.
+  // Gone from the sidebar before the ticks are put back: the next block reads the sidebar, and the
+  // watcher's news of a deletion takes a debounce to arrive.
   if (!(await until(() => !headsNodes().some((node) => node.label.startsWith('arrival')), 10_000))) {
     problems.push('deleting two branches in a terminal never reached the sidebar');
   }
+
+  /*
+   * A branch made or deleted in a terminal reaches the sidebar, whatever walk reads the refs first.
+   *
+   * The watcher tells the sidebar only when its baseline is behind the refs, and every walk kept its
+   * own read of them as the baseline - read after the sidebar's. A branch that moved while a walk was
+   * starting was in the baseline and never in the sidebar, so the watcher's event for it found nothing
+   * to report. It happened after the watcher's own walk, and after a walk for a filter that landed
+   * inside the debounce. The second is forced here: the watcher is held off until the walk has read
+   * the refs, by a file git has no use for, rewritten under .git - the watcher waits for quiet there.
+   */
+  await settle();
+  runGit(repoPath, 'branch', 'racer', 'main');
+
+  if (!(await until(() => headsNodes().some((node) => node.label === 'racer'), 10_000))) {
+    problems.push('a branch made in a terminal never reached Branches & Tags');
+  }
+
+  await settle();
+  runGit(repoPath, 'branch', '-D', 'racer');
+
+  const nudge = join(repoPath, '.git', 'weft-nudge');
+  const walksBefore = posted.filter((m) => m.type === 'done').length;
+  let nudging = true;
+  const nudger = (async () => {
+    while (nudging) {
+      writeFileSync(nudge, String(Date.now()));
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  })();
+
+  await messageHandler({ type: 'order', order: 'topo' });
+  await until(() => posted.filter((m) => m.type === 'done').length > walksBefore, 15_000);
+  await new Promise((r) => setTimeout(r, 1000));
+  nudging = false;
+  await nudger;
+
+  const racerGone = await until(() => !headsNodes().some((node) => node.label === 'racer'), 10_000);
+
+  console.log('raced deletion :', racerGone ? 'left the sidebar' : 'STILL LISTED');
+
+  if (!racerGone) {
+    problems.push('a branch deleted in a terminal stayed in Branches & Tags after a walk for a filter read the refs first');
+  }
+
+  await messageHandler({ type: 'order', order: 'date' });
+  await settle();
 
   await commands.get('weft.showCurrentRefOnly')();
   await settle();
