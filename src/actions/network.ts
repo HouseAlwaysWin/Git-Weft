@@ -22,6 +22,7 @@ import type { Action, ActionContext, ActionResult } from './types.ts';
 import { Tier, blockedByOperation } from './types.ts';
 import type { Git } from '../git/exec.ts';
 import type { RepoInfo } from '../git/discovery.ts';
+import { localBranches } from '../git/localBranches.ts';
 import type { RepoState } from '../git/repoState.ts';
 import { readRepoState } from '../git/repoState.ts';
 
@@ -452,16 +453,8 @@ async function strandedOnRemote(git: Git, repo: RepoInfo, label: string): Promis
 
 /** Local branches whose upstream is this remote branch - the ones left tracking nothing. */
 async function trackedBy(git: Git, repo: RepoInfo, label: string): Promise<string[]> {
-  const out = await git
-    .runRead(repo.root, ['for-each-ref', '--format=%(refname:short)%00%(upstream:short)', 'refs/heads'])
-    .catch(() => '');
-
-  return out
-    .split('\n')
-    .flatMap((line) => {
-      const [branch = '', upstream = ''] = line.trim().split('\x00');
-      return upstream === label && branch.length > 0 ? [branch] : [];
-    });
+  const branches = await localBranches(git, repo).catch(() => []);
+  return branches.filter((branch) => branch.upstream === label).map((branch) => branch.name);
 }
 
 /**
