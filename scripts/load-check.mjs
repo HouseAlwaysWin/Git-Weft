@@ -1647,18 +1647,38 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
     const chosen = tickedNow().length;
 
+    /*
+     * Until the ticks are the one branch, for as long as fifteen seconds - not a fixed wait. Asking,
+     * checking out, telling the sidebar and its read of the refs are a handful of git processes, and on
+     * a busy machine two and a half seconds was once not enough for all of them: the ticks still read as
+     * they were before the checkout, and a checkout that moves them was reported as one that does not.
+     */
+    const ticksAre = async (refName) => {
+      const started = Date.now();
+
+      while (Date.now() - started < 15_000) {
+        const now = tickedNow();
+
+        if (now.length === 1 && now[0]?.refName === refName) {
+          break;
+        }
+
+        await new Promise((r) => setTimeout(r, 100));
+      }
+
+      return { ticked: tickedNow(), seconds: ((Date.now() - started) / 1000).toFixed(1) };
+    };
+
     await messageHandler({
       type: 'runAction',
       id: 'weft.checkoutBranch',
       target: { kind: 'ref', refName: 'refs/heads/side', label: 'side', refKind: 'local' },
     });
 
-    await new Promise((r) => setTimeout(r, 2500));
-
-    const after = tickedNow();
+    const { ticked: after, seconds } = await ticksAre('refs/heads/side');
 
     console.log('');
-    console.log('checkout ticks :', chosen, 'ticked ->', after.map((r) => r.label).join(', ') || '(nothing)');
+    console.log('checkout ticks :', chosen, 'ticked ->', after.map((r) => r.label).join(', ') || '(nothing)', `(${seconds}s)`);
 
     if (after.length !== 1 || after[0]?.refName !== 'refs/heads/side') {
       problems.push(
@@ -1666,13 +1686,15 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       );
     }
 
-    // Back to main, so nothing after this is reading a different branch's history.
+    // Back to main, so nothing after this is reading a different branch's history - and waited for the
+    // same way, then given the time the walk after it used to have, before the next check reads the sidebar.
     await messageHandler({
       type: 'runAction',
       id: 'weft.checkoutBranch',
       target: { kind: 'ref', refName: 'refs/heads/main', label: 'main', refKind: 'local' },
     });
 
+    await ticksAre('refs/heads/main');
     await new Promise((r) => setTimeout(r, 2500));
   }
 }
