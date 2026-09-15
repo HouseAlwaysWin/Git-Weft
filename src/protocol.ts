@@ -306,9 +306,11 @@ export type StatsHostMessage =
 export type StatsWebviewMessage =
   /**
    * The page's script is running. Sent again whenever the tab is shown, since that builds the page afresh -
-   * with whether merges are counted, which the page remembers and the host does not.
+   * with whether merges and excluded commits are counted, which the page remembers and the host does not.
    */
-  | { readonly type: 'ready'; readonly includeMerges: boolean }
+  | { readonly type: 'ready'; readonly includeMerges: boolean; readonly includeExcluded: boolean }
   /** The Include merges switch moved. */
   | { readonly type: 'includeMerges'; readonly on: boolean }
+  /** The Include excluded commits switch moved. */
+  | { readonly type: 'includeExcluded'; readonly on: boolean }
   | { readonly type: 'openGraph' };

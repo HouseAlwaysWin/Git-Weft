@@ -1666,6 +1666,11 @@ body.weft-stats .stats-person {
   height: 22px;
 }
 
+/* And one more column, while there is a rule to exclude by. */
+body.weft-stats #stats-people.stats-excluding .stats-person {
+  grid-template-columns: minmax(10ch, 24ch) minmax(60px, 1fr) 8ch 11ch 12ch;
+}
+
 body.weft-stats .stats-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1717,12 +1722,27 @@ body.weft-stats #stats-merges-switch {
   cursor: pointer;
 }
 
-body.weft-stats #stats-merges {
+body.weft-stats #stats-merges,
+body.weft-stats #stats-excluded {
   margin: 0;
 }
 
-/* Beside the count rather than in it: quieter, and there only for someone who merges. */
-body.weft-stats .stats-merged {
+body.weft-stats #stats-excluded-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0 16px;
+  cursor: pointer;
+}
+
+/* A display of its own beats the hidden attribute's, so hidden has to be said again. */
+body.weft-stats #stats-excluded-switch[hidden] {
+  display: none;
+}
+
+/* Beside the count rather than in it: quieter, and there only for someone who merges or was excluded. */
+body.weft-stats .stats-merged,
+body.weft-stats .stats-excluded-count {
   color: var(--vscode-descriptionForeground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

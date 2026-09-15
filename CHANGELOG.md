@@ -17,6 +17,13 @@
   to the root. Nothing is asked of git for it: the graph's walk is counted as it streams past, which
   measured no slower than not counting it on a 78,597-commit repository.
 
+- **Statistics can leave commits out by their message.** `weft.statistics.excludeMessages` takes regular
+  expressions matched against each commit's subject - the release commits a build writes, say. What
+  they match is left out of the charts and counted apart, as merges are: how many on the line at the
+  top, how many for each person, and **Include excluded commits** to put them back. The graph still
+  draws every one. A merge a rule matches counts as excluded rather than as a merge, so every number
+  adds up, and a rule that cannot be used leaves nothing out and is named on the tab.
+
 ## 0.9.0
 
 - **Checking out asks first from Branches & Tags too, and when it detaches onto a commit.** 0.8.0

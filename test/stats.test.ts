@@ -24,6 +24,7 @@ import {
   weekStart,
   weekdayOf,
 } from '../src/stats/calendar.ts';
+import { readExclusions } from '../src/stats/exclude.ts';
 import type { Scope } from '../src/stats/scope.ts';
 import { describeScope } from '../src/stats/scope.ts';
 import type { StatsSummary } from '../src/stats/summary.ts';
@@ -360,7 +361,7 @@ test('merges are counted apart, and left out of the charts unless they are asked
   );
   assertAddsUp(left);
 
-  const counted = summarize(tallied(commits), new Map(), FACTS, true);
+  const counted = summarize(tallied(commits), new Map(), FACTS, { merges: true });
 
   assert.deepEqual([counted.total, counted.merges, counted.includeMerges, counted.perBucket], [6, 3, true, [4, 2]]);
   assert.deepEqual(
@@ -386,7 +387,7 @@ test('a person keeps the name and colour Authors gives them, whichever way merge
 
   // Sam Lee has more of the commits that are not merges, sam_lee more commits altogether.
   const left = summarize(tallied(commits), new Map(), FACTS);
-  const counted = summarize(tallied(commits), new Map(), FACTS, true);
+  const counted = summarize(tallied(commits), new Map(), FACTS, { merges: true });
 
   assert.deepEqual(
     left.people.map((person) => [person.name, person.commits, person.spellings]),
@@ -398,4 +399,48 @@ test('a person keeps the name and colour Authors gives them, whichever way merge
   );
   assert.equal(left.series[0]?.hue, counted.series[0]?.hue);
   assert.equal(left.series[0]?.hue, authorHue('sam_lee'));
+});
+
+test('a rule of weft.statistics.excludeMessages leaves commits out and counts them apart, merges or not', () => {
+  const exclusions = readExclusions(['^release \\[', '[', '', 42]);
+
+  assert.deepEqual(exclusions.rules, ['^release \\[']);
+  assert.deepEqual(exclusions.unreadable, ['[', '', '42'], 'not a regular expression, empty, and not a string');
+
+  const tally = new CommitTally(exclusions.patterns);
+
+  tally.add([
+    { ...on('Ada', '2026-01-05'), subject: 'Fix the total' },
+    { ...on('Ada', '2026-01-06'), subject: 'release [2026.01.06]' },
+    { ...on('Ada', '2026-01-13'), subject: 'release [2026.01.13]' },
+    { ...merged('Bo', '2026-01-06'), subject: "Merge branch 'main'" },
+    { ...merged('Bo', '2026-01-13'), subject: 'release [2026.01.13], merged' },
+    { ...on('Rel Bot', '2026-01-07'), subject: 'release [2026.01.07]' },
+  ]);
+
+  const facts = { ...FACTS, excludeRules: exclusions.rules, unreadableRules: exclusions.unreadable };
+  const left = summarize(tally, new Map(), facts);
+
+  // The merge a rule matched is excluded and not a merge as well: 1 counted, 1 merge and 4 excluded are the 6.
+  assert.deepEqual([left.total, left.merges, left.excluded, left.includeExcluded, left.perBucket], [1, 1, 4, false, [1]]);
+  assert.deepEqual(
+    left.people.map((person) => [person.name, person.commits, person.merges, person.excluded, person.series]),
+    [
+      ['Ada', 1, 0, 2, 0],
+      ['Bo', 0, 1, 1, -1],
+      ['Rel Bot', 0, 0, 1, -1],
+    ],
+  );
+  assert.deepEqual([left.excludeRules, left.unreadableRules], [['^release \\['], ['[', '', '42']]);
+  assertAddsUp(left);
+
+  const back = summarize(tally, new Map(), facts, { excluded: true });
+
+  assert.deepEqual([back.total, back.includeExcluded, back.perBucket], [5, true, [3, 2]]);
+  assertAddsUp(back);
+
+  const everything = summarize(tally, new Map(), facts, { merges: true, excluded: true });
+
+  assert.deepEqual([everything.total, everything.perBucket], [6, [4, 2]]);
+  assertAddsUp(everything);
 });

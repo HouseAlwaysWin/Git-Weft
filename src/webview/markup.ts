@@ -171,6 +171,9 @@ export const STATS_MARKUP = `<header id="stats-header">
   <label id="stats-merges-switch" title="A merge request leaves two commits: the work, and a merge credited to whoever pressed the button. Left out, the charts count the work.">
     <input id="stats-merges" type="checkbox"> Include merges
   </label>
+  <label id="stats-excluded-switch" hidden title="Commits whose subject matches weft.statistics.excludeMessages. Left out, the charts count everything else.">
+    <input id="stats-excluded" type="checkbox"> Include excluded commits
+  </label>
   <ul id="stats-notes"></ul>
 </header>
 <section id="stats-state">

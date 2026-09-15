@@ -330,7 +330,7 @@ const describe = (messages) =>
   messages === null ? 'no such section' : messages.length === 0 ? 'nothing' : messages.map((m) => m.type + (m.id ? ` ${m.id}` : '')).join(', ');
 
 /** The statistics scenarios drawn from a summary, as the page's script names them. */
-const DRAWN = ['walk', 'long', 'fortyDays', 'one', 'stopped'];
+const DRAWN = ['walk', 'long', 'fortyDays', 'one', 'stopped', 'released'];
 
 /** A statistics section's lines. */
 const statsLines = (found, name) => (found[`=== stats: ${name} ===`] ?? '').split('\n').filter((line) => line.length > 0);
@@ -347,8 +347,8 @@ const counting = (count, noun) => `${count.toLocaleString('en-US')} ${noun}${cou
 /** What the statistics page's script expects of a scenario: the commits and the merges that went in. */
 function statsExpected(found, name) {
   const line = statsLines(found, 'expected').find((entry) => entry.startsWith(`${name}: `)) ?? '';
-  const counts = /: commits=(\d+) merges=(\d+)$/.exec(line);
-  return counts === null ? null : { commits: Number(counts[1]), merges: Number(counts[2]) };
+  const counts = /: commits=(\d+) merges=(\d+) excluded=(\d+)$/.exec(line);
+  return counts === null ? null : { commits: Number(counts[1]), merges: Number(counts[2]), excluded: Number(counts[3]) };
 }
 
 /** The rows of the people chart: the name, the two counts, and every `key=value` cell by its key. */
@@ -601,12 +601,21 @@ const INVARIANTS = [
     (found) => {
       const wrong = DRAWN.filter((name) => {
         const want = statsExpected(found, name);
+        const leftOut =
+          want === null
+            ? []
+            : [
+                ...(want.merges > 0 ? [counting(want.merges, 'merge')] : []),
+                ...(want.excluded > 0
+                  ? [`${want.excluded.toLocaleString('en-US')} excluded ${want.excluded === 1 ? 'commit' : 'commits'}`]
+                  : []),
+              ];
         const said =
           want === null
             ? null
-            : want.merges === 0
+            : leftOut.length === 0
               ? counting(want.commits, 'commit')
-              : `${counting(want.commits, 'commit')} and ${counting(want.merges, 'merge')} left out`;
+              : `${counting(want.commits, 'commit')}${leftOut.length === 1 ? ' and' : ','} ${leftOut.join(' and ')} left out`;
 
         return said === null || !(statsSaid(found, name, 'scope') ?? '').startsWith(`${said}, as the graph walked them`);
       });
@@ -634,7 +643,7 @@ const INVARIANTS = [
         statsSaid(found, 'merges switched on', 'sends') === '{"type":"includeMerges","on":true}'
           ? null
           : `it sent ${statsSaid(found, 'merges switched on', 'sends') || 'nothing'}`,
-        statsSaid(found, 'merges switched on', 'remembered') === '{"includeMerges":true}'
+        /"includeMerges":true/.test(statsSaid(found, 'merges switched on', 'remembered') ?? '')
           ? null
           : `it remembered ${statsSaid(found, 'merges switched on', 'remembered')}`,
         scope.startsWith(
@@ -645,6 +654,45 @@ const INVARIANTS = [
       ].filter((problem) => problem !== null);
 
       return wrong.length === 0 ? null : wrong.join('; ');
+    },
+  ],
+  [
+    'excluded commits have a switch only where there is a rule, and it asks, is remembered, and counts them in',
+    (found) => {
+      const want = statsExpected(found, 'released');
+      const scope = statsSaid(found, 'excluded switched on', 'scope') ?? '';
+
+      if (want === null || want.excluded === 0) {
+        return 'the release scenario holds no excluded commits, so this proves nothing';
+      }
+
+      const shownWithoutRule = DRAWN.filter(
+        (name) => name !== 'released' && !(statsSaid(found, name, 'excluded switch') ?? '').startsWith('hidden=true'),
+      );
+      const bot = statsPeople(found, 'released').find((person) => person.name === 'Rel Bot');
+      const wrong = [
+        ...shownWithoutRule.map((name) => `${name} shows the excluded switch with no rule`),
+        (statsSaid(found, 'released', 'excluded switch') ?? '').startsWith('hidden=false')
+          ? null
+          : 'the release scenario hid the switch',
+        statsSaid(found, 'excluded switched on', 'sends') === '{"type":"includeExcluded","on":true}'
+          ? null
+          : `it sent ${statsSaid(found, 'excluded switched on', 'sends') || 'nothing'}`,
+        /"includeExcluded":true/.test(statsSaid(found, 'excluded switched on', 'remembered') ?? '')
+          ? null
+          : `it remembered ${statsSaid(found, 'excluded switched on', 'remembered')}`,
+        scope.startsWith(
+          `${counting(want.commits + want.excluded, 'commit')}, ${want.excluded.toLocaleString('en-US')} excluded commits among them, as the graph walked them`,
+        )
+          ? null
+          : `it said ${JSON.stringify(scope)}`,
+        (statsSaid(found, 'released', 'notes') ?? '').includes('"[" could not be used') ? null : 'the rule that cannot be used went unnamed',
+        bot !== undefined && bot.commits === '0' && bot.excluded === '15 excluded' && bot.hue === '-'
+          ? null
+          : `the release bot's row read ${JSON.stringify(bot ?? null)}`,
+      ].filter((problem) => problem !== null);
+
+      return wrong.length === 0 ? null : wrong.slice(0, 3).join('; ');
     },
   ],
   [

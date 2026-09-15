@@ -206,6 +206,10 @@ landing page that lists two hundred things tells you nothing about any of them.
   bar a month beyond that - and the eight busiest people stacked over the same bars, each in the colour
   the graph gives their name, with everyone else in one grey band on top. Every piece of a bar says who
   and when on hover, and the pieces make the bar to the pixel
+- `weft.statistics.excludeMessages` leaves commits out of the statistics by their subject - release
+  commits a build writes, say - while the graph draws them as ever. They are counted apart the way
+  merges are: how many on the line at the top, how many for each person, and a switch that puts them
+  back
 - **Git Weft: Manage Remotes...** in the command palette lists what each remote points at, and
   adds, renames, repoints or removes one. Adding fetches it; removing says how many
   remote-tracking branches go with it

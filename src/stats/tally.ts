@@ -62,6 +62,10 @@ export interface WalkFacts {
   readonly scope: string;
   /** A date range narrowed the walk. git compares it with committer dates; the charts count author dates. */
   readonly dated: boolean;
+  /** The rules of `weft.statistics.excludeMessages` the walk was counted with, as written. None when omitted. */
+  readonly excludeRules?: readonly string[];
+  /** The rules set aside because they could not be used, as written. */
+  readonly unreadableRules?: readonly string[];
 }
 
 /** A graph's latest walk, as the statistics see it. */
@@ -76,12 +80,23 @@ export interface SpellingDays {
   readonly name: string;
   /** Day, then commits made that day, merges included. Day 0 holds the commits whose date could not be read. */
   readonly days: ReadonlyMap<number, number>;
-  /** Day, then how many of that day's commits were merges. A day with none is not in it. */
+  /** Day, then how many of that day's commits were merges no rule left out. A day with none is not in it. */
   readonly merges: ReadonlyMap<number, number>;
+  /**
+   * Day, then how many of that day's commits a rule of `weft.statistics.excludeMessages` matched - merges
+   * among them, which are counted here and not in `merges`. A day with none is not in it.
+   */
+  readonly excluded: ReadonlyMap<number, number>;
 }
 
-/** What a tally reads of a commit: who, when, and how many parents - more than one is a merge. */
-export type TalliedCommit = Pick<Commit, 'author' | 'authorDate'> & { readonly parents?: readonly string[] };
+/**
+ * What a tally reads of a commit: who, when, how many parents - more than one is a merge - and the subject,
+ * for the rules that leave commits out.
+ */
+export type TalliedCommit = Pick<Commit, 'author' | 'authorDate'> & {
+  readonly parents?: readonly string[];
+  readonly subject?: string;
+};
 
 /**
  * A copy of a string that owns its characters.
@@ -100,24 +115,37 @@ interface Counts {
   readonly name: string;
   readonly days: Map<number, number>;
   readonly merges: Map<number, number>;
+  readonly excluded: Map<number, number>;
 }
 
 export class CommitTally {
   private readonly bySpelling = new Map<string, Counts>();
+  private readonly exclude: readonly RegExp[];
   private commits = 0;
   private merged = 0;
+  private leftOut = 0;
 
   /** The spelling counted last. A history runs in stretches by one person, and a stretch costs one lookup. */
   private last: Counts | null = null;
 
-  /** Every commit counted, each once, merges included. */
+  /** A tally that counts apart the commits whose subject one of `exclude` matches: see `stats/exclude.ts`. */
+  constructor(exclude: readonly RegExp[] = []) {
+    this.exclude = exclude;
+  }
+
+  /** Every commit counted, each once, merges and excluded commits included. */
   get total(): number {
     return this.commits;
   }
 
-  /** How many of them were merges. */
+  /** How many of them were merges that no rule left out. */
   get merges(): number {
     return this.merged;
+  }
+
+  /** How many of them a rule left out, merges or not. */
+  get excluded(): number {
+    return this.leftOut;
   }
 
   /** Count a page of commits. */
@@ -130,7 +158,7 @@ export class CommitTally {
 
         if (spelling === null) {
           const name = detach(commit.author);
-          spelling = { name, days: new Map(), merges: new Map() };
+          spelling = { name, days: new Map(), merges: new Map(), excluded: new Map() };
           this.bySpelling.set(name, spelling);
         }
 
@@ -140,8 +168,17 @@ export class CommitTally {
       const day = dayOf(commit.authorDate);
       spelling.days.set(day, (spelling.days.get(day) ?? 0) + 1);
 
-      // More than one parent. A stash arrives with its extra parents already folded away, so it is not one.
-      if ((commit.parents?.length ?? 0) > 1) {
+      /*
+       * One commit, one reason it is left out: a merge a rule matches is counted as excluded and not as a
+       * merge, so what the charts count, the merges and the excluded commits always make up the walk.
+       */
+      const subject = commit.subject;
+
+      if (subject !== undefined && this.exclude.some((rule) => rule.test(subject))) {
+        spelling.excluded.set(day, (spelling.excluded.get(day) ?? 0) + 1);
+        this.leftOut += 1;
+      } else if ((commit.parents?.length ?? 0) > 1) {
+        // More than one parent. A stash arrives with its extra parents already folded away, so it is not one.
         spelling.merges.set(day, (spelling.merges.get(day) ?? 0) + 1);
         this.merged += 1;
       }
@@ -150,7 +187,7 @@ export class CommitTally {
     this.commits += commits.length;
   }
 
-  /** Every spelling counted, with its commits and merges by day. */
+  /** Every spelling counted, with its commits, merges and excluded commits by day. */
   spellings(): Iterable<SpellingDays> {
     return this.bySpelling.values();
   }

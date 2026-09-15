@@ -326,6 +326,10 @@ console.log(
   const madeUpMerges = (author, count, span, from = 0) =>
     madeUp(author, count, span, from).map((commit) => ({ ...commit, parents: ['1'.repeat(40), '2'.repeat(40)] }));
 
+  /** The same again, as the release commits a build writes: named for their day. */
+  const madeUpReleases = (author, count, span, from = 0) =>
+    madeUp(author, count, span, from).map((commit) => ({ ...commit, subject: `release [${commit.authorDate.slice(0, 10)}]` }));
+
   // Two names the graph colours alike, found rather than written down, so a change to the hash cannot
   // quietly give them different colours and leave the clash untested.
   const pool = Array.from({ length: 60 }, (_, i) => `Contributor ${i}`);
@@ -359,16 +363,24 @@ console.log(
     ['Bo Wang', ['Backend', 'Release']],
   ]);
 
-  /** Made-up commits summarized both ways, with the commits and merges in them counted straight off them. */
-  const scenario = (commits, custom, walkFacts) => {
-    const tally = new CommitTally();
+  /**
+   * Made-up commits summarized each way, with what is in them counted straight off them: a commit a rule
+   * matches is excluded, merge or not, and a merge is a merge only when no rule matched it.
+   */
+  const scenario = (commits, custom, walkFacts, rules = []) => {
+    const patterns = rules.map((rule) => new RegExp(rule));
+    const tally = new CommitTally(patterns);
     tally.add(commits);
-    const merges = commits.filter((commit) => (commit.parents?.length ?? 0) > 1).length;
+
+    const isExcluded = (commit) => commit.subject !== undefined && patterns.some((pattern) => pattern.test(commit.subject));
+    const excluded = commits.filter(isExcluded).length;
+    const merges = commits.filter((commit) => !isExcluded(commit) && (commit.parents?.length ?? 0) > 1).length;
 
     return {
       summary: summarize(tally, custom, walkFacts),
-      withMerges: summarize(tally, custom, walkFacts, true),
-      expected: { commits: commits.length - merges, merges },
+      withMerges: summarize(tally, custom, walkFacts, { merges: true }),
+      withExcluded: summarize(tally, custom, walkFacts, { excluded: true }),
+      expected: { commits: commits.length - merges - excluded, merges, excluded },
     };
   };
 
@@ -386,6 +398,20 @@ console.log(
     facts('every branch and tag · from 2023-03-01', { truncated: true, limit: 25, dated: true }),
   );
 
+  // Release commits among ordinary ones, one of them a merge, with a rule for them and one that cannot be read.
+  const released = scenario(
+    [
+      ...madeUp('Ada Fischer', 30, 120),
+      ...madeUpReleases('Ada Fischer', 20, 120),
+      ...madeUpReleases('Rel Bot', 15, 120),
+      ...madeUpReleases('Nils Berg', 1, 120).map((commit) => ({ ...commit, parents: ['1'.repeat(40), '2'.repeat(40)] })),
+      ...madeUp('Nils Berg', 12, 120),
+    ],
+    new Map(),
+    facts('main', { excludeRules: ['^release \\['], unreadableRules: ['['] }),
+    ['^release \\['],
+  );
+
   const summaries = {
     walk: summarize(walkTally, new Map(), facts(everything, { truncated: loader.rowCount >= maxCommits, limit: maxCommits })),
     long: threeYears.summary,
@@ -394,6 +420,8 @@ console.log(
     one: one.summary,
     nothing: nothing.summary,
     stopped: stopped.summary,
+    released: released.summary,
+    releasedWithExcluded: released.withExcluded,
   };
 
   const expected = {
@@ -402,6 +430,7 @@ console.log(
     fortyDays: fortyDays.expected,
     one: one.expected,
     stopped: stopped.expected,
+    released: released.expected,
   };
 
   // Into a script element, where a `<` in somebody's name must not be taken for markup.

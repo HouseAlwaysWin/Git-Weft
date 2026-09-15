@@ -4,7 +4,8 @@
  *
  * Injected by scripts/ui-probe.mjs, after stats.js, into a copy of dist/stats-preview.html - which carries
  * summaries made by the real tally and summary, one from the demo repository's walk and the rest from
- * commits a seeded generator made up, with the commits and merges behind each counted without them.
+ * commits a seeded generator made up, with the commits, merges and excluded commits behind each counted
+ * without them.
  * Sections are headed `=== stats: name ===`, so they sit beside the graph's in one recording.
  *
  * It writes facts down and judges nothing. What has to hold is in the runner, where a mistake in this
@@ -31,6 +32,7 @@
         'title: ' + says('#stats-title'),
         'scope: ' + says('#stats-scope'),
         'switch: checked=' + one('#stats-merges').checked,
+        'excluded switch: hidden=' + one('#stats-excluded-switch').hidden + ' checked=' + one('#stats-excluded').checked,
         'notes: ' + all('#stats-notes li').map((note) => note.textContent).join(' | '),
         'state: hidden=' + one('#stats-state').hidden + ' message=' + JSON.stringify(says('#stats-message')),
         'charts: ' + charts(),
@@ -54,6 +56,7 @@
               'share=' + bar.style.getPropertyValue('--weft-stats-share'),
               'hue=' + hueOf(bar),
               'children=' + name.children.length,
+              'excluded=' + ((row.querySelector('.stats-excluded-count') || {}).textContent || ''),
             ].join(' | '),
         );
       }
@@ -129,7 +132,7 @@
     ]);
     section('long', drawn());
 
-    for (const name of ['fortyDays', 'one', 'stopped']) {
+    for (const name of ['fortyDays', 'one', 'stopped', 'released']) {
       post({ type: 'summary', summary: summaries[name] });
       await settle(400);
       section(name, drawn());
@@ -137,7 +140,9 @@
 
     section(
       'expected',
-      Object.entries(window.__expected || {}).map(([name, counts]) => name + ': commits=' + counts.commits + ' merges=' + counts.merges),
+      Object.entries(window.__expected || {}).map(
+        ([name, counts]) => name + ': commits=' + counts.commits + ' merges=' + counts.merges + ' excluded=' + (counts.excluded || 0),
+      ),
     );
 
     // Merges counted in: the page asks, remembers it asked, and says so once the host answers.
@@ -162,6 +167,31 @@
 
     mergesBox.checked = false;
     mergesBox.dispatchEvent(new Event('change', { bubbles: true }));
+    post({ type: 'summary', summary: summaries.long });
+    await settle(400);
+
+    // Excluded commits put back: the same asking, remembering and saying, for the rule's own switch.
+    post({ type: 'summary', summary: summaries.released });
+    await settle(400);
+
+    const excludedBox = one('#stats-excluded');
+    const beforeExcluded = sent().length;
+    excludedBox.checked = true;
+    excludedBox.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle(150);
+
+    const askedExcluded = sent().slice(beforeExcluded).map((message) => JSON.stringify(message)).join(' ');
+    post({ type: 'summary', summary: summaries.releasedWithExcluded });
+    await settle(400);
+
+    section('excluded switched on', [
+      'sends: ' + askedExcluded,
+      'remembered: ' + JSON.stringify(window.__state === undefined ? null : window.__state),
+      'scope: ' + says('#stats-scope'),
+    ]);
+
+    excludedBox.checked = false;
+    excludedBox.dispatchEvent(new Event('change', { bubbles: true }));
     post({ type: 'summary', summary: summaries.long });
     await settle(400);
 

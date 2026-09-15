@@ -831,6 +831,14 @@
           "minimum": 1000,
           "maximum": 5000000,
           "markdownDescription": "Stop walking after this many commits. The graph says so when it stops here rather than at the end of the history."
+        },
+        "weft.statistics.excludeMessages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Regular expressions matched against each commit's subject, for **Git Weft: Show Statistics**. A commit one of them matches is left out of the statistics - counted apart, the way merges are, and put back by the tab's own switch - while the graph draws it as ever. For release commits named like `release [2026.05.03]`: `^release \\[`. Matched with their case. A rule that cannot be used leaves nothing out, and the tab says which."
         }
       }
     },

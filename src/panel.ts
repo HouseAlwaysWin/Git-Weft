@@ -104,6 +104,7 @@ import { explainStaleLock } from './git/staleLock.ts';
 import { describeAge } from './git/blame.ts';
 import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
+import { readExclusions } from './stats/exclude.ts';
 import { describeScope } from './stats/scope.ts';
 import type { Walk } from './stats/tally.ts';
 import { CommitTally } from './stats/tally.ts';
@@ -1315,8 +1316,10 @@ export class WeftPanel {
     // Read once: the walk is bounded by it and the message at the end has to say whether it was.
     const limit = config.get<number>('maxCommits', 250_000);
 
-    // Counted as the pages go past, for the statistics tab, rather than asked of git a second time.
-    const tally = new CommitTally();
+    // Counted as the pages go past, for the statistics tab, rather than asked of git a second time - with the
+    // commits weft.statistics.excludeMessages names counted apart, since they are left out of the charts only.
+    const exclusions = readExclusions(config.get<unknown[]>('statistics.excludeMessages', []));
+    const tally = new CommitTally(exclusions.patterns);
     this.setWalk({ state: 'walking' });
 
     // Only the newest stash is a ref, so the rest have to be named by SHA or the walk never sees
@@ -1440,6 +1443,8 @@ export class WeftPanel {
               onlyHere: this.onlyHere,
             }),
             dated: dates.length > 0,
+            excludeRules: exclusions.rules,
+            unreadableRules: exclusions.unreadable,
           },
         });
 

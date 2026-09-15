@@ -638,6 +638,11 @@ function start(context: vscode.ExtensionContext): void {
         refs.refold();
         WeftPanel.refreshRefs();
       }
+
+      // What the statistics leave out is decided as a walk is counted, so a new rule is counted by a new walk.
+      if (event.affectsConfiguration('weft.statistics.excludeMessages')) {
+        WeftPanel.refreshAll();
+      }
     }),
     authors.onDidChangeFilter(() => WeftPanel.refreshAll()),
     // A statistics tab folds people as Authors does, so a new group is a new fold of the walk it already has.

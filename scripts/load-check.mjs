@@ -4175,6 +4175,92 @@ if (watchTest) {
       problems.push('counting merges the other way walked the history again');
     }
 
+    // --- a rule of weft.statistics.excludeMessages: counted apart, and the graph walks as it did -----------
+
+    const ruleFrom = stats.posted.length;
+    const walksBeforeRule = posted.filter((m) => m.type === 'done').length;
+    const graphBeforeRule = posted.filter((m) => m.type === 'done').at(-1)?.total;
+
+    settings.set('weft.statistics.excludeMessages', ['^commit [0-9]+$', '[']);
+    configurationChanged.fire(['weft.statistics.excludeMessages']);
+    await until(
+      () =>
+        posted.filter((m) => m.type === 'done').length > walksBeforeRule &&
+        summaries(ruleFrom).some((m) => (m.summary.excludeRules ?? []).length > 0),
+    );
+
+    // What the rule ought to have matched: the subjects that walk drew, in its pages from its reset to its end.
+    const types = posted.map((m) => m.type);
+    const doneAt = types.lastIndexOf('done');
+    const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
+    const ruledWalk = posted[doneAt]?.total;
+    const matchable = posted
+      .slice(resetAt, doneAt)
+      .filter((m) => m.type === 'page')
+      .flatMap((m) => m.rows)
+      .filter((row) => /^commit [0-9]+$/.test(row.subject)).length;
+    const ruled = summaries(ruleFrom).at(-1)?.summary;
+
+    console.log(
+      '  a rule       :',
+      ruled?.total,
+      'counted,',
+      ruled?.merges,
+      'merges,',
+      ruled?.excluded,
+      'excluded of',
+      matchable,
+      'matching | set aside',
+      JSON.stringify(ruled?.unreadableRules),
+    );
+
+    if (ruledWalk !== graphBeforeRule) {
+      problems.push(`a statistics rule changed what the graph walks: ${graphBeforeRule} commits, then ${ruledWalk}`);
+    }
+
+    if (ruled === undefined || matchable === 0 || ruled.excluded !== matchable) {
+      problems.push(`a rule matching ${matchable} subjects left ${ruled?.excluded} commits out of the statistics`);
+    } else if (ruled.total + ruled.merges + ruled.excluded !== ruledWalk) {
+      problems.push(
+        `with a rule, ${ruled.total} counted, ${ruled.merges} merges and ${ruled.excluded} excluded are not the ${ruledWalk} walked`,
+      );
+    }
+
+    if (JSON.stringify(ruled?.unreadableRules) !== '["["]') {
+      problems.push(`a rule that is not a regular expression was not set aside: ${JSON.stringify(ruled?.unreadableRules)}`);
+    }
+
+    // And put back by the tab's own switch, from the same walk.
+    const backFrom = stats.posted.length;
+    const walksBeforeBack = posted.filter((m) => m.type === 'done').length;
+
+    stats.handler({ type: 'includeExcluded', on: true });
+    await until(() => summaries(backFrom).length > 0, 5_000);
+
+    const putBack = summaries(backFrom).at(-1)?.summary;
+
+    if (
+      putBack?.includeExcluded !== true ||
+      putBack.total + putBack.merges !== ruledWalk ||
+      posted.filter((m) => m.type === 'done').length !== walksBeforeBack
+    ) {
+      problems.push(`putting the excluded commits back counted ${putBack?.total} of ${ruledWalk}, or walked again`);
+    }
+
+    stats.handler({ type: 'includeExcluded', on: false });
+
+    // Unset again, and waited for until the tab has been told: otherwise the group below sees this walk as its own.
+    const walksBeforeUnset = posted.filter((m) => m.type === 'done').length;
+    const unsetFrom = stats.posted.length;
+
+    settings.delete('weft.statistics.excludeMessages');
+    configurationChanged.fire(['weft.statistics.excludeMessages']);
+    await until(
+      () =>
+        posted.filter((m) => m.type === 'done').length > walksBeforeUnset &&
+        summaries(unsetFrom).some((m) => (m.summary.excludeRules ?? []).length === 0),
+    );
+
     // --- a group made in Authors folds the same walk again, and walks nothing ----------------------------
 
     const authorsProvider = treeProviders.get('weft.authors');

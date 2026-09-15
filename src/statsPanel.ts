@@ -36,6 +36,8 @@ export class StatsPanel {
 
   /** Whether the charts count merges: off until the page says otherwise. See `summarize`. */
   private includeMerges = false;
+  /** Whether they count the commits `weft.statistics.excludeMessages` matched: off until the page says otherwise. */
+  private includeExcluded = false;
 
   /** The tab for a repository: the one already open, brought forward, or a new one. */
   static show(extensionUri: vscode.Uri, root: string, source: StatsSource, column: vscode.ViewColumn): StatsPanel {
@@ -96,6 +98,7 @@ export class StatsPanel {
       // A new page - opened, or shown again, which builds it afresh - that knows nothing yet.
       case 'ready':
         this.includeMerges = message.includeMerges;
+        this.includeExcluded = message.includeExcluded;
         this.post({ type: 'init', repoName: this.root.split('/').pop() ?? this.root });
         this.send();
         break;
@@ -103,6 +106,11 @@ export class StatsPanel {
       // The same walk counted the other way: a new summary, and nothing walked.
       case 'includeMerges':
         this.includeMerges = message.on;
+        this.send();
+        break;
+
+      case 'includeExcluded':
+        this.includeExcluded = message.on;
         this.send();
         break;
 
@@ -128,7 +136,10 @@ export class StatsPanel {
     } else {
       this.post({
         type: 'summary',
-        summary: summarize(walk.tally, this.source.groups(this.root), walk.facts, this.includeMerges),
+        summary: summarize(walk.tally, this.source.groups(this.root), walk.facts, {
+          merges: this.includeMerges,
+          excluded: this.includeExcluded,
+        }),
       });
     }
   }

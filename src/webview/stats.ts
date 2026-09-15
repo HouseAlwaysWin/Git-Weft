@@ -66,14 +66,20 @@ const stackedTitleEl = element('stats-stacked-heading');
 const stackedChartEl = element<SVGSVGElement>('stats-stacked');
 const legendEl = element('stats-legend');
 const mergesEl = element<HTMLInputElement>('stats-merges');
+const excludedSwitchEl = element('stats-excluded-switch');
+const excludedEl = element<HTMLInputElement>('stats-excluded');
 
 /** What the charts are drawn from, or null while there is nothing to draw. */
 let summary: StatsSummary | null = null;
 let showingAll = false;
 let staleTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Remembered by the page rather than the host, so the switch is where it was left when the tab is shown again.
-mergesEl.checked = (vscode.getState() as { readonly includeMerges?: unknown } | undefined)?.includeMerges === true;
+// Remembered by the page rather than the host, so the switches are where they were left when the tab is shown again.
+const remembered = vscode.getState() as
+  | { readonly includeMerges?: unknown; readonly includeExcluded?: unknown }
+  | undefined;
+mergesEl.checked = remembered?.includeMerges === true;
+excludedEl.checked = remembered?.includeExcluded === true;
 
 /** A count as a reader says it: "1 commit", "2,314 commits". */
 function commits(count: number): string {
@@ -85,15 +91,32 @@ function merges(count: number): string {
   return `${count.toLocaleString('en-US')} ${count === 1 ? 'merge' : 'merges'}`;
 }
 
-/** What a summary counts, and what it did with merges: "2,314 commits and 506 merges left out". */
+/** An excluded-commit count as a reader says it: "1 excluded commit", "741 excluded commits". */
+function excludedCommits(count: number): string {
+  return `${count.toLocaleString('en-US')} excluded ${count === 1 ? 'commit' : 'commits'}`;
+}
+
+/**
+ * What a summary counts, and what it did with merges and excluded commits: "2,314 commits and 506 merges
+ * left out", or "2,820 commits, 506 merges among them, 741 excluded commits left out".
+ */
 function counted(drawn: StatsSummary): string {
-  if (drawn.merges === 0) {
-    return commits(drawn.total);
+  const among: string[] = [];
+  const leftOut: string[] = [];
+
+  if (drawn.merges > 0) {
+    (drawn.includeMerges ? among : leftOut).push(merges(drawn.merges));
   }
 
-  return drawn.includeMerges
-    ? `${commits(drawn.total)}, ${merges(drawn.merges)} among them`
-    : `${commits(drawn.total)} and ${merges(drawn.merges)} left out`;
+  if (drawn.excluded > 0) {
+    (drawn.includeExcluded ? among : leftOut).push(excludedCommits(drawn.excluded));
+  }
+
+  const inside = among.length === 0 ? '' : `, ${among.join(' and ')} among them`;
+  const joiner = inside === '' && leftOut.length === 1 ? ' and' : ',';
+  const outside = leftOut.length === 0 ? '' : `${joiner} ${leftOut.join(' and ')} left out`;
+
+  return `${commits(drawn.total)}${inside}${outside}`;
 }
 
 function stopDimming(): void {
@@ -141,6 +164,16 @@ function notesFor(drawn: StatsSummary): string[] {
     notes.push('Someone is in more than one group, so the rows add up to more than the total.');
   }
 
+  if (drawn.excludeRules.length > 0) {
+    const rules = drawn.excludeRules.map((rule) => JSON.stringify(rule)).join(', ');
+    notes.push(`Excluded commits are the ones whose subject matches weft.statistics.excludeMessages: ${rules}.`);
+  }
+
+  if (drawn.unreadableRules.length > 0) {
+    const rules = drawn.unreadableRules.map((rule) => JSON.stringify(rule)).join(', ');
+    notes.push(`weft.statistics.excludeMessages: ${rules} could not be used, and left nothing out.`);
+  }
+
   notes.push('Authors counts every branch back to the root commit, so its numbers can be larger.');
   return notes;
 }
@@ -148,6 +181,9 @@ function notesFor(drawn: StatsSummary): string[] {
 function drawPeople(drawn: StatsSummary): void {
   const busiest = drawn.people[0]?.commits ?? 0;
   const listed = showingAll ? drawn.people : drawn.people.slice(0, LISTED);
+  const excluding = drawn.excludeRules.length > 0;
+
+  peopleEl.classList.toggle('stats-excluding', excluding);
 
   peopleEl.replaceChildren(
     ...listed.map((person) => {
@@ -184,6 +220,15 @@ function drawPeople(drawn: StatsSummary): void {
       merged.textContent = person.merges === 0 ? '' : merges(person.merges);
 
       row.append(name, track, count, merged);
+
+      // Only while there is a rule to exclude by: otherwise the column would be empty on every row.
+      if (excluding) {
+        const excluded = document.createElement('span');
+        excluded.className = 'stats-excluded-count';
+        excluded.textContent = person.excluded === 0 ? '' : `${person.excluded.toLocaleString('en-US')} excluded`;
+        row.append(excluded);
+      }
+
       return row;
     }),
   );
@@ -357,10 +402,18 @@ function drawTime(drawn: StatsSummary): void {
 function draw(next: StatsSummary): void {
   stopDimming();
 
+  // Only with a rule to exclude by, since without one there is nothing for it to put back.
+  excludedSwitchEl.hidden = next.excludeRules.length === 0;
+
   if (next.total === 0) {
+    const reasons = [
+      ...(next.merges > 0 && !next.includeMerges ? ['a merge'] : []),
+      ...(next.excluded > 0 && !next.includeExcluded ? ['excluded by weft.statistics.excludeMessages'] : []),
+    ];
+
     say(
-      next.merges > 0
-        ? `Every commit in what the graph walked is a merge, and merges are left out: ${next.scope}.`
+      reasons.length > 0
+        ? `Every commit in what the graph walked is ${reasons.join(' or ')}, and left out: ${next.scope}.`
         : `There are no commits in what the graph walked: ${next.scope}.`,
       false,
     );
@@ -417,9 +470,19 @@ window.addEventListener('message', (event: MessageEvent<StatsHostMessage>) => {
 
 openGraphEl.addEventListener('click', () => vscode.postMessage({ type: 'openGraph' }));
 
+/** Both switches, remembered together by the page. */
+function remember(): void {
+  vscode.setState({ includeMerges: mergesEl.checked, includeExcluded: excludedEl.checked });
+}
+
 mergesEl.addEventListener('change', () => {
-  vscode.setState({ includeMerges: mergesEl.checked });
+  remember();
   vscode.postMessage({ type: 'includeMerges', on: mergesEl.checked });
+});
+
+excludedEl.addEventListener('change', () => {
+  remember();
+  vscode.postMessage({ type: 'includeExcluded', on: excludedEl.checked });
 });
 
 showAllEl.addEventListener('click', () => {
@@ -453,4 +516,4 @@ new ResizeObserver((entries) => {
   });
 }).observe(chartsEl);
 
-vscode.postMessage({ type: 'ready', includeMerges: mergesEl.checked });
+vscode.postMessage({ type: 'ready', includeMerges: mergesEl.checked, includeExcluded: excludedEl.checked });

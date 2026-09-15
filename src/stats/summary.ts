@@ -31,12 +31,14 @@ export interface StatsPerson {
    */
   readonly name: string;
   /**
-   * Commits under any spelling in it, merges left out unless the summary counts them. A spelling in two
-   * groups counts in both, as it does in Authors.
+   * Commits under any spelling in it, merges and excluded commits left out unless the summary counts them.
+   * A spelling in two groups counts in both, as it does in Authors.
    */
   readonly commits: number;
   /** Merges under any spelling in it, whether or not the summary counts them. */
   readonly merges: number;
+  /** Commits under any spelling in it that a rule matched, whether or not the summary counts them. */
+  readonly excluded: number;
   /** The spellings folded into it, the one with the most commits, merges included, first. */
   readonly spellings: readonly string[];
   /** Put together by hand rather than by the spelling rule. */
@@ -57,12 +59,23 @@ export interface StatsSeries {
 
 /** Everything the statistics tab draws for one walk. */
 export interface StatsSummary {
-  /** Commits the charts count, each once: the graph's own count, less its merges unless `includeMerges`. */
+  /**
+   * Commits the charts count, each once: the graph's own count, less its merges unless `includeMerges` and
+   * less its excluded commits unless `includeExcluded`.
+   */
   readonly total: number;
-  /** Merge commits in the walk, whether or not the charts count them. */
+  /** Merge commits in the walk that no rule left out, whether or not the charts count them. */
   readonly merges: number;
   /** Whether the charts count merges, or only count them apart. */
   readonly includeMerges: boolean;
+  /** Commits in the walk a rule of `weft.statistics.excludeMessages` matched, whether or not they are counted. */
+  readonly excluded: number;
+  /** Whether the charts count the excluded commits, or only count them apart. */
+  readonly includeExcluded: boolean;
+  /** The rules the walk was counted with, as written. */
+  readonly excludeRules: readonly string[];
+  /** Rules that could not be used, as written. They left nothing out. */
+  readonly unreadableRules: readonly string[];
   readonly truncated: boolean;
   readonly limit: number;
   readonly scope: string;
@@ -126,26 +139,40 @@ export function assignHues(names: readonly string[]): number[] {
   });
 }
 
+/** What the charts count besides ordinary commits. Merges and excluded commits are counted apart either way. */
+export interface Counting {
+  readonly merges?: boolean;
+  readonly excluded?: boolean;
+}
+
 /**
  * Fold a tally into people with the Authors view's rule and `custom`'s hand-made groups, and cut it into
  * bars of a week or a month.
  *
- * Merges are left out of everything the charts draw unless `includeMerges`, and counted apart either way.
+ * Merges are left out of everything the charts draw unless `counting.merges`, and counted apart either way.
  * Where changes arrive through merge requests every change is two commits - the work, and a merge credited
  * to whoever pressed the button - and counting both says the people who merge did everyone's work twice.
+ * The commits a rule of `weft.statistics.excludeMessages` matched are left out the same way unless
+ * `counting.excluded`: the release commits a build writes are nobody's work either.
  */
 export function summarize(
   tally: CommitTally,
   custom: ReadonlyMap<string, readonly string[]>,
   facts: WalkFacts,
-  includeMerges = false,
+  counting: Counting = {},
 ): StatsSummary {
+  const includeMerges = counting.merges === true;
+  const includeExcluded = counting.excluded === true;
+
   /** A spelling's commits on a day, as the charts count them. */
   const counted = (spelling: SpellingDays, day: number, all: number): number =>
-    includeMerges ? all : all - (spelling.merges.get(day) ?? 0);
+    all -
+    (includeMerges ? 0 : (spelling.merges.get(day) ?? 0)) -
+    (includeExcluded ? 0 : (spelling.excluded.get(day) ?? 0));
 
   const identities: AuthorIdentity[] = [];
   const mergesOf = new Map<string, number>();
+  const excludedOf = new Map<string, number>();
   const everyCommitOf = new Map<string, number>();
   let first = 0;
   let last = 0;
@@ -177,7 +204,14 @@ export function summarize(
       merges += count;
     }
 
+    let excluded = 0;
+
+    for (const count of spelling.excluded.values()) {
+      excluded += count;
+    }
+
     mergesOf.set(spelling.name, merges);
+    excludedOf.set(spelling.name, excluded);
     everyCommitOf.set(spelling.name, everyCommit);
     identities.push({ name: spelling.name, emails: [], commits });
   }
@@ -217,7 +251,7 @@ export function summarize(
   /*
    * Who gets a band: people in order, each with commits to draw and a spelling nobody before them has. A
    * group whose every spelling is already drawn by a busier group would be a band with nothing in it, and
-   * so would someone whose every commit is a merge while merges are left out.
+   * so would someone whose every commit is a merge or excluded while those are left out.
    */
   const bringing: number[] = [];
   const brought = new Set<string>();
@@ -271,12 +305,16 @@ export function summarize(
   }
 
   const bandOf = new Map(stacked.map((index, band) => [index, band]));
-  const total = includeMerges ? tally.total : tally.total - tally.merges;
+  const total = tally.total - (includeMerges ? 0 : tally.merges) - (includeExcluded ? 0 : tally.excluded);
 
   return {
     total,
     merges: tally.merges,
     includeMerges,
+    excluded: tally.excluded,
+    includeExcluded,
+    excludeRules: facts.excludeRules ?? [],
+    unreadableRules: facts.unreadableRules ?? [],
     truncated: facts.truncated,
     limit: facts.limit,
     scope: facts.scope,
@@ -288,6 +326,7 @@ export function summarize(
       name: person.custom ? person.name : (membersOf[index]?.[0]?.name ?? person.name),
       commits: person.commits,
       merges: person.members.reduce((sum, member) => sum + (mergesOf.get(member.name) ?? 0), 0),
+      excluded: person.members.reduce((sum, member) => sum + (excludedOf.get(member.name) ?? 0), 0),
       spellings: (membersOf[index] ?? person.members).map((member) => member.name),
       custom: person.custom,
       series: bandOf.get(index) ?? -1,
