@@ -202,6 +202,10 @@ landing page that lists two hundred things tells you nothing about any of them.
   included, and making a group refolds the chart without walking the history again. A line at the top
   says what the walk was narrowed to, because the counts in **Authors** cover every branch back to the
   root. Nothing is asked of git for it: the graph's walk is counted as it streams past
+- The same tab draws commits over time - a bar a week while the history spans sixty weeks or fewer, a
+  bar a month beyond that - and the eight busiest people stacked over the same bars, each in the colour
+  the graph gives their name, with everyone else in one grey band on top. Every piece of a bar says who
+  and when on hover, and the pieces make the bar to the pixel
 - **Git Weft: Manage Remotes...** in the command palette lists what each remote points at, and
   adds, renames, repoints or removes one. Adding fetches it; removing says how many
   remote-tracking branches go with it

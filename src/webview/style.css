@@ -1698,9 +1698,15 @@ body.weft-stats .stats-count {
 }
 
 /* High contrast draws an edge on anything that is only a colour, and so does this. */
-body.weft-stats.vscode-high-contrast .stats-bar {
+body.weft-stats.vscode-high-contrast .stats-bar,
+body.weft-stats.vscode-high-contrast .stats-swatch {
   outline: 1px solid var(--vscode-contrastBorder);
   outline-offset: -1px;
+}
+
+body.weft-stats.vscode-high-contrast .stats-piece {
+  stroke: var(--vscode-contrastBorder);
+  stroke-width: 1;
 }
 
 body.weft-stats #stats-merges-switch {
@@ -1720,4 +1726,70 @@ body.weft-stats .stats-merged {
   color: var(--vscode-descriptionForeground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* The charts over time keep to the people chart's width, so the three read as one page. */
+body.weft-stats #stats-time {
+  max-width: 960px;
+}
+
+body.weft-stats .stats-time {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* The lines across are there to read a bar against, not to be read themselves. */
+body.weft-stats .stats-grid {
+  stroke: var(--vscode-descriptionForeground);
+  stroke-opacity: 0.25;
+  shape-rendering: crispEdges;
+}
+
+body.weft-stats .stats-axis {
+  fill: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+body.weft-stats .stats-piece {
+  fill: oklch(var(--weft-author-l) var(--weft-author-c) var(--weft-author-hue));
+  shape-rendering: crispEdges;
+}
+
+/* Every commit together is nobody in particular, so it takes the theme's chart colour rather than a person's. */
+body.weft-stats .stats-piece.stats-total {
+  fill: var(--vscode-charts-blue, #3794ff);
+}
+
+body.weft-stats .stats-piece.stats-unbanded {
+  fill: var(--vscode-descriptionForeground);
+  fill-opacity: 0.45;
+}
+
+body.weft-stats .stats-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+body.weft-stats .stats-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.weft-stats .stats-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: oklch(var(--weft-author-l) var(--weft-author-c) var(--weft-author-hue));
+}
+
+body.weft-stats .stats-swatch.stats-unbanded {
+  background: var(--vscode-descriptionForeground);
+  opacity: 0.45;
 }

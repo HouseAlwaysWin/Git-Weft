@@ -183,4 +183,11 @@ export const STATS_MARKUP = `<header id="stats-header">
     <ol id="stats-people"></ol>
     <button id="stats-show-all" type="button" hidden></button>
   </section>
+  <section id="stats-time" class="stats-chart" hidden>
+    <h2 id="stats-total-heading">Commits over time</h2>
+    <svg id="stats-total" class="stats-time" role="img"></svg>
+    <h2 id="stats-stacked-heading">Each person over time</h2>
+    <svg id="stats-stacked" class="stats-time" role="img"></svg>
+    <ul id="stats-legend" class="stats-legend"></ul>
+  </section>
 </main>`;

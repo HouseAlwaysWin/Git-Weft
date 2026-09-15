@@ -6,6 +6,8 @@
  */
 
 import type { StatsHostMessage, StatsWebviewMessage } from '../protocol.ts';
+import { describeBucket } from '../stats/calendar.ts';
+import { ceiling, columns, gridLines, ticks } from '../stats/chart.ts';
 import type { StatsSummary } from '../stats/summary.ts';
 
 interface VsCodeApi {
@@ -28,8 +30,18 @@ const LISTED = 50;
  */
 const STALE_AFTER_MS = 250;
 
-function element<T extends HTMLElement>(id: string): T {
-  const found = document.getElementById(id);
+/** The namespace `createElementNS` has to be given for an element to be SVG at all. */
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** Room around a chart's bars: the scale on the left, and the labels along the bottom. */
+const MARGIN = { top: 8, right: 12, bottom: 22, left: 48 } as const;
+
+/** How tall each chart over time is, in pixels. The stacked one has more in it to tell apart. */
+const TOTAL_HEIGHT = 160;
+const STACKED_HEIGHT = 220;
+
+function element<T extends Element = HTMLElement>(id: string): T {
+  const found: Element | null = document.getElementById(id);
 
   if (found === null) {
     throw new Error(`the statistics page has no #${id}`);
@@ -47,6 +59,12 @@ const openGraphEl = element<HTMLButtonElement>('stats-open-graph');
 const chartsEl = element('stats-charts');
 const peopleEl = element('stats-people');
 const showAllEl = element<HTMLButtonElement>('stats-show-all');
+const timeEl = element('stats-time');
+const totalTitleEl = element('stats-total-heading');
+const totalChartEl = element<SVGSVGElement>('stats-total');
+const stackedTitleEl = element('stats-stacked-heading');
+const stackedChartEl = element<SVGSVGElement>('stats-stacked');
+const legendEl = element('stats-legend');
 const mergesEl = element<HTMLInputElement>('stats-merges');
 
 /** What the charts are drawn from, or null while there is nothing to draw. */
@@ -174,6 +192,168 @@ function drawPeople(drawn: StatsSummary): void {
   showAllEl.textContent = `Show all ${drawn.people.length.toLocaleString('en-US')} people`;
 }
 
+/** One band of a chart over time: whose commits, in which colour, and how many in each bar. */
+interface Band {
+  /** Whose commits, for the words on hover; null when the band is every commit. */
+  readonly name: string | null;
+  /** A person's hue, or null for a band in a colour of the chart's own. */
+  readonly hue: number | null;
+  readonly className: string;
+  readonly counts: readonly number[];
+}
+
+/** An SVG element and its attributes. Geometry goes in attributes, which the content security policy allows. */
+function shape<K extends keyof SVGElementTagNameMap>(
+  name: K,
+  attributes: Readonly<Record<string, string | number>>,
+): SVGElementTagNameMap[K] {
+  const node = document.createElementNS(SVG, name);
+
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, String(value));
+  }
+
+  return node;
+}
+
+/**
+ * A bar chart over time: the scale and its lines, a bar for every week or month cut into `bands`, and a
+ * label under each bar `ticks` picks. Every piece says in words who and when it is, on hover.
+ */
+function drawOverTime(
+  target: SVGSVGElement,
+  drawn: StatsSummary,
+  bands: readonly Band[],
+  height: number,
+  label: string,
+): void {
+  const width = Math.max(240, Math.floor(timeEl.clientWidth));
+  const plotWidth = width - MARGIN.left - MARGIN.right;
+  const plotHeight = height - MARGIN.top - MARGIN.bottom;
+  const room = plotWidth / Math.max(1, drawn.buckets.length);
+  const gap = room >= 4 ? 1 : 0;
+  const top = ceiling(drawn.perBucket.reduce((most, count) => Math.max(most, count), 0));
+  const parts: SVGElement[] = [];
+
+  for (const value of gridLines(top)) {
+    const y = MARGIN.top + plotHeight - Math.round((value / top) * plotHeight) + 0.5;
+    parts.push(shape('line', { class: 'stats-grid', x1: MARGIN.left, x2: width - MARGIN.right, y1: y, y2: y }));
+
+    const scale = shape('text', { class: 'stats-axis', x: MARGIN.left - 6, y: y + 4, 'text-anchor': 'end' });
+    scale.textContent = value.toLocaleString('en-US');
+    parts.push(scale);
+  }
+
+  for (const [bar, start] of drawn.buckets.entries()) {
+    const when = describeBucket(start, drawn.unit);
+    const pieces = columns(bands.map((band) => band.counts[bar] ?? 0), top, plotHeight);
+
+    for (const [index, piece] of pieces.entries()) {
+      const band = bands[index];
+
+      // Drawn even when it rounds to no height at all, so every commit in the bar is one of its pieces.
+      if (band === undefined || (band.counts[bar] ?? 0) === 0) {
+        continue;
+      }
+
+      const rect = shape('rect', {
+        class: band.className,
+        x: (MARGIN.left + bar * room + gap / 2).toFixed(2),
+        y: MARGIN.top + piece.y,
+        width: Math.max(1, room - gap).toFixed(2),
+        height: piece.height,
+      });
+
+      if (band.hue !== null) {
+        rect.style.setProperty('--weft-author-hue', String(band.hue));
+      }
+
+      const count = commits(band.counts[bar] ?? 0);
+      const title = shape('title', {});
+      title.textContent =
+        band.name === null ? `${when.charAt(0).toUpperCase()}${when.slice(1)}: ${count}` : `${band.name}, ${when}: ${count}`;
+      rect.append(title);
+      parts.push(rect);
+    }
+  }
+
+  for (const tick of ticks(drawn.buckets, drawn.unit, plotWidth)) {
+    const text = shape('text', { class: 'stats-axis', x: (MARGIN.left + tick.index * room).toFixed(1), y: height - 6 });
+    text.textContent = tick.label;
+    parts.push(text);
+  }
+
+  target.setAttribute('width', String(width));
+  target.setAttribute('height', String(height));
+  target.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  target.setAttribute('aria-label', label);
+  target.replaceChildren(...parts);
+}
+
+/**
+ * Commits per week or month, and the busiest people stacked over the same bars in the colours the people
+ * chart gives them - with everyone else in one grey band on top, and a legend in the order of the bands.
+ */
+function drawTime(drawn: StatsSummary): void {
+  // Commits with no readable date are counted and on no bar, so a walk of only those has no time to draw.
+  timeEl.hidden = drawn.buckets.length === 0;
+
+  if (timeEl.hidden) {
+    return;
+  }
+
+  const unit = drawn.unit;
+  const span = `${describeBucket(drawn.buckets[0] ?? 0, unit)} to ${describeBucket(drawn.buckets.at(-1) ?? 0, unit)}`;
+  const tallest = drawn.perBucket.reduce((most, count) => Math.max(most, count), 0);
+
+  totalTitleEl.textContent = `Commits per ${unit}`;
+  stackedTitleEl.textContent = `Each person, per ${unit}`;
+
+  drawOverTime(
+    totalChartEl,
+    drawn,
+    [{ name: null, hue: null, className: 'stats-piece stats-total', counts: drawn.perBucket }],
+    TOTAL_HEIGHT,
+    `Commits per ${unit}, from ${span}: at most ${commits(tallest)} in one ${unit}.`,
+  );
+
+  const bands: Band[] = drawn.series.map((band) => ({
+    name: drawn.people[band.person]?.name ?? '',
+    hue: band.hue,
+    className: 'stats-piece',
+    counts: band.counts,
+  }));
+
+  if (drawn.others.some((count) => count > 0)) {
+    bands.push({ name: 'Everyone else', hue: null, className: 'stats-piece stats-unbanded', counts: drawn.others });
+  }
+
+  drawOverTime(
+    stackedChartEl,
+    drawn,
+    bands,
+    STACKED_HEIGHT,
+    `Commits per ${unit} from ${span}, for ${bands.map((band) => band.name).join(', ')}.`,
+  );
+
+  legendEl.replaceChildren(
+    ...bands.map((band) => {
+      const item = document.createElement('li');
+      const swatch = document.createElement('span');
+      swatch.className = band.hue === null ? 'stats-swatch stats-unbanded' : 'stats-swatch';
+
+      if (band.hue !== null) {
+        swatch.style.setProperty('--weft-author-hue', String(band.hue));
+      }
+
+      const name = document.createElement('span');
+      name.textContent = band.name ?? '';
+      item.append(swatch, name);
+      return item;
+    }),
+  );
+}
+
 function draw(next: StatsSummary): void {
   stopDimming();
 
@@ -200,6 +380,7 @@ function draw(next: StatsSummary): void {
   );
 
   drawPeople(next);
+  drawTime(next);
 }
 
 window.addEventListener('message', (event: MessageEvent<StatsHostMessage>) => {
@@ -248,5 +429,28 @@ showAllEl.addEventListener('click', () => {
     drawPeople(summary);
   }
 });
+
+/**
+ * Drawn again when the tab changes width, at most once a frame. The charts are laid out in pixels, and a
+ * chart laid out for the width it used to be is either cut off or a strip down one side.
+ */
+let drawnWidth = 0;
+let frame = 0;
+
+new ResizeObserver((entries) => {
+  const width = Math.round(entries[0]?.contentRect.width ?? 0);
+
+  if (width === drawnWidth) {
+    return;
+  }
+
+  drawnWidth = width;
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    if (summary !== null) {
+      drawTime(summary);
+    }
+  });
+}).observe(chartsEl);
 
 vscode.postMessage({ type: 'ready', includeMerges: mergesEl.checked });

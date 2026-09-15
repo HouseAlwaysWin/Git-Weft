@@ -130,6 +130,28 @@ if (!/function laneWidth\(\)/.test(script) || !/(clientWidth|frame\.width) \/ 3/
   problems.push('the lanes have no default ceiling, so a wide history takes the whole panel');
 }
 
+/*
+ * The statistics tab keeps the same contract. Its bars are sized and coloured through custom properties
+ * as well, so every property the page sets has to be read by a rule: a renamed one is a chart of bars
+ * with no width, or all in one colour, with nothing failing anywhere.
+ */
+{
+  const page = readFileSync(new URL('../src/webview/stats.ts', import.meta.url), 'utf8');
+  const properties = [...new Set([...page.matchAll(/setProperty\(\s*'(--[\w-]+)'/g)].map(([, name]) => name))];
+
+  console.log(`statistics sets: ${properties.join(', ') || '(nothing)'}`);
+
+  if (properties.length === 0) {
+    problems.push('found nothing the statistics page sets - has it stopped sizing its bars through properties?');
+  }
+
+  for (const name of properties) {
+    if (!css.includes(`var(${name}`)) {
+      problems.push(`the statistics page sets ${name}, which nothing in the stylesheet reads`);
+    }
+  }
+}
+
 console.log('');
 
 for (const problem of problems) {
