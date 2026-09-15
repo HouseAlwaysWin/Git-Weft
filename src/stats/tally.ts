@@ -74,9 +74,14 @@ export type Walk =
 export interface SpellingDays {
   /** The name exactly as git records it. */
   readonly name: string;
-  /** Day, then commits made that day. Day 0 holds the commits whose date could not be read. */
+  /** Day, then commits made that day, merges included. Day 0 holds the commits whose date could not be read. */
   readonly days: ReadonlyMap<number, number>;
+  /** Day, then how many of that day's commits were merges. A day with none is not in it. */
+  readonly merges: ReadonlyMap<number, number>;
 }
+
+/** What a tally reads of a commit: who, when, and how many parents - more than one is a merge. */
+export type TalliedCommit = Pick<Commit, 'author' | 'authorDate'> & { readonly parents?: readonly string[] };
 
 /**
  * A copy of a string that owns its characters.
@@ -90,20 +95,33 @@ function detach(text: string): string {
   return JSON.parse(JSON.stringify(text)) as string;
 }
 
+/** A spelling as the tally keeps it. */
+interface Counts {
+  readonly name: string;
+  readonly days: Map<number, number>;
+  readonly merges: Map<number, number>;
+}
+
 export class CommitTally {
-  private readonly bySpelling = new Map<string, { readonly name: string; readonly days: Map<number, number> }>();
+  private readonly bySpelling = new Map<string, Counts>();
   private commits = 0;
+  private merged = 0;
 
   /** The spelling counted last. A history runs in stretches by one person, and a stretch costs one lookup. */
-  private last: { readonly name: string; readonly days: Map<number, number> } | null = null;
+  private last: Counts | null = null;
 
-  /** Every commit counted, each once. */
+  /** Every commit counted, each once, merges included. */
   get total(): number {
     return this.commits;
   }
 
+  /** How many of them were merges. */
+  get merges(): number {
+    return this.merged;
+  }
+
   /** Count a page of commits. */
-  add(commits: readonly Pick<Commit, 'author' | 'authorDate'>[]): void {
+  add(commits: readonly TalliedCommit[]): void {
     for (const commit of commits) {
       let spelling = this.last;
 
@@ -112,7 +130,7 @@ export class CommitTally {
 
         if (spelling === null) {
           const name = detach(commit.author);
-          spelling = { name, days: new Map() };
+          spelling = { name, days: new Map(), merges: new Map() };
           this.bySpelling.set(name, spelling);
         }
 
@@ -121,18 +139,24 @@ export class CommitTally {
 
       const day = dayOf(commit.authorDate);
       spelling.days.set(day, (spelling.days.get(day) ?? 0) + 1);
+
+      // More than one parent. A stash arrives with its extra parents already folded away, so it is not one.
+      if ((commit.parents?.length ?? 0) > 1) {
+        spelling.merges.set(day, (spelling.merges.get(day) ?? 0) + 1);
+        this.merged += 1;
+      }
     }
 
     this.commits += commits.length;
   }
 
-  /** Every spelling counted, with its commits by day. */
+  /** Every spelling counted, with its commits and merges by day. */
   spellings(): Iterable<SpellingDays> {
     return this.bySpelling.values();
   }
 
-  /** One spelling's commits by day, or undefined for a spelling with none in this walk. */
-  daysOf(name: string): ReadonlyMap<number, number> | undefined {
-    return this.bySpelling.get(name)?.days;
+  /** One spelling's counts, or undefined for a spelling with none in this walk. */
+  spelling(name: string): SpellingDays | undefined {
+    return this.bySpelling.get(name);
   }
 }

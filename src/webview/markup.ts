@@ -168,6 +168,9 @@ export const BODY_MARKUP = `<header id="header">
 export const STATS_MARKUP = `<header id="stats-header">
   <h1 id="stats-title">Statistics</h1>
   <p id="stats-scope"></p>
+  <label id="stats-merges-switch" title="A merge request leaves two commits: the work, and a merge credited to whoever pressed the button. Left out, the charts count the work.">
+    <input id="stats-merges" type="checkbox"> Include merges
+  </label>
   <ul id="stats-notes"></ul>
 </header>
 <section id="stats-state">

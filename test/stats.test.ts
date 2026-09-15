@@ -28,21 +28,22 @@ import type { Scope } from '../src/stats/scope.ts';
 import { describeScope } from '../src/stats/scope.ts';
 import type { StatsSummary } from '../src/stats/summary.ts';
 import { STACKED, assignHues, summarize } from '../src/stats/summary.ts';
+import type { TalliedCommit } from '../src/stats/tally.ts';
 import { CommitTally, dayOf } from '../src/stats/tally.ts';
 
 const FACTS = { truncated: false, limit: 250_000, scope: 'every branch and tag', dated: false };
 
-interface Dated {
-  readonly author: string;
-  readonly authorDate: string;
-}
-
-/** A commit by a spelling at noon UTC on a day: everything a tally reads of one. */
-function on(author: string, day: string): Dated {
+/** A commit by a spelling at noon UTC on a day: everything a tally reads of one that is not a merge. */
+function on(author: string, day: string): TalliedCommit {
   return { author, authorDate: `${day}T12:00:00+00:00` };
 }
 
-function tallied(commits: readonly Dated[]): CommitTally {
+/** The same, with the two parents that make it a merge. */
+function merged(author: string, day: string): TalliedCommit {
+  return { ...on(author, day), parents: ['1'.repeat(40), '2'.repeat(40)] };
+}
+
+function tallied(commits: readonly TalliedCommit[]): CommitTally {
   const tally = new CommitTally();
   tally.add(commits);
   return tally;
@@ -333,4 +334,68 @@ test('the scope says what narrowed the walk, in the graph’s own words, and not
     }),
     'main and origin/uat · only here · messages matching "fix" · 2 authors ticked · from 2026-01-01 · first parent',
   );
+});
+
+test('merges are counted apart, and left out of the charts unless they are asked for', () => {
+  const commits = [
+    on('Ada', '2026-01-05'),
+    on('Ada', '2026-01-06'),
+    merged('Ada', '2026-01-06'),
+    merged('Mia Merger', '2026-01-07'),
+    merged('Mia Merger', '2026-01-13'),
+    { ...on('Bo', '2026-01-13'), parents: ['1'.repeat(40)] },
+  ];
+
+  const left = summarize(tallied(commits), new Map(), FACTS);
+
+  assert.deepEqual([left.total, left.merges, left.includeMerges, left.perBucket], [3, 3, false, [2, 1]]);
+  assert.deepEqual(
+    left.people.map((person) => [person.name, person.commits, person.merges, person.series]),
+    [
+      ['Ada', 2, 1, 0],
+      ['Bo', 1, 0, 1],
+      ['Mia Merger', 0, 2, -1],
+    ],
+    'someone who only merges is listed, and given no band of nothing',
+  );
+  assertAddsUp(left);
+
+  const counted = summarize(tallied(commits), new Map(), FACTS, true);
+
+  assert.deepEqual([counted.total, counted.merges, counted.includeMerges, counted.perBucket], [6, 3, true, [4, 2]]);
+  assert.deepEqual(
+    counted.people.map((person) => [person.name, person.commits, person.merges]),
+    [
+      ['Ada', 3, 1],
+      ['Mia Merger', 2, 2],
+      ['Bo', 1, 0],
+    ],
+  );
+  assertAddsUp(counted);
+});
+
+test('a person keeps the name and colour Authors gives them, whichever way merges are counted', () => {
+  const commits = [
+    on('Sam Lee', '2026-01-05'),
+    on('Sam Lee', '2026-01-06'),
+    on('sam_lee', '2026-01-07'),
+    merged('sam_lee', '2026-01-07'),
+    merged('sam_lee', '2026-01-08'),
+    merged('sam_lee', '2026-01-09'),
+  ];
+
+  // Sam Lee has more of the commits that are not merges, sam_lee more commits altogether.
+  const left = summarize(tallied(commits), new Map(), FACTS);
+  const counted = summarize(tallied(commits), new Map(), FACTS, true);
+
+  assert.deepEqual(
+    left.people.map((person) => [person.name, person.commits, person.spellings]),
+    [['sam_lee', 3, ['sam_lee', 'Sam Lee']]],
+  );
+  assert.deepEqual(
+    counted.people.map((person) => [person.name, person.commits, person.spellings]),
+    [['sam_lee', 6, ['sam_lee', 'Sam Lee']]],
+  );
+  assert.equal(left.series[0]?.hue, counted.series[0]?.hue);
+  assert.equal(left.series[0]?.hue, authorHue('sam_lee'));
 });

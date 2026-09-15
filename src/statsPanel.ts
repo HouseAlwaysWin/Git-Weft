@@ -34,6 +34,9 @@ export class StatsPanel {
   private readonly source: StatsSource;
   private readonly disposables: vscode.Disposable[] = [];
 
+  /** Whether the charts count merges: off until the page says otherwise. See `summarize`. */
+  private includeMerges = false;
+
   /** The tab for a repository: the one already open, brought forward, or a new one. */
   static show(extensionUri: vscode.Uri, root: string, source: StatsSource, column: vscode.ViewColumn): StatsPanel {
     const existing = StatsPanel.open.get(root);
@@ -92,7 +95,14 @@ export class StatsPanel {
     switch (message.type) {
       // A new page - opened, or shown again, which builds it afresh - that knows nothing yet.
       case 'ready':
+        this.includeMerges = message.includeMerges;
         this.post({ type: 'init', repoName: this.root.split('/').pop() ?? this.root });
+        this.send();
+        break;
+
+      // The same walk counted the other way: a new summary, and nothing walked.
+      case 'includeMerges':
+        this.includeMerges = message.on;
         this.send();
         break;
 
@@ -116,7 +126,10 @@ export class StatsPanel {
     } else if (walk.state === 'failed') {
       this.post({ type: 'failed', message: walk.message });
     } else {
-      this.post({ type: 'summary', summary: summarize(walk.tally, this.source.groups(this.root), walk.facts) });
+      this.post({
+        type: 'summary',
+        summary: summarize(walk.tally, this.source.groups(this.root), walk.facts, this.includeMerges),
+      });
     }
   }
 

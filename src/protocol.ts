@@ -304,6 +304,11 @@ export type StatsHostMessage =
   | { readonly type: 'failed'; readonly message: string };
 
 export type StatsWebviewMessage =
-  /** The page's script is running. Sent again whenever the tab is shown, since that builds the page afresh. */
-  | { readonly type: 'ready' }
+  /**
+   * The page's script is running. Sent again whenever the tab is shown, since that builds the page afresh -
+   * with whether merges are counted, which the page remembers and the host does not.
+   */
+  | { readonly type: 'ready'; readonly includeMerges: boolean }
+  /** The Include merges switch moved. */
+  | { readonly type: 'includeMerges'; readonly on: boolean }
   | { readonly type: 'openGraph' };

@@ -10,6 +10,8 @@ import type { StatsSummary } from '../stats/summary.ts';
 
 interface VsCodeApi {
   postMessage(message: StatsWebviewMessage): void;
+  getState(): unknown;
+  setState(state: unknown): void;
 }
 
 declare function acquireVsCodeApi(): VsCodeApi;
@@ -45,15 +47,35 @@ const openGraphEl = element<HTMLButtonElement>('stats-open-graph');
 const chartsEl = element('stats-charts');
 const peopleEl = element('stats-people');
 const showAllEl = element<HTMLButtonElement>('stats-show-all');
+const mergesEl = element<HTMLInputElement>('stats-merges');
 
 /** What the charts are drawn from, or null while there is nothing to draw. */
 let summary: StatsSummary | null = null;
 let showingAll = false;
 let staleTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Remembered by the page rather than the host, so the switch is where it was left when the tab is shown again.
+mergesEl.checked = (vscode.getState() as { readonly includeMerges?: unknown } | undefined)?.includeMerges === true;
+
 /** A count as a reader says it: "1 commit", "2,314 commits". */
 function commits(count: number): string {
   return `${count.toLocaleString('en-US')} ${count === 1 ? 'commit' : 'commits'}`;
+}
+
+/** A merge count as a reader says it: "1 merge", "506 merges". */
+function merges(count: number): string {
+  return `${count.toLocaleString('en-US')} ${count === 1 ? 'merge' : 'merges'}`;
+}
+
+/** What a summary counts, and what it did with merges: "2,314 commits and 506 merges left out". */
+function counted(drawn: StatsSummary): string {
+  if (drawn.merges === 0) {
+    return commits(drawn.total);
+  }
+
+  return drawn.includeMerges
+    ? `${commits(drawn.total)}, ${merges(drawn.merges)} among them`
+    : `${commits(drawn.total)} and ${merges(drawn.merges)} left out`;
 }
 
 function stopDimming(): void {
@@ -138,7 +160,12 @@ function drawPeople(drawn: StatsSummary): void {
       count.className = 'stats-count';
       count.textContent = person.commits.toLocaleString('en-US');
 
-      row.append(name, track, count);
+      // Counted apart whichever way the charts count, since who merges is a question of its own.
+      const merged = document.createElement('span');
+      merged.className = 'stats-merged';
+      merged.textContent = person.merges === 0 ? '' : merges(person.merges);
+
+      row.append(name, track, count, merged);
       return row;
     }),
   );
@@ -151,14 +178,19 @@ function draw(next: StatsSummary): void {
   stopDimming();
 
   if (next.total === 0) {
-    say(`There are no commits in what the graph walked: ${next.scope}.`, false);
+    say(
+      next.merges > 0
+        ? `Every commit in what the graph walked is a merge, and merges are left out: ${next.scope}.`
+        : `There are no commits in what the graph walked: ${next.scope}.`,
+      false,
+    );
     return;
   }
 
   summary = next;
   stateEl.hidden = true;
   chartsEl.hidden = false;
-  scopeEl.textContent = `${commits(next.total)}, as the graph walked them: ${next.scope}`;
+  scopeEl.textContent = `${counted(next)}, as the graph walked them: ${next.scope}`;
   notesEl.replaceChildren(
     ...notesFor(next).map((text) => {
       const note = document.createElement('li');
@@ -204,6 +236,11 @@ window.addEventListener('message', (event: MessageEvent<StatsHostMessage>) => {
 
 openGraphEl.addEventListener('click', () => vscode.postMessage({ type: 'openGraph' }));
 
+mergesEl.addEventListener('change', () => {
+  vscode.setState({ includeMerges: mergesEl.checked });
+  vscode.postMessage({ type: 'includeMerges', on: mergesEl.checked });
+});
+
 showAllEl.addEventListener('click', () => {
   showingAll = true;
 
@@ -212,4 +249,4 @@ showAllEl.addEventListener('click', () => {
   }
 });
 
-vscode.postMessage({ type: 'ready' });
+vscode.postMessage({ type: 'ready', includeMerges: mergesEl.checked });

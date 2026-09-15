@@ -4,12 +4,16 @@
 
 - **Statistics, in a tab of their own.** **Git Weft: Show Statistics** - in the command palette, on
   the graph's title bar, and behind the ellipsis of **Authors** - counts commits per person in exactly
-  what the graph walked: the same branches, dates, search, ticked authors and `weft.maxCommits`, so
-  its total is the graph's total and it follows every reload. People are folded as **Authors** folds
-  them, hand-made groups included, and making a group refolds the chart without walking the history
-  again. A line at the top says what the walk was narrowed to, because the counts in **Authors** cover
-  every branch back to the root. Nothing is asked of git for it: the graph's walk is counted as it
-  streams past, which measured no slower than not counting it on a 78,597-commit repository.
+  what the graph walked: the same branches, dates, search, ticked authors and `weft.maxCommits`, and
+  it follows every reload. Merges are counted apart, beside each person's commits, and left out of the
+  chart unless **Include merges** is ticked: where changes arrive through merge requests, every change
+  is the work and a merge credited to whoever pressed the button, and counting both says the people
+  who merge did everyone's work twice. With it ticked, the total is the graph's own count. People are
+  folded as **Authors** folds them, hand-made groups included, and making a group refolds the chart
+  without walking the history again. A line at the top says what the walk was narrowed to, because the
+  counts in **Authors** cover every branch back to the root. Nothing is asked of git for it: the
+  graph's walk is counted as it streams past, which measured no slower than not counting it on a
+  78,597-commit repository.
 
 ## 0.9.0
 

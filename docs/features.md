@@ -194,8 +194,11 @@ landing page that lists two hundred things tells you nothing about any of them.
 - Each author gets their own colour, derived from the name so it never shifts as pages stream in
 - **Git Weft: Show Statistics** - in the command palette, on the graph's title bar, or behind the
   ellipsis of **Authors** - opens a tab counting commits per person in exactly what the graph walked:
-  the same branches, dates, search, ticked authors and `weft.maxCommits`, so its total is the graph's
-  own and it follows every reload. People are folded as **Authors** folds them, hand-made groups
+  the same branches, dates, search, ticked authors and `weft.maxCommits`, and it follows every
+  reload. Merges are counted apart, beside each person's commits, and left out of the chart unless
+  **Include merges** is ticked - a merge request leaves a merge credited to whoever pressed the
+  button, on top of the work itself - and with it ticked the total is the graph's own. People are
+  folded as **Authors** folds them, hand-made groups
   included, and making a group refolds the chart without walking the history again. A line at the top
   says what the walk was narrowed to, because the counts in **Authors** cover every branch back to the
   root. Nothing is asked of git for it: the graph's walk is counted as it streams past

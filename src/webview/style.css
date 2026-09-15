@@ -1660,7 +1660,7 @@ body.weft-stats #stats-people {
 /* A name, its bar and its count. The name truncates rather than pushing the bars out of line. */
 body.weft-stats .stats-person {
   display: grid;
-  grid-template-columns: minmax(10ch, 24ch) minmax(60px, 1fr) 8ch;
+  grid-template-columns: minmax(10ch, 24ch) minmax(60px, 1fr) 8ch 11ch;
   gap: 12px;
   align-items: center;
   height: 22px;
@@ -1701,4 +1701,23 @@ body.weft-stats .stats-count {
 body.weft-stats.vscode-high-contrast .stats-bar {
   outline: 1px solid var(--vscode-contrastBorder);
   outline-offset: -1px;
+}
+
+body.weft-stats #stats-merges-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+body.weft-stats #stats-merges {
+  margin: 0;
+}
+
+/* Beside the count rather than in it: quieter, and there only for someone who merges. */
+body.weft-stats .stats-merged {
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

@@ -4063,7 +4063,7 @@ if (watchTest) {
         (count, bar) => summary.series.reduce((sum, band) => sum + band.counts[bar], 0) + summary.others[bar] === count,
       ) && summary.perBucket.reduce((sum, count) => sum + count, 0) + summary.undated === summary.total;
 
-    stats.handler({ type: 'ready' });
+    stats.handler({ type: 'ready', includeMerges: false });
     await until(() => summaries().length > 0);
 
     const walked = posted.filter((m) => m.type === 'done').at(-1);
@@ -4072,7 +4072,9 @@ if (watchTest) {
     console.log(
       '  counted      :',
       counted?.total,
-      'commits |',
+      'commits and',
+      counted?.merges,
+      'merges |',
       counted?.people.map((person) => `${person.name} ${person.commits}`).join(', '),
       '| the graph walked',
       walked?.total,
@@ -4081,8 +4083,11 @@ if (watchTest) {
     if (counted === undefined) {
       problems.push('the statistics tab was sent nothing to draw');
     } else {
-      if (counted.total !== walked?.total) {
-        problems.push(`the statistics tab counted ${counted.total} commits where the graph walked ${walked?.total}`);
+      // Merges are left out until asked for, and counted apart: between them, every commit the graph walked.
+      if (counted.includeMerges !== false || counted.total + counted.merges !== walked?.total) {
+        problems.push(
+          `the statistics tab counted ${counted.total} commits and ${counted.merges} merges where the graph walked ${walked?.total}`,
+        );
       }
 
       if (!addsUp(counted)) {
@@ -4107,7 +4112,7 @@ if (watchTest) {
       problems.push(`a new walk reached the statistics tab as ${sequence.join(', ') || 'nothing'}, not walking first`);
     }
 
-    if (capped?.total !== 3 || capped?.truncated !== true) {
+    if ((capped?.total ?? 0) + (capped?.merges ?? 0) !== 3 || capped?.truncated !== true) {
       problems.push(
         `a walk capped at 3 reached the statistics tab as ${capped?.total} commits, truncated ${capped?.truncated}`,
       );
@@ -4118,6 +4123,42 @@ if (watchTest) {
     settings.delete('weft.maxCommits');
     await messageHandler({ type: 'refresh' });
     await until(() => summaries(uncapFrom).length > 0);
+
+    // --- merges counted when the switch is on, from the same walk, and walked for nothing ---------------
+
+    const mergeFrom = stats.posted.length;
+    const walksBeforeMerges = posted.filter((m) => m.type === 'done').length;
+    const wholeWalk = posted.filter((m) => m.type === 'done').at(-1)?.total;
+
+    stats.handler({ type: 'includeMerges', on: true });
+    await until(() => summaries(mergeFrom).length > 0, 5_000);
+
+    const withMerges = summaries(mergeFrom).at(-1)?.summary;
+
+    console.log('  with merges  :', withMerges?.total, 'commits,', withMerges?.merges, 'merges among them');
+
+    if (withMerges?.includeMerges !== true || withMerges.total !== wholeWalk || !addsUp(withMerges)) {
+      problems.push(`with merges included the statistics tab counted ${withMerges?.total} where the graph walked ${wholeWalk}`);
+    }
+
+    // A page shown again says where its switch was left, and is counted that way from its first summary.
+    const shownFrom = stats.posted.length;
+
+    stats.handler({ type: 'ready', includeMerges: false });
+    await until(() => summaries(shownFrom).length > 0, 5_000);
+
+    const shown = summaries(shownFrom).at(-1)?.summary;
+
+    if (shown?.includeMerges !== false) {
+      problems.push('a page shown again with merges left out was counted with them in');
+    }
+
+    if (
+      stats.posted.slice(mergeFrom).some((m) => m.type === 'walking') ||
+      posted.filter((m) => m.type === 'done').length !== walksBeforeMerges
+    ) {
+      problems.push('counting merges the other way walked the history again');
+    }
 
     // --- a group made in Authors folds the same walk again, and walks nothing ----------------------------
 
