@@ -14,7 +14,11 @@ import { writeFileSync } from 'node:fs';
 import { Git } from '../src/git/exec.ts';
 import { discover } from '../src/git/discovery.ts';
 import { HistoryLoader } from '../src/git/history.ts';
-import { BODY_MARKUP } from '../src/webview/markup.ts';
+import { BODY_MARKUP, STATS_MARKUP } from '../src/webview/markup.ts';
+import { authorHue } from '../src/webview/authorColor.ts';
+import { describeScope } from '../src/stats/scope.ts';
+import { summarize } from '../src/stats/summary.ts';
+import { CommitTally } from '../src/stats/tally.ts';
 import { loadCommitDetails } from '../src/git/details.ts';
 import { readRepoState } from '../src/git/repoState.ts';
 
@@ -33,8 +37,16 @@ if (repo === null) {
 const loader = new HistoryLoader(git, repo);
 const messages = [];
 
+// Counted as the panel counts it, for the statistics tab's page - and its merges counted apart from the
+// tally, so what the page says can be held to a number the tally did not produce.
+const walkTally = new CommitTally();
+let walkMerges = 0;
+
 await loader.load(
   (page) => {
+    walkTally.add(page.commits);
+    walkMerges += page.commits.filter((commit) => commit.parents.length > 1).length;
+
     if (page.commits.length > 0 || page.done) {
       messages.push({
         type: 'page',
@@ -283,3 +295,150 @@ writeFileSync('dist/preview.html', html);
 console.log(
   `dist/preview.html  <- ${loader.rowCount} commits from ${repo.root}${light ? ' (light)' : ' (dark)'}`,
 );
+
+/*
+ * The statistics tab's page, beside the graph's: the same stand-in for VS Code, handed summaries made the
+ * way the panel makes them - by the real tally and summary - with the commits and merges behind each
+ * counted here without them, for the probe to hold the page to.
+ *
+ * One is this walk. The rest are made up, by a seeded generator so they are the same on every run, because
+ * a demo of three people over a week cannot show what the tab has to get right: three years counted by the
+ * month, more people than the stack has colours and more than the list shows at first, two the graph
+ * colours alike, a spelling the rule folds, a group made by hand, someone in two groups, someone who only
+ * merges, a name in another script, and a name that is markup.
+ */
+{
+  const everything = describeScope({ refs: null, search: null, authors: 0, dates: null, firstParent: false, onlyHere: false });
+  const facts = (scope, extra = {}) => ({ truncated: false, limit: 250_000, scope, dated: false, ...extra });
+
+  // Park-Miller: small, seeded, and the same numbers on every machine.
+  let seed = 20_260_115;
+  const random = () => (seed = (seed * 48_271) % 2_147_483_647) / 2_147_483_647;
+
+  /** `count` commits by `author`, on days spread over `span` days from `from` days after 2 January 2023. */
+  const madeUp = (author, count, span, from = 0) =>
+    Array.from({ length: count }, () => {
+      const day = new Date(Date.UTC(2023, 0, 2 + from + Math.floor(random() * span)));
+      return { author, authorDate: `${day.toISOString().slice(0, 10)}T12:00:00+08:00` };
+    });
+
+  /** The same, as merges: two parents each, which is all that makes a commit one. */
+  const madeUpMerges = (author, count, span, from = 0) =>
+    madeUp(author, count, span, from).map((commit) => ({ ...commit, parents: ['1'.repeat(40), '2'.repeat(40)] }));
+
+  // Two names the graph colours alike, found rather than written down, so a change to the hash cannot
+  // quietly give them different colours and leave the clash untested.
+  const pool = Array.from({ length: 60 }, (_, i) => `Contributor ${i}`);
+  const alike = pool.find((name) => pool.some((other) => other !== name && authorHue(other) === authorHue(name)));
+  const alsoAlike = pool.find((name) => name !== alike && authorHue(name) === authorHue(alike));
+
+  const long = [
+    ...madeUp('Ada Fischer', 420, 1095),
+    ...madeUpMerges('Ada Fischer', 60, 1095),
+    ...madeUp('Nils Berg', 300, 1095),
+    ...madeUp('Rui Santos', 260, 900, 150),
+    ...madeUp(alike, 240, 1095),
+    ...madeUp(alsoAlike, 200, 1095),
+    ...madeUp('Sean Lin', 110, 1095),
+    ...madeUp('sean_lin', 70, 600, 400),
+    ...madeUp('Lineric', 90, 1095),
+    ...madeUp('lineric_lin', 60, 1095),
+    ...madeUp('Bo Wang', 120, 700),
+    ...madeUp('陳大文', 80, 1095),
+    ...madeUp('<b>not bold</b>', 40, 1095),
+    ...madeUpMerges('Mia Merger', 90, 1095),
+    // More people than the stack has colours, and more than the list shows before Show all.
+    ...Array.from({ length: 48 }, (_, i) => madeUp(`Occasional ${String(i).padStart(2, '0')}`, 1 + (i % 7), 1095)).flat(),
+  ];
+
+  const groups = new Map([
+    ['Lineric', ['Eric']],
+    ['lineric_lin', ['Eric']],
+    ['Nils Berg', ['Backend']],
+    ['Rui Santos', ['Release']],
+    ['Bo Wang', ['Backend', 'Release']],
+  ]);
+
+  /** Made-up commits summarized both ways, with the commits and merges in them counted straight off them. */
+  const scenario = (commits, custom, walkFacts) => {
+    const tally = new CommitTally();
+    tally.add(commits);
+    const merges = commits.filter((commit) => (commit.parents?.length ?? 0) > 1).length;
+
+    return {
+      summary: summarize(tally, custom, walkFacts),
+      withMerges: summarize(tally, custom, walkFacts, true),
+      expected: { commits: commits.length - merges, merges },
+    };
+  };
+
+  const threeYears = scenario(long, groups, facts(everything));
+  const fortyDays = scenario(
+    [...madeUp('Ada Fischer', 30, 40, 500), ...madeUp('Nils Berg', 12, 40, 500)],
+    new Map(),
+    facts('main · from 2024-05-16'),
+  );
+  const one = scenario([{ author: 'Ada Fischer', authorDate: '2026-01-14T09:30:00+01:00' }], new Map(), facts('main'));
+  const nothing = scenario([], new Map(), facts('no branch ticked'));
+  const stopped = scenario(
+    madeUp('Ada Fischer', 25, 200),
+    new Map(),
+    facts('every branch and tag · from 2023-03-01', { truncated: true, limit: 25, dated: true }),
+  );
+
+  const summaries = {
+    walk: summarize(walkTally, new Map(), facts(everything, { truncated: loader.rowCount >= maxCommits, limit: maxCommits })),
+    long: threeYears.summary,
+    longWithMerges: threeYears.withMerges,
+    fortyDays: fortyDays.summary,
+    one: one.summary,
+    nothing: nothing.summary,
+    stopped: stopped.summary,
+  };
+
+  const expected = {
+    walk: { commits: loader.rowCount - walkMerges, merges: walkMerges },
+    long: threeYears.expected,
+    fortyDays: fortyDays.expected,
+    one: one.expected,
+    stopped: stopped.expected,
+  };
+
+  // Into a script element, where a `<` in somebody's name must not be taken for markup.
+  const inline = (value) => JSON.stringify(value).replaceAll('<', '\\u003c');
+
+  writeFileSync(
+    'dist/stats-preview.html',
+    `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Weft statistics preview</title>
+<style>:root {\n${vars}\n}</style>
+<link href="style.css" rel="stylesheet">
+</head>
+<body class="weft-stats ${light ? 'vscode-light' : 'vscode-dark'}">
+${STATS_MARKUP}
+<script>
+  const sent = window.__sent = [];
+  window.__stats = ${inline(summaries)};
+  window.__expected = ${inline(expected)};
+  window.acquireVsCodeApi = () => ({
+    postMessage: (m) => {
+      sent.push(m);
+      if (m.type === 'ready') {
+        window.postMessage({ type: 'init', repoName: ${inline(repo.root.split('/').pop())} }, '*');
+        window.postMessage({ type: 'summary', summary: window.__stats.walk }, '*');
+      }
+    },
+    getState: () => window.__state,
+    setState: (state) => { window.__state = state; },
+  });
+</script>
+<script src="stats.js"></script>
+</body>
+</html>`,
+  );
+
+  console.log(`dist/stats-preview.html  <- the walk, and ${long.length} made-up commits over three years among the rest`);
+}

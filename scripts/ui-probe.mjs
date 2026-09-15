@@ -5,7 +5,7 @@
  * generates it can quietly change. So is what a click asks the host to do, which no amount of
  * looking at the page shows: the host owns most of the state, and in this harness nothing on screen
  * moves when a filter is asked for. The probe records both, as sections of text two builds can be
- * compared by.
+ * compared by - for the graph's page, then for the statistics tab's, whose sections are headed `stats: `.
  *
  *   node scripts/ui-probe.mjs print                 the recording, to stdout
  *   node scripts/ui-probe.mjs save <name>           ...to .ui-probe/<name>.txt
@@ -39,6 +39,8 @@ const DIST = join(ROOT, 'dist');
 const STORE = join(ROOT, '.ui-probe');
 const PAGE_SCRIPT = join(ROOT, 'scripts', 'ui-probe', 'page.js');
 const PAGE = 'ui-probe.html';
+const STATS_SCRIPT = join(ROOT, 'scripts', 'ui-probe', 'stats.js');
+const STATS_PAGE = 'ui-probe-stats.html';
 
 /** Stops the run with an exit code - by throwing, so every `finally` on the way out still runs. */
 class Stop extends Error {
@@ -189,6 +191,25 @@ async function writePage() {
     join(DIST, PAGE),
     source.replace('</head>', () => `${SHIMS}</head>`).replace('</body>', () => `<script>\n${script}\n</script>\n</body>`),
   );
+
+  // And the statistics tab's page, which preview.mjs writes beside it, with a script of its own.
+  const statsSource = readFileSync(join(DIST, 'stats-preview.html'), 'utf8');
+  const statsScript = readFileSync(STATS_SCRIPT, 'utf8').replaceAll('\r\n', '\n');
+
+  if (!statsSource.includes('</head>') || !statsSource.includes('</body>')) {
+    fail(2, 'dist/stats-preview.html is not the shape the probe expects');
+  }
+
+  if (statsScript.toLowerCase().includes('</script')) {
+    fail(2, 'stats.js contains "</script", which would end the tag it is put inside');
+  }
+
+  writeFileSync(
+    join(DIST, STATS_PAGE),
+    statsSource
+      .replace('</head>', () => `${SHIMS}</head>`)
+      .replace('</body>', () => `<script>\n${statsScript}\n</script>\n</body>`),
+  );
 }
 
 function chromePath() {
@@ -215,10 +236,17 @@ function chromePath() {
   return found;
 }
 
-/** One recording of the page as it is served now. */
+/**
+ * One recording of the pages as they are served now: the graph's, then the statistics tab's, as one text.
+ * The statistics page heads its sections `stats: `, so the two never share a name.
+ */
 async function record(port) {
   await writePage();
+  return `${await recordPage(port, PAGE)}\n\n${await recordPage(port, STATS_PAGE)}`;
+}
 
+/** One page, loaded in headless Chrome until it has written its recording. */
+async function recordPage(port, page) {
   const result = await run(chromePath(), [
     '--headless=new',
     '--disable-gpu',
@@ -228,7 +256,7 @@ async function record(port) {
     '--virtual-time-budget=60000',
     '--window-size=1400,800',
     '--dump-dom',
-    `http://127.0.0.1:${port}/${PAGE}`,
+    `http://127.0.0.1:${port}/${page}`,
   ]);
 
   /*
@@ -241,7 +269,7 @@ async function record(port) {
   const end = start < 0 ? -1 : result.stdout.indexOf('</pre>', start);
 
   if (start < 0 || end < 0) {
-    fail(1, `the page never wrote its recording${result.stderr ? `: ${tail(result.stderr, 2)}` : ''}`);
+    fail(1, `${page} never wrote its recording${result.stderr ? `: ${tail(result.stderr, 2)}` : ''}`);
   }
 
   return result.stdout
@@ -300,6 +328,66 @@ function sentIn(found, name) {
 
 const describe = (messages) =>
   messages === null ? 'no such section' : messages.length === 0 ? 'nothing' : messages.map((m) => m.type + (m.id ? ` ${m.id}` : '')).join(', ');
+
+/** The statistics scenarios drawn from a summary, as the page's script names them. */
+const DRAWN = ['walk', 'long', 'fortyDays', 'one', 'stopped'];
+
+/** A statistics section's lines. */
+const statsLines = (found, name) => (found[`=== stats: ${name} ===`] ?? '').split('\n').filter((line) => line.length > 0);
+
+/** What a statistics section said after `key: `, or null when it said nothing of the kind. */
+function statsSaid(found, name, key) {
+  const line = statsLines(found, name).find((entry) => entry.startsWith(`${key}: `));
+  return line === undefined ? null : line.slice(key.length + 2);
+}
+
+/** A count as the statistics page says one: "1 merge", "2,314 commits". */
+const counting = (count, noun) => `${count.toLocaleString('en-US')} ${noun}${count === 1 ? '' : 's'}`;
+
+/** What the statistics page's script expects of a scenario: the commits and the merges that went in. */
+function statsExpected(found, name) {
+  const line = statsLines(found, 'expected').find((entry) => entry.startsWith(`${name}: `)) ?? '';
+  const counts = /: commits=(\d+) merges=(\d+)$/.exec(line);
+  return counts === null ? null : { commits: Number(counts[1]), merges: Number(counts[2]) };
+}
+
+/** The rows of the people chart: the name, the two counts, and every `key=value` cell by its key. */
+function statsPeople(found, name) {
+  return statsLines(found, name)
+    .filter((line) => line.startsWith('person: '))
+    .map((line) => {
+      const cells = line.slice('person: '.length).split(' | ');
+      const keyed = cells
+        .filter((cell) => /^\w+=/.test(cell))
+        .map((cell) => [cell.slice(0, cell.indexOf('=')), cell.slice(cell.indexOf('=') + 1)]);
+
+      return { name: cells[0], commits: cells[1], merges: cells[2], ...Object.fromEntries(keyed) };
+    });
+}
+
+/** The stacked chart's bars, as the statistics page's script wrote them down. */
+function statsBars(found, name) {
+  const sum = (text) => text.split('+').filter((n) => n.length > 0).reduce((total, n) => total + Number(n), 0);
+
+  return statsLines(found, name)
+    .filter((line) => line.startsWith('bar '))
+    .map((line) => {
+      const bar = /^bar \S+: total=(\d+|\?) counts=([\d+?]*) pieces=([\d+]*) who=(.*)$/.exec(line);
+
+      return bar === null
+        ? { line, total: NaN, counts: NaN, pixels: NaN, who: [] }
+        : {
+            line,
+            total: Number(bar[1]),
+            counts: sum(bar[2]),
+            pixels: sum(bar[3]),
+            who: bar[4].split(',').map((piece) => ({
+              name: piece.slice(0, piece.lastIndexOf('@')),
+              hue: piece.slice(piece.lastIndexOf('@') + 1),
+            })),
+          };
+    });
+}
 
 /*
  * What must hold in every recording, whatever else changes.
@@ -509,10 +597,221 @@ const INVARIANTS = [
     },
   ],
   [
+    'the statistics tab counts the commits it was handed, with the merges left out said',
+    (found) => {
+      const wrong = DRAWN.filter((name) => {
+        const want = statsExpected(found, name);
+        const said =
+          want === null
+            ? null
+            : want.merges === 0
+              ? counting(want.commits, 'commit')
+              : `${counting(want.commits, 'commit')} and ${counting(want.merges, 'merge')} left out`;
+
+        return said === null || !(statsSaid(found, name, 'scope') ?? '').startsWith(`${said}, as the graph walked them`);
+      });
+
+      if ((statsExpected(found, 'long')?.merges ?? 0) === 0 || (statsExpected(found, 'walk')?.merges ?? 0) === 0) {
+        return 'the three years or the walk holds no merges, so leaving them out proves nothing';
+      }
+
+      return wrong.length === 0
+        ? null
+        : wrong.map((name) => `${name} said ${JSON.stringify(statsSaid(found, name, 'scope'))} of ${JSON.stringify(statsExpected(found, name))}`).join('; ');
+    },
+  ],
+  [
+    'Include merges asks for them, is remembered, and counts them in',
+    (found) => {
+      const want = statsExpected(found, 'long');
+      const scope = statsSaid(found, 'merges switched on', 'scope') ?? '';
+
+      if (want === null) {
+        return 'nothing was expected of the three years';
+      }
+
+      const wrong = [
+        statsSaid(found, 'merges switched on', 'sends') === '{"type":"includeMerges","on":true}'
+          ? null
+          : `it sent ${statsSaid(found, 'merges switched on', 'sends') || 'nothing'}`,
+        statsSaid(found, 'merges switched on', 'remembered') === '{"includeMerges":true}'
+          ? null
+          : `it remembered ${statsSaid(found, 'merges switched on', 'remembered')}`,
+        scope.startsWith(
+          `${counting(want.commits + want.merges, 'commit')}, ${counting(want.merges, 'merge')} among them, as the graph walked them`,
+        )
+          ? null
+          : `it said ${JSON.stringify(scope)}`,
+      ].filter((problem) => problem !== null);
+
+      return wrong.length === 0 ? null : wrong.join('; ');
+    },
+  ],
+  [
+    'a stacked bar is its pieces, to the commit and to the pixel',
+    (found) => {
+      const wrong = [];
+
+      for (const name of DRAWN) {
+        const scale = /^top=(\d+) plot=(\d+)$/.exec(statsSaid(found, name, 'stacked scale') ?? '');
+        const bars = statsBars(found, name);
+
+        if (scale === null || bars.length === 0) {
+          wrong.push(`${name} has no stacked bars to hold`);
+          continue;
+        }
+
+        const plot = Number(scale[2]);
+        const top = Number(scale[1]);
+
+        for (const bar of bars) {
+          const height = Math.round(bar.total * (plot / top));
+
+          if (bar.counts !== bar.total || bar.pixels !== height) {
+            wrong.push(`${name}: ${bar.line.slice(0, 100)} - the bar is ${height}px of ${plot}px up to ${top}`);
+          }
+        }
+      }
+
+      return wrong.length === 0 ? null : wrong.slice(0, 3).join('; ');
+    },
+  ],
+  [
+    'the statistics count by the week over forty days and by the month over three years',
+    (found) => {
+      const long = statsSaid(found, 'long', 'total heading');
+      const short = statsSaid(found, 'fortyDays', 'total heading');
+
+      return long === 'Commits per month' && short === 'Commits per week'
+        ? null
+        : `three years read ${JSON.stringify(long)}, and forty days ${JSON.stringify(short)}`;
+    },
+  ],
+  [
+    'a person is one colour in every chart, and no two in the stack share one',
+    (found) => {
+      const wrong = [];
+
+      for (const name of DRAWN) {
+        const legend = statsLines(found, name)
+          .filter((line) => line.startsWith('legend: '))
+          .map((line) => ({ who: line.slice(8, line.lastIndexOf(' | hue=')), hue: line.slice(line.lastIndexOf(' | hue=') + 7) }))
+          .filter((entry) => entry.hue !== '-');
+        const listed = new Map(statsPeople(found, name).map((person) => [person.name, person.hue]));
+        const stacked = new Map(statsBars(found, name).flatMap((bar) => bar.who.map((piece) => [piece.name, piece.hue])));
+
+        if (name === 'long' && legend.length < 8) {
+          wrong.push(`the three years have ${legend.length} coloured bands, which proves little`);
+        }
+
+        if (new Set(legend.map((entry) => entry.hue)).size !== legend.length) {
+          wrong.push(`${name}: two bands share a colour, ${legend.map((entry) => `${entry.who} ${entry.hue}`).join(', ')}`);
+        }
+
+        for (const { who, hue } of legend) {
+          if (listed.has(who) && listed.get(who) !== hue) {
+            wrong.push(`${name}: ${who} is ${listed.get(who)} in the list and ${hue} in the legend`);
+          }
+
+          if (stacked.has(who) && stacked.get(who) !== hue) {
+            wrong.push(`${name}: ${who} is ${stacked.get(who)} in the stack and ${hue} in the legend`);
+          }
+        }
+      }
+
+      return wrong.length === 0 ? null : wrong.slice(0, 3).join('; ');
+    },
+  ],
+  [
+    'the legend is in the order the bands stack',
+    (found) => {
+      for (const name of DRAWN) {
+        const legend = statsLines(found, name)
+          .filter((line) => line.startsWith('legend: '))
+          .map((line) => line.slice(8, line.lastIndexOf(' | hue=')));
+
+        for (const bar of statsBars(found, name)) {
+          const order = bar.who.map((piece) => legend.indexOf(piece.name));
+
+          if (order.some((at, i) => at < 0 || (i > 0 && at <= (order[i - 1] ?? -1)))) {
+            return `${name}: a bar stacks ${bar.who.map((piece) => piece.name).join(', ')} from the bottom, and the legend reads ${legend.join(', ')}`;
+          }
+        }
+      }
+
+      return null;
+    },
+  ],
+  [
+    'someone who only merges is listed, with their merges and no colour of their own',
+    (found) => {
+      const mia = statsPeople(found, 'long').find((person) => person.name === 'Mia Merger');
+
+      return mia !== undefined && mia.commits === '0' && mia.merges === '90 merges' && mia.hue === '-'
+        ? null
+        : `the row read ${JSON.stringify(mia ?? null)}`;
+    },
+  ],
+  [
+    'a name on the statistics tab is text, never markup',
+    (found) => {
+      const bold = statsSaid(found, 'a name that is markup', 'bold elements');
+      const rows = statsSaid(found, 'a name that is markup', 'rows naming it');
+
+      return bold === '0' && rows === '1' ? null : `${bold} bold elements, and ${rows} rows reading <b>not bold</b> as text`;
+    },
+  ],
+  [
+    'the statistics tab says what state it is in',
+    (found) => {
+      const notes = statsSaid(found, 'stopped', 'notes') ?? '';
+      const wrong = [
+        (statsSaid(found, 'no graph', 'message') ?? '').startsWith('No graph is open') &&
+        statsSaid(found, 'no graph', 'button') === 'hidden=false text="Open the Graph"'
+          ? null
+          : `with no graph: ${statsLines(found, 'no graph').join(' / ')}`,
+        (statsSaid(found, 'a first walk', 'message') ?? '').startsWith('Counting') && statsSaid(found, 'a first walk', 'button') === 'hidden=true'
+          ? null
+          : `on a first walk: ${statsLines(found, 'a first walk').join(' / ')}`,
+        (statsSaid(found, 'failed', 'message') ?? '').includes("fatal: bad revision 'nope'")
+          ? null
+          : `when the walk failed: ${statsLines(found, 'failed').join(' / ')}`,
+        (statsSaid(found, 'nothing', 'message') ?? '').startsWith('There are no commits') && statsSaid(found, 'nothing', 'charts') === 'hidden=true'
+          ? null
+          : `with nothing counted: ${statsLines(found, 'nothing').join(' / ')}`,
+        notes.includes('weft.maxCommits') && notes.includes('committer dates') ? null : `cut short under a date filter: ${notes}`,
+        statsSaid(found, 'while the next walk is counted', 'charts') === 'hidden=false class="stale"' &&
+        statsSaid(found, 'when it has been', 'charts') === 'hidden=false class=""'
+          ? null
+          : `while walking: ${statsSaid(found, 'while the next walk is counted', 'charts')}, then ${statsSaid(found, 'when it has been', 'charts')}`,
+        statsSaid(found, 'show all', 'listed before') === '50' &&
+        statsSaid(found, 'show all', 'listed after') === statsSaid(found, 'show all', 'people')
+          ? null
+          : `Show all: ${statsLines(found, 'show all').join(' / ')}`,
+      ].filter((problem) => problem !== null);
+
+      return wrong.length === 0 ? null : wrong.join('; ');
+    },
+  ],
+  [
+    'Open the Graph on the statistics tab asks the host for one',
+    (found) => {
+      const sent = statsLines(found, 'opening the graph sends');
+      return sent.length === 1 && sent[0] === '{"type":"openGraph"}' ? null : `it sent ${sent.join(', ') || 'nothing'}`;
+    },
+  ],
+  [
     'the page threw nothing',
     (found) => ((found['=== thrown ==='] ?? '').trim() === '(nothing)' && found['=== probe failed ==='] === undefined
       ? null
       : `${(found['=== probe failed ==='] ?? found['=== thrown ==='] ?? '').trim().split('\n')[0]}`),
+  ],
+  [
+    'the statistics page threw nothing',
+    (found) =>
+      (found['=== stats: thrown ==='] ?? '').trim() === '(nothing)' && found['=== stats: probe failed ==='] === undefined
+        ? null
+        : `${(found['=== stats: probe failed ==='] ?? found['=== stats: thrown ==='] ?? 'there is no recording of the statistics page').trim().split('\n')[0]}`,
   ],
 ];
 
@@ -754,6 +1053,7 @@ try {
 } finally {
   server?.close();
   rmSync(join(DIST, PAGE), { force: true });
+  rmSync(join(DIST, STATS_PAGE), { force: true });
 }
 
 process.exit(code);
