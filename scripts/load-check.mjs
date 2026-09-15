@@ -1545,9 +1545,24 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
    */
   confirmed = true;
   const beforeMenu = confirmations.length;
+  const saidBefore = statusMessages.length;
 
   await messageHandler({ type: 'runAction', id: 'weft.checkoutBranch', target: side });
-  await new Promise((r) => setTimeout(r, 2500));
+
+  /*
+   * Until the checkout has moved HEAD and said so, rather than for a fixed two and a half seconds - which is
+   * still the least it waits, for the steps after this one. The status line is set once the action has
+   * returned, after HEAD moves, and under the load of a whole test run it came later than that: HEAD was on
+   * side and the line had not been said.
+   */
+  const waited = Date.now();
+
+  while (
+    Date.now() - waited < 15_000 &&
+    (Date.now() - waited < 2500 || statusMessages.length === saidBefore || head() !== 'side')
+  ) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
 
   console.log('  menu path    : HEAD is', head(), '| asked', confirmations.length - beforeMenu, 'times');
 
