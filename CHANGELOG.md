@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - **Statistics, in a tab of their own.** **Git Weft: Show Statistics** - in the command palette, on
   the graph's title bar, and behind the ellipsis of **Authors** - draws what the graph walked: commits
