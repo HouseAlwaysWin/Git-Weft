@@ -1555,3 +1555,150 @@ body.vscode-high-contrast.author-tint .row .author {
   width: 1em;
   text-align: center;
 }
+
+/*
+ * The statistics tab: a page of its own sharing this stylesheet, so every rule from here down is under
+ * `body.weft-stats` and none of them can reach the graph. Last in the file, because color-check reads the
+ * first definition of a variable after a selector it names, and the selectors below appear nowhere above.
+ */
+body.weft-stats {
+  display: block;
+  overflow: auto;
+  padding: 12px 20px 32px;
+  box-sizing: border-box;
+}
+
+/*
+ * High contrast light is stamped `vscode-high-contrast` and `vscode-high-contrast-light`, and never
+ * `vscode-light`, so its bars would otherwise take the dark theme's lightness: pale on white. Darker than
+ * the light theme's as well, since contrast is what that theme was chosen for.
+ */
+body.weft-stats.vscode-high-contrast-light {
+  --weft-author-l: 45%;
+  --weft-author-c: 0.09;
+}
+
+body.weft-stats h1 {
+  margin: 0 0 6px;
+  font-size: 1.35em;
+  font-weight: 600;
+}
+
+body.weft-stats h2 {
+  margin: 24px 0 10px;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+body.weft-stats #stats-scope {
+  margin: 0;
+}
+
+/* What has to be known to read the numbers: quieter than the numbers, and never absent. */
+body.weft-stats #stats-notes {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+  line-height: 1.5;
+}
+
+body.weft-stats #stats-state {
+  margin-top: 20px;
+}
+
+body.weft-stats #stats-state p {
+  margin: 0 0 12px;
+}
+
+body.weft-stats button {
+  padding: 4px 12px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  font: inherit;
+  cursor: pointer;
+}
+
+body.weft-stats button:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+/* An offer to see more, not the thing the page is for. */
+body.weft-stats #stats-show-all {
+  margin-top: 10px;
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+body.weft-stats #stats-show-all:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+/* The charts of the walk before, while the next is counted: still readable, and plainly not current. */
+body.weft-stats #stats-charts {
+  transition: opacity 150ms ease-out;
+}
+
+body.weft-stats #stats-charts.stale {
+  opacity: 0.5;
+}
+
+body.weft-stats.vscode-reduce-motion #stats-charts {
+  transition: none;
+}
+
+body.weft-stats #stats-people {
+  max-width: 960px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A name, its bar and its count. The name truncates rather than pushing the bars out of line. */
+body.weft-stats .stats-person {
+  display: grid;
+  grid-template-columns: minmax(10ch, 24ch) minmax(60px, 1fr) 8ch;
+  gap: 12px;
+  align-items: center;
+  height: 22px;
+}
+
+body.weft-stats .stats-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.weft-stats .stats-track {
+  height: 12px;
+}
+
+body.weft-stats .stats-bar {
+  display: block;
+  width: calc(var(--weft-stats-share, 0) * 100%);
+  min-width: 2px;
+  height: 100%;
+  border-radius: 2px;
+  background: oklch(var(--weft-author-l) var(--weft-author-c) var(--weft-author-hue));
+}
+
+/* Someone without a band of their own in the charts over time is in the grey band there, and grey here. */
+body.weft-stats .stats-bar.stats-unbanded {
+  background: var(--vscode-descriptionForeground);
+  opacity: 0.45;
+}
+
+body.weft-stats .stats-count {
+  color: var(--vscode-descriptionForeground);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* High contrast draws an edge on anything that is only a colour, and so does this. */
+body.weft-stats.vscode-high-contrast .stats-bar {
+  outline: 1px solid var(--vscode-contrastBorder);
+  outline-offset: -1px;
+}

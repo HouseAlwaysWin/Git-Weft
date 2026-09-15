@@ -25,7 +25,7 @@ const extensionConfig = {
 
 /** The webview half: browser, IIFE, no module loader available inside the webview. */
 const webviewConfig = {
-  entryPoints: ['src/webview/main.ts', 'src/webview/style.css'],
+  entryPoints: ['src/webview/main.ts', 'src/webview/stats.ts', 'src/webview/style.css'],
   outdir: 'dist',
   bundle: true,
   platform: 'browser',

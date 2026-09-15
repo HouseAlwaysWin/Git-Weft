@@ -104,6 +104,9 @@ import { explainStaleLock } from './git/staleLock.ts';
 import { describeAge } from './git/blame.ts';
 import type { ActionContext, ActionUi, Target } from './actions/registry.ts';
 import { buildMenu, confirmIfNeeded, findAction } from './actions/registry.ts';
+import { describeScope } from './stats/scope.ts';
+import type { Walk } from './stats/tally.ts';
+import { CommitTally } from './stats/tally.ts';
 
 /** Set by the extension so panels can write to - and reveal - the same output channel. */
 type Logger = { info(message: string): void; warn(message: string): void; show(): void };
@@ -134,6 +137,17 @@ export function setPanelLogger(logger: Logger): void {
   output = logger;
 }
 
+/**
+ * Who hears that a graph's walk started, finished or failed, or that the graph closed: the statistics tabs,
+ * through the extension. A callback rather than an import, so the graph knows nothing of what is drawn from
+ * its walks.
+ */
+let walkListener: ((root: string) => void) | undefined;
+
+export function setWalkListener(listener: (root: string) => void): void {
+  walkListener = listener;
+}
+
 /** What each remedy reads as on a button. Short enough to sit next to the message. */
 const REMEDY_LABELS: Record<Remedy, string> = {
   [Remedy.StashAndRetry]: 'Stash and Retry',
@@ -162,7 +176,7 @@ function describe(repo: RepoInfo): string | null {
   return null;
 }
 
-function nonce(): string {
+export function nonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   let out = '';
   for (let i = 0; i < 32; i++) {
@@ -260,6 +274,11 @@ export class WeftPanel {
     return WeftPanel.current ?? WeftPanel.open.values().next().value ?? null;
   }
 
+  /** The latest walk of the graph open on a repository, for its statistics tab; null when none is open. */
+  static walkOf(root: string): Walk | null {
+    return WeftPanel.open.get(root)?.walk ?? null;
+  }
+
   private readonly panel: vscode.WebviewPanel;
   private readonly git: Git;
   private readonly repo: RepoInfo;
@@ -302,6 +321,9 @@ export class WeftPanel {
   /** Not a filter: ordering hides nothing, so `clearFilters` leaves it alone the way it leaves sort. */
   private order: CommitOrder = 'date';
   private readonly filters: FilterSource;
+
+  /** The latest walk, counted as it went: see `stats/tally.ts`. */
+  private walk: Walk = { state: 'walking' };
 
   /** The branch the last ref list was sent with. */
   private headBranch: string | null = null;
@@ -595,6 +617,17 @@ export class WeftPanel {
   /** Throw away whatever is on screen and walk the history again. */
   refresh(): void {
     void this.reload();
+  }
+
+  /** The root of the repository this graph draws. */
+  get root(): string {
+    return this.repo.root;
+  }
+
+  /** Keep a walk's state, and tell whoever reads walks - the repository's statistics tab - that it moved. */
+  private setWalk(walk: Walk): void {
+    this.walk = walk;
+    walkListener?.(this.repo.root);
   }
 
   /** Run an action that targets the repository rather than anything in the graph. */
@@ -1282,6 +1315,10 @@ export class WeftPanel {
     // Read once: the walk is bounded by it and the message at the end has to say whether it was.
     const limit = config.get<number>('maxCommits', 250_000);
 
+    // Counted as the pages go past, for the statistics tab, rather than asked of git a second time.
+    const tally = new CommitTally();
+    this.setWalk({ state: 'walking' });
+
     // Only the newest stash is a ref, so the rest have to be named by SHA or the walk never sees
     // them. Cheap enough to re-read on every reload; a repository has a handful, not thousands.
     const stashList = await listStashes(this.git, this.repo, controller.signal).catch(() => []);
@@ -1318,6 +1355,8 @@ export class WeftPanel {
           if (controller.signal.aborted) {
             return;
           }
+
+          tally.add(page.commits);
 
           const rows: Row[] = page.commits.map((c) => {
             const stash = stashes.get(c.sha);
@@ -1386,6 +1425,24 @@ export class WeftPanel {
           truncated: loader.rowCount >= limit,
         });
 
+        this.setWalk({
+          state: 'done',
+          tally,
+          facts: {
+            truncated: loader.rowCount >= limit,
+            limit,
+            scope: describeScope({
+              refs: drawnRefs,
+              search: this.search,
+              authors: this.filters.authorPicks(this.repo.root).length,
+              dates: this.dates,
+              firstParent: this.firstParent,
+              onlyHere: this.onlyHere,
+            }),
+            dated: dates.length > 0,
+          },
+        });
+
         /*
          * The walk finished and never produced it. Said out loud, because the reader clicked
          * something and the graph did not move: the commit is real - it came off a blame - and
@@ -1402,7 +1459,9 @@ export class WeftPanel {
       }
     } catch (err) {
       if (!controller.signal.aborted) {
-        this.post({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        const message = err instanceof Error ? err.message : String(err);
+        this.post({ type: 'error', message });
+        this.setWalk({ state: 'failed', message });
       }
     } finally {
       if (this.loading === controller) {
@@ -1516,6 +1575,8 @@ ${BODY_MARKUP}
     this.detailsLoading?.abort();
     this.watcher.dispose();
     WeftPanel.open.delete(this.repo.root);
+    // Its statistics tab, if one is open, has no walk to show any more.
+    walkListener?.(this.repo.root);
     this.setActive(false);
 
     // With no graph left to select in, the file list is showing a commit nobody can point at.

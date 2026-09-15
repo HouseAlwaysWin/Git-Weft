@@ -65,6 +65,7 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
   private readonly memento: vscode.Memento;
   private readonly changed = new vscode.EventEmitter<AuthorNode | undefined>();
   private readonly filterChanged = new vscode.EventEmitter<void>();
+  private readonly groupsChanged = new vscode.EventEmitter<string>();
 
   private repo: RepoInfo | null = null;
   /** Every spelling git knows, before any judgement about which are the same person. */
@@ -107,6 +108,8 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
 
   readonly onDidChangeTreeData = this.changed.event;
   readonly onDidChangeFilter = this.filterChanged.event;
+  /** Hand-made groups changed, with the root of the repository they belong to. */
+  readonly onDidChangeGroups = this.groupsChanged.event;
 
   constructor(git: Git, memento: vscode.Memento) {
     this.git = git;
@@ -157,6 +160,24 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     // A spelling with no identity behind it was ticked before the list loaded: still a name git can
     // be asked about, just without the addresses.
     return [...this.selected].map((name) => ({ name, emails: known.get(name)?.emails ?? [] }));
+  }
+
+  /** The repository on show, or null. */
+  get repoRoot(): string | null {
+    return this.repo?.root ?? null;
+  }
+
+  /**
+   * A repository's hand-made groups, whether or not it is the one on show: a statistics tab folds people as
+   * Authors does for the repository the tab is about, not for whichever one the sidebar has moved on to.
+   */
+  groupsFor(root: string): ReadonlyMap<string, readonly string[]> {
+    if (root === this.repo?.root) {
+      return this.custom;
+    }
+
+    const stored = this.memento.get<Record<string, Record<string, string | string[]>>>(GROUPS_KEY, {});
+    return readGroupAssignments(stored[root] ?? {});
   }
 
   /**
@@ -390,6 +411,10 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     this.regroup();
     this.changed.fire(undefined);
     this.updateMessage();
+
+    if (this.repo !== null) {
+      this.groupsChanged.fire(this.repo.root);
+    }
   }
 
   private regroup(): void {

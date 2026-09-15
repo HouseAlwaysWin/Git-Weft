@@ -160,3 +160,24 @@ export const BODY_MARKUP = `<header id="header">
   <pre id="detail-body"></pre>
   <div id="detail-commits" hidden></div>
 </section>`;
+
+/**
+ * The statistics tab's body: a page of its own that shares only the stylesheet, where every rule for it
+ * sits under `body.weft-stats`.
+ */
+export const STATS_MARKUP = `<header id="stats-header">
+  <h1 id="stats-title">Statistics</h1>
+  <p id="stats-scope"></p>
+  <ul id="stats-notes"></ul>
+</header>
+<section id="stats-state">
+  <p id="stats-message">Counting as the graph walks&hellip;</p>
+  <button id="stats-open-graph" type="button" hidden>Open the Graph</button>
+</section>
+<main id="stats-charts" hidden>
+  <section class="stats-chart" aria-labelledby="stats-people-heading">
+    <h2 id="stats-people-heading">Commits per person</h2>
+    <ol id="stats-people"></ol>
+    <button id="stats-show-all" type="button" hidden></button>
+  </section>
+</main>`;

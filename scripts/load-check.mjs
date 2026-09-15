@@ -152,6 +152,9 @@ let disposeHandler = null;
 let panelObject = null;
 let quickPick = null;
 
+/** Webview panels other than the graph's - the statistics tab - each with what it was sent and its handler. */
+const otherPanels = [];
+
 /**
  * What VS Code does to checkboxes when the extension has not claimed them.
  *
@@ -410,6 +413,47 @@ const vscodeStub = {
       };
     },
     createWebviewPanel: (viewType, title, _column, options) => {
+      /*
+       * Every check here talks to the graph through the globals below. Any other panel - the statistics
+       * tab - is kept to itself, so that opening one cannot take the graph's place in them.
+       */
+      if (viewType !== 'weft.graph') {
+        const record = { viewType, title, options, html: '', posted: [], handler: null, disposed: null };
+        otherPanels.push(record);
+
+        return {
+          active: false,
+          visible: true,
+          webview: {
+            cspSource: 'vscode-webview://stub',
+            set html(value) {
+              record.html = value;
+            },
+            get html() {
+              return record.html;
+            },
+            asWebviewUri: (u) => u,
+            postMessage: (m) => {
+              record.posted.push(m);
+              return Promise.resolve(true);
+            },
+            onDidReceiveMessage: (fn) => {
+              record.handler = fn;
+              return { dispose() {} };
+            },
+          },
+          onDidChangeViewState: () => ({ dispose() {} }),
+          onDidDispose: (fn) => {
+            record.disposed = fn;
+            return { dispose() {} };
+          },
+          reveal() {},
+          dispose() {
+            record.disposed?.();
+          },
+        };
+      }
+
       panelCreated = { viewType, title, options };
       return (panelObject = {
         active: true,
@@ -3960,6 +4004,162 @@ if (watchTest) {
 }
 
 /*
+ * The statistics tab, which counts the graph's own walk rather than walking again.
+ *
+ * So what it says has to be what the graph walked: the graph's total, with every commit on one bar. A new
+ * walk has to reach it without anybody asking, and a group made in Authors has to fold the walk it already
+ * has again, not walk the history a second time to say the same thing. Here, before the graph closes: a
+ * tab with no graph has nothing to count, and that is checked where it closes.
+ */
+{
+  const until = async (test, ms = 20_000) => {
+    const by = Date.now() + ms;
+
+    while (Date.now() < by) {
+      if (test()) {
+        return true;
+      }
+
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    return false;
+  };
+
+  await commands.get('weft.showStatistics')();
+  const stats = otherPanels.find((panel) => panel.viewType === 'weft.stats');
+
+  if (stats === undefined) {
+    problems.push('Show Statistics opened no statistics tab');
+  } else {
+    /*
+     * What its page loads has to be in the package. `.vscodeignore` leaves all of dist/ out and names what
+     * goes back in, so a script not named there is a page that loads nothing - and only once installed.
+     */
+    const shipped = readFileSync(new URL('../.vscodeignore', import.meta.url), 'utf8').split(/\r?\n/);
+    const loads = [
+      ...new Set(
+        [panelObject?.webview.html ?? '', stats.html].flatMap((html) =>
+          [...html.matchAll(/\/dist\/([\w.-]+)"/g)].map((match) => match[1]),
+        ),
+      ),
+    ];
+    const unshipped = loads.filter((file) => !shipped.includes(`!dist/${file}`));
+
+    console.log('');
+    console.log('stats tab      :', stats.title, '| the pages load', loads.join(', '));
+
+    if (!stats.html.includes('/dist/stats.js"')) {
+      problems.push('the statistics tab does not load dist/stats.js');
+    }
+
+    if (unshipped.length > 0) {
+      problems.push(`a page loads ${unshipped.join(', ')}, which .vscodeignore leaves out of the package`);
+    }
+
+    const summaries = (from = 0) => stats.posted.slice(from).filter((m) => m.type === 'summary');
+    const addsUp = (summary) =>
+      summary.perBucket.every(
+        (count, bar) => summary.series.reduce((sum, band) => sum + band.counts[bar], 0) + summary.others[bar] === count,
+      ) && summary.perBucket.reduce((sum, count) => sum + count, 0) + summary.undated === summary.total;
+
+    stats.handler({ type: 'ready' });
+    await until(() => summaries().length > 0);
+
+    const walked = posted.filter((m) => m.type === 'done').at(-1);
+    const counted = summaries().at(-1)?.summary;
+
+    console.log(
+      '  counted      :',
+      counted?.total,
+      'commits |',
+      counted?.people.map((person) => `${person.name} ${person.commits}`).join(', '),
+      '| the graph walked',
+      walked?.total,
+    );
+
+    if (counted === undefined) {
+      problems.push('the statistics tab was sent nothing to draw');
+    } else {
+      if (counted.total !== walked?.total) {
+        problems.push(`the statistics tab counted ${counted.total} commits where the graph walked ${walked?.total}`);
+      }
+
+      if (!addsUp(counted)) {
+        problems.push("the statistics tab's bars do not add up to the commits they were cut from");
+      }
+    }
+
+    // --- a new walk reaches the tab by itself: the graph capped at three --------------------------------
+
+    const capFrom = stats.posted.length;
+
+    settings.set('weft.maxCommits', 3);
+    await messageHandler({ type: 'refresh' });
+    await until(() => summaries(capFrom).length > 0);
+
+    const sequence = stats.posted.slice(capFrom).map((m) => m.type);
+    const capped = summaries(capFrom).at(-1)?.summary;
+
+    console.log('  capped at 3  :', sequence.join(' -> '), '|', capped?.total, 'commits, truncated', capped?.truncated);
+
+    if (sequence[0] !== 'walking') {
+      problems.push(`a new walk reached the statistics tab as ${sequence.join(', ') || 'nothing'}, not walking first`);
+    }
+
+    if (capped?.total !== 3 || capped?.truncated !== true) {
+      problems.push(
+        `a walk capped at 3 reached the statistics tab as ${capped?.total} commits, truncated ${capped?.truncated}`,
+      );
+    }
+
+    const uncapFrom = stats.posted.length;
+
+    settings.delete('weft.maxCommits');
+    await messageHandler({ type: 'refresh' });
+    await until(() => summaries(uncapFrom).length > 0);
+
+    // --- a group made in Authors folds the same walk again, and walks nothing ----------------------------
+
+    const authorsProvider = treeProviders.get('weft.authors');
+    const people = await authorsProvider.getChildren();
+
+    if (people.length < 2) {
+      problems.push('the fixture has too few authors to group for the statistics tab');
+    } else {
+      const spellings = people.slice(0, 2).flatMap((node) => authorsProvider.spellingsOf(node));
+      const walks = posted.filter((m) => m.type === 'done').length;
+      const foldFrom = stats.posted.length;
+
+      authorsProvider.addToGroup(spellings, 'Both of Them');
+      await until(() => summaries(foldFrom).length > 0, 5_000);
+      // Long enough for a walk to have started, had the group asked for one.
+      await new Promise((r) => setTimeout(r, 500));
+
+      const since = stats.posted.slice(foldFrom).map((m) => m.type);
+      const folded = summaries(foldFrom).at(-1)?.summary;
+
+      console.log(
+        '  grouped      :',
+        folded?.people.map((person) => `${person.name} ${person.commits}`).join(', '),
+        '|',
+        since.join(' -> '),
+      );
+
+      if (!folded?.people.some((person) => person.name === 'Both of Them' && person.custom)) {
+        problems.push('a group made in Authors did not reach the statistics tab');
+      }
+
+      if (since.includes('walking') || posted.filter((m) => m.type === 'done').length !== walks) {
+        problems.push('a group made in Authors walked the history again to refold the statistics');
+      }
+
+      authorsProvider.removeFromGroup(spellings, 'Both of Them');
+    }
+  }
+}
+
+/*
  * Closing the graph, which nothing here had ever done. Everything the panel holds is released in
  * one place - the watcher, the auto-fetch timer - and with no graph left to select in, the file
  * list is showing a commit nobody can point at.
@@ -3972,6 +4172,16 @@ if (disposeHandler !== null) {
   const filesProvider = treeProviders.get('weft.files');
 
   console.log('panel closed   :', JSON.stringify(filesView?.message ?? ''), '|', filesProvider?.getChildren().length, 'files listed');
+
+  // A statistics tab left open has no walk to show any more, and has to say so rather than keep the last.
+  const statsTab = otherPanels.find((panel) => panel.viewType === 'weft.stats');
+  const statsSays = statsTab?.posted.at(-1)?.type;
+
+  console.log('  stats tab    :', statsSays ?? '(none open)');
+
+  if (statsTab !== undefined && statsSays !== 'noGraph') {
+    problems.push(`closing the graph left its statistics tab showing ${statsSays}`);
+  }
 
   if (filesProvider?.getChildren().length !== 0) {
     problems.push('closing the last graph left files in the Commit Files section');

@@ -16,5 +16,6 @@ docs/**
 dist/**
 !dist/extension.js
 !dist/main.js
+!dist/stats.js
 !dist/style.css
 !dist/package.json

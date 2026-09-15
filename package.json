@@ -305,6 +305,12 @@
         "command": "weft.regroupAuthor",
         "title": "Group by Spelling Again",
         "category": "Git Weft"
+      },
+      {
+        "command": "weft.showStatistics",
+        "title": "Show Statistics",
+        "category": "Git Weft",
+        "icon": "$(graph)"
       }
     ],
     "menus": {
@@ -425,6 +431,10 @@
         {
           "command": "weft.regroupAuthor",
           "when": "false"
+        },
+        {
+          "command": "weft.showStatistics",
+          "when": "weft.hasRepository"
         }
       ],
       "editor/context": [
@@ -473,6 +483,11 @@
           "command": "weft.push",
           "when": "activeWebviewPanelId == weft.graph",
           "group": "navigation@3"
+        },
+        {
+          "command": "weft.showStatistics",
+          "when": "activeWebviewPanelId == weft.graph",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -647,6 +662,11 @@
           "command": "weft.sortAuthorsByCommits",
           "when": "view == weft.authors && weft.authorsByName",
           "group": "navigation@3"
+        },
+        {
+          "command": "weft.showStatistics",
+          "when": "view == weft.authors",
+          "group": "stats@1"
         },
         {
           "command": "weft.filesAsList",

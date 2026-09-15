@@ -192,6 +192,13 @@ landing page that lists two hundred things tells you nothing about any of them.
   merges nothing: one service account is a dozen people. The count covers the whole history back to
   the root commit and does not move when the graph is narrowed to a date range or a branch
 - Each author gets their own colour, derived from the name so it never shifts as pages stream in
+- **Git Weft: Show Statistics** - in the command palette, on the graph's title bar, or behind the
+  ellipsis of **Authors** - opens a tab counting commits per person in exactly what the graph walked:
+  the same branches, dates, search, ticked authors and `weft.maxCommits`, so its total is the graph's
+  own and it follows every reload. People are folded as **Authors** folds them, hand-made groups
+  included, and making a group refolds the chart without walking the history again. A line at the top
+  says what the walk was narrowed to, because the counts in **Authors** cover every branch back to the
+  root. Nothing is asked of git for it: the graph's walk is counted as it streams past
 - **Git Weft: Manage Remotes...** in the command palette lists what each remote points at, and
   adds, renames, repoints or removes one. Adding fetches it; removing says how many
   remote-tracking branches go with it

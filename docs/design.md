@@ -107,6 +107,23 @@ and git's own chronological order, which *is* cheap, is not on offer: it can put
 child under clock skew, and the lane layout cannot survive that. The choice is which shape the
 history reads best in, not what it is worth waiting for.
 
+### Statistics
+
+The statistics tab counts the graph's own walk rather than walking again: each page is tallied per
+spelling and per day as it arrives, before it is mapped into rows. Measured with `scripts/smoke.mjs
+--tally` against the same runs without it, seven of each, alternated:
+
+| | first page, without / with | full walk, without / with |
+| --- | --- | --- |
+| 100,000 commits (the fixture) | 690 / 685 ms | 1,108 / 1,097 ms |
+| 78,597 commits, 58 people | 680 / 671 ms | 1,553 / 1,525 ms |
+
+Both differences are inside the spread of the runs themselves. What the tally keeps is a count per
+spelling per day - 819 KB for the 78,597-commit history, under `--expose-gc` - with every name copied
+out of the text git wrote, for the reason the next section gives. Folding it into people and bars
+takes 2 ms there, and the summary the tab is sent is 9.2 KB: its size follows the number of people and
+months, not of commits.
+
 ### Memory
 
 This section used to say that 68 MB of commit objects was more than an extension host should hold,

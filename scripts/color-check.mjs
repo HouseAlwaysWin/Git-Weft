@@ -19,6 +19,9 @@ import { AUTHOR_HUES, authorHue } from '../src/webview/authorColor.ts';
 /** Text this size is "normal text" to WCAG, so the AA floor is 4.5:1, not 3:1. */
 const FLOOR = 4.5;
 
+/** The statistics tab's bars are graphics rather than text, and WCAG's floor for those is 3:1. */
+const GRAPHICS_FLOOR = 3;
+
 /**
  * Two colours closer than this in OKLab read as the same colour side by side. ~0.02 is one just
  * noticeable difference; a list you scan rather than study needs more margin than that.
@@ -141,6 +144,7 @@ const themes = [
     baseline: '#9d9d9d',
     L: number(cssVar(css, 'weft-author-l')),
     C: number(cssVar(css, 'weft-author-c')),
+    floor: FLOOR,
   },
   {
     name: 'light',
@@ -148,6 +152,20 @@ const themes = [
     baseline: '#717171',
     L: number(cssVar(css, 'weft-author-l', 'body.vscode-light')),
     C: number(cssVar(css, 'weft-author-c', 'body.vscode-light')),
+    floor: FLOOR,
+  },
+  /*
+   * The statistics tab's bars in high contrast light. That theme is stamped `vscode-high-contrast-light`
+   * and never `vscode-light`, so the tab sets values of its own there, and without them its bars would be
+   * the dark theme's, pale on white. The author column needs none: high contrast leaves names untinted.
+   */
+  {
+    name: 'high contrast light, statistics bars',
+    background: '#ffffff',
+    baseline: '#000000',
+    L: number(cssVar(css, 'weft-author-l', 'body.weft-stats.vscode-high-contrast-light')),
+    C: number(cssVar(css, 'weft-author-c', 'body.weft-stats.vscode-high-contrast-light')),
+    floor: GRAPHICS_FLOOR,
   },
 ];
 
@@ -176,8 +194,8 @@ for (const theme of themes) {
         (clipped ? `  (chroma clipped to ${chroma.toFixed(3)})` : ''),
     );
 
-    if (ratio < FLOOR) {
-      problems.push(`${theme.name}: hue ${h} is ${ratio.toFixed(2)}:1, under the ${FLOOR}:1 floor`);
+    if (ratio < theme.floor) {
+      problems.push(`${theme.name}: hue ${h} is ${ratio.toFixed(2)}:1, under the ${theme.floor}:1 floor`);
     }
   }
 

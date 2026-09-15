@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Statistics, in a tab of their own.** **Git Weft: Show Statistics** - in the command palette, on
+  the graph's title bar, and behind the ellipsis of **Authors** - counts commits per person in exactly
+  what the graph walked: the same branches, dates, search, ticked authors and `weft.maxCommits`, so
+  its total is the graph's total and it follows every reload. People are folded as **Authors** folds
+  them, hand-made groups included, and making a group refolds the chart without walking the history
+  again. A line at the top says what the walk was narrowed to, because the counts in **Authors** cover
+  every branch back to the root. Nothing is asked of git for it: the graph's walk is counted as it
+  streams past, which measured no slower than not counting it on a 78,597-commit repository.
+
 ## 0.9.0
 
 - **Checking out asks first from Branches & Tags too, and when it detaches onto a commit.** 0.8.0

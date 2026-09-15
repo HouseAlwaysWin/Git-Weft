@@ -17,6 +17,7 @@ import type { Search } from './git/search.ts';
 import type { DateRange } from './git/dates.ts';
 import type { BranchFolders } from './git/refFolders.ts';
 import type { MenuItem, Target } from './actions/registry.ts';
+import type { StatsSummary } from './stats/summary.ts';
 
 /**
  * A commit's identity and message.
@@ -284,3 +285,25 @@ export type WebviewMessage =
   | { readonly type: 'openConflict'; readonly path: string }
   /** A ticket id that was clicked - the text, never an address: where it goes is the host's business. */
   | { readonly type: 'openTicket'; readonly text: string };
+
+/**
+ * The host to the statistics tab.
+ *
+ * Everything the tab shows arrives whole: a summary of what the graph of its repository walked, or the
+ * reason there is none. It asks for nothing but its first message, so there is nothing about the history
+ * for it to work out, and nothing it could get wrong.
+ */
+export type StatsHostMessage =
+  | { readonly type: 'init'; readonly repoName: string }
+  /** No graph is open on the repository, so there is no walk to count. */
+  | { readonly type: 'noGraph' }
+  /** The graph began a walk. What the tab shows until it ends is from the walk before. */
+  | { readonly type: 'walking' }
+  | { readonly type: 'summary'; readonly summary: StatsSummary }
+  /** The walk stopped on an error, in git's words. */
+  | { readonly type: 'failed'; readonly message: string };
+
+export type StatsWebviewMessage =
+  /** The page's script is running. Sent again whenever the tab is shown, since that builds the page afresh. */
+  | { readonly type: 'ready' }
+  | { readonly type: 'openGraph' };

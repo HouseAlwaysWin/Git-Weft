@@ -4,7 +4,9 @@ import { basename, dirname } from 'node:path';
 import { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { discover } from './git/discovery.ts';
-import { WeftPanel, setCommitFiles, setPanelLogger } from './panel.ts';
+import { WeftPanel, setCommitFiles, setPanelLogger, setWalkListener } from './panel.ts';
+import type { StatsSource } from './statsPanel.ts';
+import { StatsPanel } from './statsPanel.ts';
 import { RevisionContentProvider, SCHEME } from './contentProvider.ts';
 import type { RefsPreset } from './protocol.ts';
 import { RefsProvider } from './refsView.ts';
@@ -543,6 +545,69 @@ function start(context: vscode.ExtensionContext): void {
     },
   };
 
+  /**
+   * The repository a command is about when nothing on screen says: the only one there is, or the one
+   * picked. Null when there is none or the pick was dismissed, having said so where saying so helps.
+   */
+  const chooseRepository = async (): Promise<RepoInfo | null> => {
+    if (candidateFolders().length === 0) {
+      void vscode.window.showInformationMessage('Weft: open a folder containing a git repository first.');
+      return null;
+    }
+
+    const found = await whileOpening('Weft: looking for a repository…', () =>
+      findRepositories(git),
+    );
+
+    /*
+     * Which repository, when there is more than one.
+     *
+     * `candidateFolders` puts the folder of the open file first, so the head of this list is
+     * already the one most likely meant - it is offered first and nothing is remembered. A
+     * workspace with several repositories is one where the answer changes with what you are
+     * looking at, so a remembered choice would be wrong more often than it was right.
+     */
+    const repo =
+      found.length <= 1
+        ? (found[0] ?? null)
+        : await pickRepository(found);
+
+    if (repo === null && found.length === 0) {
+      void vscode.window.showWarningMessage('Weft: no git repository found in this workspace.');
+    }
+
+    return repo;
+  };
+
+  /** A repository's graph, opened or brought forward, with the sidebar pointed at it first. */
+  const openGraph = async (repo: RepoInfo, column: vscode.ViewColumn): Promise<WeftPanel> => {
+    // The ref list is read here rather than by the panel, so it has to be waited for here too.
+    await whileOpening(`Weft: opening ${basename(repo.root)}…`, async () => {
+      await refs.setRepository(repo);
+      authors.setRepository(repo);
+    });
+
+    return WeftPanel.show(context.extensionUri, git, repo, column, filters);
+  };
+
+  /** What a statistics tab reads: the graphs' walks, and the groups Authors keeps. */
+  const statsSource: StatsSource = {
+    walk: (root) => WeftPanel.walkOf(root),
+    groups: (root) => authors.groupsFor(root),
+    openGraph: async (root) => {
+      const repo = await discover(git, root).catch(() => null);
+
+      if (repo === null) {
+        void vscode.window.showInformationMessage('Weft: that repository is not there any more.');
+        return;
+      }
+
+      await openGraph(repo, vscode.ViewColumn.Beside);
+    },
+  };
+
+  setWalkListener((root) => StatsPanel.update(root));
+
   context.subscriptions.push(
     refsView,
     authorsView,
@@ -575,53 +640,45 @@ function start(context: vscode.ExtensionContext): void {
       }
     }),
     authors.onDidChangeFilter(() => WeftPanel.refreshAll()),
+    // A statistics tab folds people as Authors does, so a new group is a new fold of the walk it already has.
+    authors.onDidChangeGroups((root) => StatsPanel.update(root)),
 
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionContentProvider(git)),
 
     vscode.commands.registerCommand('weft.openGraph', async () => {
-      if (candidateFolders().length === 0) {
-        void vscode.window.showInformationMessage('Weft: open a folder containing a git repository first.');
-        return;
+      const repo = await chooseRepository();
+
+      if (repo !== null) {
+        await openGraph(repo, vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One);
       }
+    }),
 
-      const found = await whileOpening('Weft: looking for a repository…', () =>
-        findRepositories(git),
-      );
+    /*
+     * Commits per person, and over time, in what a graph walked.
+     *
+     * For the graph in front, else the repository Authors is showing, else any open graph, else the one
+     * picked. The tab counts a graph's walk and has nothing to show without one, so with no graph open on
+     * that repository the graph opens too, and the tab goes beside it rather than over it: both on screen,
+     * and the graph's page loaded, which is what starts its walk.
+     */
+    vscode.commands.registerCommand('weft.showStatistics', async () => {
+      let root = WeftPanel.active()?.root ?? authors.repoRoot ?? WeftPanel.any()?.root ?? null;
 
-      /*
-       * Which repository, when there is more than one.
-       *
-       * `candidateFolders` puts the folder of the open file first, so the head of this list is
-       * already the one most likely meant - it is offered first and nothing is remembered. A
-       * workspace with several repositories is one where the answer changes with what you are
-       * looking at, so a remembered choice would be wrong more often than it was right.
-       */
-      const repo =
-        found.length <= 1
-          ? (found[0] ?? null)
-          : await pickRepository(found);
+      if (root === null || WeftPanel.walkOf(root) === null) {
+        const repo = root === null ? await chooseRepository() : await discover(git, root).catch(() => null);
 
-      if (repo === null) {
-        if (found.length === 0) {
-          void vscode.window.showWarningMessage('Weft: no git repository found in this workspace.');
+        if (repo === null) {
+          return;
         }
 
-        return;
+        root = repo.root;
+
+        if (WeftPanel.walkOf(root) === null) {
+          await openGraph(repo, vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One);
+        }
       }
 
-      // The ref list is read here rather than by the panel, so it has to be waited for here too.
-      await whileOpening(`Weft: opening ${basename(repo.root)}…`, async () => {
-        await refs.setRepository(repo);
-        authors.setRepository(repo);
-      });
-
-      WeftPanel.show(
-        context.extensionUri,
-        git,
-        repo,
-        vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One,
-        filters,
-      );
+      StatsPanel.show(context.extensionUri, root, statsSource, vscode.ViewColumn.Beside);
     }),
 
     /*
