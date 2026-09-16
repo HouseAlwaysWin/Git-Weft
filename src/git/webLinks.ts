@@ -1,10 +1,10 @@
 /**
- * Where a commit, a branch or a tag lives on the site that hosts its repository.
+ * Where a commit, a branch, a tag or a file lives on the site that hosts its repository.
  *
  * Pure: a remote's URL in, a web address out. Which kind of server a remote is has to be known before
  * any address can be built, and a URL alone often cannot say - `http://10.20.30.40/erp/dlp.git` is a
- * GitLab, and nothing in it says so. What a URL can say is read here; what has to be asked of git's
- * config is asked by the action that opens the page, and handed in.
+ * GitLab, and nothing in it says so. What a URL can say is read here; what has to be asked of git - the
+ * remotes, the credential helper's config - is asked in `webPlace.ts` and handed in.
  */
 
 /** The kinds of server whose addresses Weft knows how to build. */
@@ -199,6 +199,45 @@ export function commitPage(provider: Provider, page: string, sha: string): strin
       return `${page}/commits/${sha}`;
     default:
       return `${page}/commit/${sha}`;
+  }
+}
+
+/** Which lines a file's page should open at: one line, or the first and last of a range. */
+export interface Lines {
+  readonly from: number;
+  readonly to: number;
+}
+
+/**
+ * A file's page at a commit, opened at `lines` where there are some.
+ *
+ * Pinned to a sha rather than to a branch: a link into a branch says something different every time the
+ * branch moves, and the line it points at rots without saying so - which is the whole reason for pasting
+ * a link rather than a path. Each server spells the lines its own way, and two of them put the file in a
+ * query rather than in the path.
+ */
+export function filePage(provider: Provider, page: string, sha: string, path: string, lines: Lines | null): string {
+  const file = path.split('/').map(encodeURIComponent).join('/');
+  const from = lines === null ? 0 : lines.from;
+  const to = lines === null ? 0 : Math.max(lines.from, lines.to);
+  const range = (spelling: string): string => (lines === null ? '' : to > from ? `${spelling}${to}` : '');
+
+  switch (provider) {
+    case 'github':
+      return `${page}/blob/${sha}/${file}${lines === null ? '' : `#L${from}${range('-L')}`}`;
+    case 'gitlab':
+      return `${page}/-/blob/${sha}/${file}${lines === null ? '' : `#L${from}${range('-')}`}`;
+    case 'gitea':
+      return `${page}/src/commit/${sha}/${file}${lines === null ? '' : `#L${from}${range('-L')}`}`;
+    case 'bitbucket':
+      return `${page}/src/${sha}/${file}${lines === null ? '' : `#lines-${from}${range(':')}`}`;
+    case 'bitbucket-server':
+      return `${page}/browse/${file}?at=${encodeURIComponent(sha)}${lines === null ? '' : `#${from}${range('-')}`}`;
+    case 'azure-devops':
+      return (
+        `${page}?path=${encodeURIComponent(`/${path}`)}&version=GC${sha}` +
+        (lines === null ? '' : `&line=${from}&lineEnd=${to}&lineStartColumn=1&lineEndColumn=1`)
+      );
   }
 }
 

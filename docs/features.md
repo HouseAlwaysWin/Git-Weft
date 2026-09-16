@@ -59,6 +59,10 @@ landing page that lists two hundred things tells you nothing about any of them.
 - Ticket ids as links, with `weft.ticketLinks`: an id in a commit message opens where the tracker
   keeps it, from the details pane or a branch badge's menu. Only an id that matches a pattern whole
   opens, and only to an http or https address the extension builds itself
+- **Copy Link to File** and **Open File on the Web**, from the editor, a tab, the Explorer or a row of
+  **Commit Files**: the file's address on the site that hosts it, pinned to a commit rather than to a
+  branch, opening at the lines the cursor has. No graph need be open. A commit the remote does not
+  have yet is said so before the link is used
 - Open on the web: a commit, branch or tag opens on GitHub, GitLab, Gitea, Bitbucket or Azure DevOps,
   from its menu in the graph or in Branches & Tags. A self-hosted server is known by its name, its
   paths or Git Credential Manager's `credential.<url>.provider`; `weft.remoteHosts` names the rest

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A link to a file, and the lines you have.** **Copy Link to File** and **Open File on the Web** -
+  in the editor's right-click menu, on a tab, in the Explorer and on a row of **Commit Files** - build
+  the address the site that hosts the repository gives that file, pinned to a commit rather than to a
+  branch, and opening at the lines the cursor has. A row in **Commit Files** links at the commit it
+  was listed under; everywhere else links at HEAD. The same servers as **Open on the Web** know it -
+  GitHub, GitLab, Gitea, Bitbucket, Bitbucket Server and Azure DevOps, each spelling the lines its own
+  way - and a self-hosted one is still named by `weft.remoteHosts` or by Git Credential Manager. No
+  graph has to be open: the file is in front of you, and git is asked where it is. A commit the remote
+  has not got yet is said so - copied anyway, and asked about before opening.
+
 - **Each person over time can stand side by side.** Stacked, the bars add up to what the week or the
   month came to, which is the picture for a whole history and the wrong one for comparing two people:
   only the bottom person has a line to read from. **Side by side**, under that chart's heading, gives

@@ -258,6 +258,16 @@
         "icon": "$(history)"
       },
       {
+        "command": "weft.openFileOnWeb",
+        "title": "Open File on the Web",
+        "category": "Git Weft"
+      },
+      {
+        "command": "weft.copyFileWebLink",
+        "title": "Copy Link to File",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.fetch",
         "title": "Fetch",
         "category": "Git Weft",
@@ -452,6 +462,16 @@
           "command": "weft.showLineHistory",
           "when": "editorTextFocus && resourceScheme == file && weft.hasRepository",
           "group": "navigation@102"
+        },
+        {
+          "command": "weft.copyFileWebLink",
+          "when": "editorTextFocus && resourceScheme == file && weft.hasRepository",
+          "group": "navigation@103"
+        },
+        {
+          "command": "weft.openFileOnWeb",
+          "when": "editorTextFocus && resourceScheme == file && weft.hasRepository",
+          "group": "navigation@104"
         }
       ],
       "explorer/context": [
@@ -459,6 +479,16 @@
           "command": "weft.showFileHistory",
           "when": "!explorerResourceIsFolder && resourceScheme == file && weft.hasRepository",
           "group": "weft@1"
+        },
+        {
+          "command": "weft.copyFileWebLink",
+          "when": "!explorerResourceIsFolder && resourceScheme == file && weft.hasRepository",
+          "group": "weft@2"
+        },
+        {
+          "command": "weft.openFileOnWeb",
+          "when": "!explorerResourceIsFolder && resourceScheme == file && weft.hasRepository",
+          "group": "weft@3"
         }
       ],
       "editor/title/context": [
@@ -466,6 +496,16 @@
           "command": "weft.showFileHistory",
           "when": "resourceScheme == file && weft.hasRepository",
           "group": "weft@1"
+        },
+        {
+          "command": "weft.copyFileWebLink",
+          "when": "resourceScheme == file && weft.hasRepository",
+          "group": "weft@2"
+        },
+        {
+          "command": "weft.openFileOnWeb",
+          "when": "resourceScheme == file && weft.hasRepository",
+          "group": "weft@3"
         }
       ],
       "editor/title": [
@@ -497,9 +537,19 @@
           "group": "navigation@1"
         },
         {
-          "command": "weft.copyFilePath",
+          "command": "weft.openFileOnWeb",
+          "when": "view == weft.files && viewItem == weftFile",
+          "group": "web@1"
+        },
+        {
+          "command": "weft.copyFileWebLink",
           "when": "view == weft.files && viewItem == weftFile",
           "group": "copy@1"
+        },
+        {
+          "command": "weft.copyFilePath",
+          "when": "view == weft.files && viewItem == weftFile",
+          "group": "copy@2"
         },
         {
           "command": "weft.copyAbsoluteFilePath",

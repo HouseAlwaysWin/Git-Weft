@@ -20,6 +20,10 @@ import { watchRepositories } from './git/vscodeGit.ts';
 import { SlowReads, fsmonitorCanRun, statusOffer } from './git/statusAdvice.ts';
 import { mapGitError } from './git/errors.ts';
 import { explainStaleLock } from './git/staleLock.ts';
+import type { Lines } from './git/webLinks.ts';
+import { filePage, readRemoteHosts } from './git/webLinks.ts';
+import { onRemote, webPlace } from './git/webPlace.ts';
+import { openUrl } from './openUrl.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -174,6 +178,69 @@ async function pickRepository(found: readonly RepoInfo[]): Promise<RepoInfo | nu
 async function copy(text: string): Promise<void> {
   await vscode.env.clipboard.writeText(text);
   void vscode.window.setStatusBarMessage(`Weft: copied ${text}`, 2000);
+}
+
+/**
+ * The lines the cursor has, as a file's page counts them: from one rather than from zero, and a selection
+ * that ends at the start of a line ends on the line above - dragging down three lines selects three.
+ */
+function selectedLines(uri: vscode.Uri): Lines | null {
+  const editor = vscode.window.activeTextEditor;
+
+  if (editor === undefined || editor.document.uri.toString() !== uri.toString()) {
+    return null;
+  }
+
+  const { start, end } = editor.selection;
+
+  return { from: start.line + 1, to: end.line > start.line && end.character === 0 ? end.line : end.line + 1 };
+}
+
+/** A file's address on the web, with what a caller has to say about it afterwards. */
+type FileLink = { readonly url: string; readonly sha: string; readonly remote: string; readonly repo: RepoInfo };
+
+/**
+ * The address of a file on the site that hosts it: a row in Commit Files, or a file anywhere else in VS
+ * Code - the Explorer, a tab, the editor with the cursor in it.
+ *
+ * A row from Commit Files is linked at the commit it was listed under, which is the version being looked
+ * at. Everything else is linked at HEAD: the file on screen is the working tree's, and HEAD is the
+ * nearest thing to it that a server has a page for.
+ */
+async function fileLink(git: Git, files: FilesProvider, node: unknown): Promise<FileLink | { readonly reason: string }> {
+  const fromTree = files.target(node);
+  const uri = fromTree === null ? (asUri(node) ?? vscode.window.activeTextEditor?.document.uri) : undefined;
+
+  if (fromTree === null && (uri === undefined || uri.scheme !== 'file')) {
+    return { reason: 'Weft: no file to link to - open one, or pick one in Commit Files.' };
+  }
+
+  const repo = await discover(git, fromTree === null ? dirname(uri?.fsPath ?? '') : fromTree.repo);
+
+  if (repo === null) {
+    return { reason: 'Weft: that file is not in a git repository.' };
+  }
+
+  const path = fromTree === null ? await repoRelative(git, uri?.fsPath ?? '') : fromTree.file.path;
+  const sha =
+    fromTree !== null && fromTree.subject.kind === 'commit'
+      ? fromTree.subject.sha
+      : (await git.runRead(repo.root, ['rev-parse', 'HEAD']).catch(() => '')).trim();
+
+  if (sha.length === 0) {
+    return { reason: 'Weft: this repository has no commit yet, so there is no page for the file.' };
+  }
+
+  const hosts = readRemoteHosts(vscode.workspace.getConfiguration('weft').get<Record<string, unknown>>('remoteHosts', {}));
+  const where = await webPlace(git, repo, hosts);
+
+  if ('reason' in where) {
+    return { reason: `Weft: ${where.reason}` };
+  }
+
+  const lines = fromTree === null && uri !== undefined ? selectedLines(uri) : null;
+
+  return { url: filePage(where.provider, where.page, sha, path, lines), sha, remote: where.remote, repo };
 }
 
 /** Run an action that targets the repository, which needs a graph to run against. */
@@ -796,6 +863,57 @@ function start(context: vscode.ExtensionContext): void {
       if (target !== null) {
         await copy(target.refName);
       }
+    }),
+
+    /*
+     * A file's link, which is the one thing people paste into a chat window: the file as it is at a
+     * commit, at the lines they have. Asked of git where the file is rather than of a graph, because
+     * whether a graph is open is not part of the question.
+     */
+    vscode.commands.registerCommand('weft.copyFileWebLink', async (node: unknown) => {
+      const link = await fileLink(git, files, node);
+
+      if ('reason' in link) {
+        void vscode.window.showInformationMessage(link.reason);
+        return;
+      }
+
+      await copy(link.url);
+
+      // Copied either way, and said: a link to a commit nobody else has is a link that opens nothing.
+      if (!(await onRemote(git, link.repo, link.sha, link.remote))) {
+        void vscode.window.showWarningMessage(
+          `Weft: ${link.sha.slice(0, 8)} is not on ${link.remote} yet, so the link works once it is pushed.`,
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('weft.openFileOnWeb', async (node: unknown) => {
+      const link = await fileLink(git, files, node);
+
+      if ('reason' in link) {
+        void vscode.window.showInformationMessage(link.reason);
+        return;
+      }
+
+      if (!(await onRemote(git, link.repo, link.sha, link.remote))) {
+        const anyway = await vscode.window.showWarningMessage(
+          `${link.sha.slice(0, 8)} is not on ${link.remote}`,
+          {
+            modal: true,
+            detail:
+              `No branch this clone has fetched from ${link.remote} holds it. Until it is pushed, the ` +
+              'site has no page for the file at this commit.',
+          },
+          'Open Anyway',
+        );
+
+        if (anyway !== 'Open Anyway') {
+          return;
+        }
+      }
+
+      await openUrl(link.url);
     }),
 
     vscode.commands.registerCommand('weft.copyFilePath', async (node: unknown) => {

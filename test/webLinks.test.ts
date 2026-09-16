@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import type { RemoteUrl } from '../src/git/webLinks.ts';
 import {
   commitPage,
+  filePage,
   parseRemoteUrl,
   providerOf,
   providerOfCredential,
@@ -110,4 +111,32 @@ test("each server's addresses, in the remote's own scheme, keeping a branch name
   assert.equal(azure, 'https://dev.azure.com/org/project/_git/repo');
   assert.equal(commitPage('azure-devops', azure, 'abc'), 'https://dev.azure.com/org/project/_git/repo/commit/abc');
   assert.equal(refPage('azure-devops', azure, 'branch', 'feature/x'), 'https://dev.azure.com/org/project/_git/repo?version=GBfeature%2Fx');
+});
+
+test("a file's page is pinned to the commit, and opens at the lines it was given", () => {
+  const page = 'http://10.20.30.40/erp/dlp';
+  const sha = 'abc123';
+  const one = { from: 12, to: 12 };
+  const range = { from: 12, to: 20 };
+
+  assert.equal(filePage('gitlab', page, sha, 'src/app.ts', null), `${page}/-/blob/${sha}/src/app.ts`);
+  assert.equal(filePage('gitlab', page, sha, 'src/app.ts', one), `${page}/-/blob/${sha}/src/app.ts#L12`);
+  assert.equal(filePage('gitlab', page, sha, 'src/app.ts', range), `${page}/-/blob/${sha}/src/app.ts#L12-20`);
+
+  const github = 'https://github.com/o/r';
+
+  assert.equal(filePage('github', github, sha, 'src/app.ts', range), `${github}/blob/${sha}/src/app.ts#L12-L20`);
+  assert.equal(filePage('gitea', 'https://codeberg.org/o/r', sha, 'a/b.ts', one), `https://codeberg.org/o/r/src/commit/${sha}/a/b.ts#L12`);
+  assert.equal(filePage('bitbucket', 'https://bitbucket.org/o/r', sha, 'a/b.ts', range), `https://bitbucket.org/o/r/src/${sha}/a/b.ts#lines-12:20`);
+  assert.equal(
+    filePage('bitbucket-server', 'https://git.example.com/projects/PROJ/repos/repo', sha, 'a/b.ts', range),
+    `https://git.example.com/projects/PROJ/repos/repo/browse/a/b.ts?at=${sha}#12-20`,
+  );
+  assert.equal(
+    filePage('azure-devops', 'https://dev.azure.com/org/project/_git/repo', sha, 'a/b.ts', one),
+    `https://dev.azure.com/org/project/_git/repo?path=%2Fa%2Fb.ts&version=GC${sha}&line=12&lineEnd=12&lineStartColumn=1&lineEndColumn=1`,
+  );
+
+  // A path is encoded a segment at a time, so its slashes stay slashes and everything else is spelled out.
+  assert.equal(filePage('gitlab', page, sha, 'src/a b/c#d.ts', null), `${page}/-/blob/${sha}/src/a%20b/c%23d.ts`);
 });

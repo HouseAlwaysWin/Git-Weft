@@ -4794,6 +4794,33 @@ await new Promise((r) => setTimeout(r, 2000));
     problems.push('opening a commit on the web opened ' + JSON.stringify(opened));
   }
 
+  /*
+   * A file's link, from a file rather than from the graph: the same address with the file on the end,
+   * pinned to the commit it is at. Copied and opened are the same link, and neither needs a panel.
+   */
+  copied.length = 0;
+  opened.length = 0;
+
+  // A file no editor is showing: the address of the file, and nothing about lines.
+  await commands.get('weft.copyFileWebLink')(uri(`${repoPath}/f2.txt`));
+  await commands.get('weft.openFileOnWeb')(uri(`${repoPath}/f2.txt`));
+
+  // And the file the editor has open, where the line the cursor is on goes on the end of the address.
+  await commands.get('weft.copyFileWebLink')(editorDocument.uri);
+
+  const fileLink = `http://10.20.30.40/erp/dlp/-/blob/${head}/f2.txt`;
+  const lineLink = `http://10.20.30.40/erp/dlp/-/blob/${head}/f1.txt#L1`;
+
+  console.log('file links     :', JSON.stringify(copied), '|', JSON.stringify(opened));
+
+  if (JSON.stringify(copied) !== JSON.stringify([fileLink, lineLink])) {
+    problems.push(`copying a file's link copied ${JSON.stringify(copied)}, not ${fileLink} and ${lineLink}`);
+  }
+
+  if (JSON.stringify(opened) !== JSON.stringify([fileLink])) {
+    problems.push(`opening a file on the web opened ${JSON.stringify(opened)}, not ${fileLink}`);
+  }
+
   settings.delete('weft.remoteHosts');
   runGit(repoPath, 'config', '--unset', 'credential.http://10.20.30.40.provider');
   runGit(repoPath, 'remote', 'remove', 'origin');

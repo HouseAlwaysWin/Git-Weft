@@ -12,17 +12,8 @@ import type { Action, ActionContext, ActionResult } from './types.ts';
 import { Tier } from './types.ts';
 import { remoteOf } from './network.ts';
 import type { RepoState } from '../git/repoState.ts';
-import { readRemotes } from '../git/remotes.ts';
-import type { RemoteUrl } from '../git/webLinks.ts';
-import {
-  commitPage,
-  parseRemoteUrl,
-  providerOf,
-  providerOfCredential,
-  readRemoteHosts,
-  refPage,
-  repoPage,
-} from '../git/webLinks.ts';
+import { commitPage, readRemoteHosts, refPage } from '../git/webLinks.ts';
+import { onRemote, pickRemote, webPlace } from '../git/webPlace.ts';
 
 /** Where on a remote a target is found: the remote, and a branch's or a tag's name there. */
 type Place =
@@ -32,19 +23,9 @@ type Place =
 /** Said the way `unavailable` says it, and shown the same way by whoever ran it. */
 const refuse = (reason: string): ActionResult => ({ message: reason, ran: false, refused: true });
 
-/** The remote to go by when nothing better says: the current branch's upstream's, origin, the only one. */
+/** The remote to go by when nothing better says, from what the graph already knows about this repository. */
 function usualRemote(state: RepoState): string | null {
-  const tracked = state.upstream === null ? null : remoteOf(state.upstream.ref, state.remotes);
-
-  if (tracked !== null) {
-    return tracked;
-  }
-
-  if (state.remotes.includes('origin')) {
-    return 'origin';
-  }
-
-  return state.remotes.length === 1 ? (state.remotes[0] ?? null) : null;
+  return pickRemote(state.remotes, state.upstream === null ? null : remoteOf(state.upstream.ref, state.remotes));
 }
 
 async function placeOf({ git, repo, state, target }: ActionContext): Promise<Place> {
@@ -91,27 +72,6 @@ async function placeOf({ git, repo, state, target }: ActionContext): Promise<Pla
   return target.kind === 'ref' ? { remote, ref: { kind: 'tag', name: target.label } } : { remote, ref: null };
 }
 
-/**
- * What Git Credential Manager has been told the server is - `credential.<url>.provider` - which is how
- * a self-hosted server with an address that says nothing is known without a setting in Weft. It asks
- * for a provider's name and nothing else: `--get-urlmatch` reads config, never a credential.
- */
-async function credentialProvider({ git, repo }: ActionContext, remote: RemoteUrl): Promise<string> {
-  const url = `${remote.scheme}://${remote.host}/${remote.path}`;
-  return git.runRead(repo.root, ['config', '--get-urlmatch', 'credential.provider', url]).catch(() => '');
-}
-
-/**
- * Whether a branch this clone has fetched from the remote holds the commit. One walk that stops at
- * what the remote already has, rather than asking each of a thousand branches in turn.
- */
-async function onRemote({ git, repo }: ActionContext, sha: string, remote: string): Promise<boolean> {
-  const out = await git
-    .runRead(repo.root, ['rev-list', '-n', '1', sha, '--not', `--remotes=${remote}`])
-    .catch(() => sha);
-
-  return out.trim().length === 0;
-}
 
 const openOnWeb: Action = {
   id: 'weft.openOnWeb',
@@ -134,33 +94,22 @@ const openOnWeb: Action = {
     }
 
     const name = place.remote;
-    const url = (await readRemotes(git, repo)).find((remote) => remote.name === name)?.fetchUrl ?? '';
-    const remote = parseRemoteUrl(url);
+    const where = await webPlace(git, repo, readRemoteHosts(ui.remoteHosts()), name);
 
-    if (remote === null) {
-      return refuse(`Nothing to open: ${name} is ${url}, which is not on a server`);
+    if ('reason' in where) {
+      return refuse(where.reason);
     }
 
-    const provider =
-      providerOf(remote, readRemoteHosts(ui.remoteHosts())) ??
-      providerOfCredential(await credentialProvider(context, remote), remote);
-
-    if (provider === null) {
-      return refuse(
-        `Nothing says what kind of server ${remote.host} is - name it in weft.remoteHosts, as "${remote.host}": "gitlab" or whichever it is`,
-      );
-    }
-
-    const page = repoPage(provider, remote);
+    const { page, provider } = where;
 
     if (target.kind === 'commit') {
       // Asked, not refused: this clone may simply not have fetched since it was pushed.
-      if (!(await onRemote(context, target.sha, name))) {
+      if (!(await onRemote(git, repo, target.sha, name))) {
         const anyway = await ui.confirm({
           title: `${target.sha.slice(0, 8)} is not on ${name}`,
           detail:
             `No branch this clone has fetched from ${name} holds it. It may not have been pushed, or ` +
-            `pushed since the last fetch - and until it is there, ${remote.host} has no page for it.`,
+            `pushed since the last fetch - and until it is there, ${where.url.host} has no page for it.`,
           confirmLabel: 'Open Anyway',
           destructive: false,
         });
