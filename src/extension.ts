@@ -24,6 +24,7 @@ import type { Lines } from './git/webLinks.ts';
 import { filePage, readRemoteHosts } from './git/webLinks.ts';
 import { onRemote, webPlace } from './git/webPlace.ts';
 import { openUrl } from './openUrl.ts';
+import { shasIn } from './terminalLinks.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -241,6 +242,30 @@ async function fileLink(git: Git, files: FilesProvider, node: unknown): Promise<
   const lines = fromTree === null && uri !== undefined ? selectedLines(uri) : null;
 
   return { url: filePage(where.provider, where.page, sha, path, lines), sha, remote: where.remote, repo };
+}
+
+/**
+ * Which directory a terminal is in: what its shell integration reports, else what it was opened with.
+ *
+ * Null rather than a guess - the shell may have been `cd`-ed somewhere the extension never hears about,
+ * and the caller has a better fallback than this does.
+ */
+function terminalRoot(terminal: vscode.Terminal): string | null {
+  const reported = terminal.shellIntegration?.cwd;
+
+  if (reported !== undefined) {
+    return reported.fsPath;
+  }
+
+  const opened = (terminal.creationOptions as { readonly cwd?: string | vscode.Uri }).cwd;
+
+  return opened === undefined ? null : typeof opened === 'string' ? opened : opened.fsPath;
+}
+
+/** A commit id found in a terminal, with the terminal it was printed in - which says which repository. */
+interface ShaLink extends vscode.TerminalLink {
+  readonly sha: string;
+  readonly terminal: vscode.Terminal;
 }
 
 /** Run an action that targets the repository, which needs a graph to run against. */
@@ -673,9 +698,64 @@ function start(context: vscode.ExtensionContext): void {
     },
   };
 
+  /**
+   * Show a commit in the graph of the repository at `root`, opening one beside whatever is on screen if
+   * there is none. False when there is no repository there any more, so each caller can say so its own
+   * way - a file that moved and a terminal in a deleted folder are not the same sentence.
+   */
+  const revealInGraph = async (root: string, sha: string): Promise<boolean> => {
+    const repo = await discover(git, root);
+
+    if (repo === null) {
+      return false;
+    }
+
+    await refs.setRepository(repo);
+    authors.setRepository(repo);
+
+    WeftPanel.show(context.extensionUri, git, repo, vscode.ViewColumn.Beside, filters).revealCommit(sha);
+    return true;
+  };
+
+  /**
+   * Commit ids in the terminal, made clickable. The line is read without asking git anything, because
+   * this is called for every line drawn; whether the id is a commit is asked once, on the click.
+   */
+  const shaLinks: vscode.TerminalLinkProvider<ShaLink> = {
+    provideTerminalLinks: (asked) =>
+      shasIn(asked.line).map((match) => ({
+        startIndex: match.startIndex,
+        length: match.length,
+        tooltip: 'Show in Git Weft',
+        sha: match.sha,
+        terminal: asked.terminal,
+      })),
+
+    async handleTerminalLink(link) {
+      const root = terminalRoot(link.terminal) ?? WeftPanel.active()?.root ?? candidateFolders()[0] ?? null;
+      const repo = root === null ? null : await discover(git, root);
+
+      if (repo === null) {
+        void vscode.window.showInformationMessage('Weft: that terminal is not in a git repository.');
+        return;
+      }
+
+      // The whole id, from the short one the terminal printed - and the check that it is a commit at all.
+      const full = (await git.runRead(repo.root, ['rev-parse', '--verify', `${link.sha}^{commit}`]).catch(() => '')).trim();
+
+      if (full.length === 0) {
+        void vscode.window.showInformationMessage(`Weft: ${link.sha} is not a commit in ${basename(repo.root)}.`);
+        return;
+      }
+
+      await revealInGraph(repo.root, full);
+    },
+  };
+
   setWalkListener((root) => StatsPanel.update(root));
 
   context.subscriptions.push(
+    vscode.window.registerTerminalLinkProvider(shaLinks),
     refsView,
     authorsView,
     filesView,
@@ -770,25 +850,9 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const repo = await discover(git, root);
-
-      if (repo === null) {
-        void vscode.window.showInformationMessage(
-          'Weft: that file is not in a git repository any more.',
-        );
-        return;
+      if (!(await revealInGraph(root, sha))) {
+        void vscode.window.showInformationMessage('Weft: that file is not in a git repository any more.');
       }
-
-      await refs.setRepository(repo);
-      authors.setRepository(repo);
-
-      WeftPanel.show(
-        context.extensionUri,
-        git,
-        repo,
-        vscode.ViewColumn.Beside,
-        filters,
-      ).revealCommit(sha);
     }),
 
     /*

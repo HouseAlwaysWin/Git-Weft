@@ -234,6 +234,7 @@ const documentClosed = new StubEmitter();
 
 /** What the blame annotation was last asked to draw, so a test can read it back. */
 const decorations = [];
+const terminalProviders = [];
 
 const editorDocument = {
   uri: uri(repoPath.replace(/\\/g, '/') + '/f1.txt'),
@@ -288,6 +289,10 @@ const vscodeStub = {
     onDidChangeActiveTextEditor: activeEditorChanged.event,
     onDidChangeTextEditorSelection: selectionChanged.event,
     createTextEditorDecorationType: () => ({ dispose() {} }),
+    registerTerminalLinkProvider: (provider) => {
+      terminalProviders.push(provider);
+      return { dispose() {} };
+    },
     createOutputChannel: () => ({
       info: (m) => outputLines.push(`info  ${m}`),
       warn: (m) => outputLines.push(`warn  ${m}`),
@@ -4825,6 +4830,37 @@ await new Promise((r) => setTimeout(r, 2000));
   runGit(repoPath, 'config', '--unset', 'credential.http://10.20.30.40.provider');
   runGit(repoPath, 'remote', 'remove', 'origin');
   await new Promise((r) => setTimeout(r, 2500));
+}
+
+/*
+ * A commit id printed in a terminal. The provider is asked for a line the way a terminal asks - text and
+ * the terminal it was drawn in, nothing else - and clicking what it hands back has to reach the graph
+ * with the whole id, from the short one that was printed.
+ */
+{
+  const provider = terminalProviders[0];
+  const head = String(runGit(repoPath, 'rev-parse', 'HEAD')).trim();
+  const short = head.slice(0, 8);
+  const line = `[main ${short}] the commit somebody made in a terminal`;
+  const links = provider === undefined ? [] : await provider.provideTerminalLinks({ line, terminal: { creationOptions: { cwd: repoPath } } }, {});
+  const said = links.map((link) => line.slice(link.startIndex, link.startIndex + link.length));
+  const mark = posted.length;
+
+  if (said.length === 1 && said[0] === short) {
+    await provider.handleTerminalLink(links[0]);
+  }
+
+  const revealed = posted.slice(mark).find((m) => m.type === 'reveal');
+
+  console.log('\nterminal links :', JSON.stringify(said), '->', revealed?.sha ?? '(nothing revealed)');
+
+  if (said.length !== 1 || said[0] !== short) {
+    problems.push(`a commit id in a terminal line was read as ${JSON.stringify(said)}, not ${short}`);
+  }
+
+  if (revealed?.sha !== head) {
+    problems.push(`clicking a commit id in a terminal revealed ${revealed?.sha}, not the whole ${head}`);
+  }
 }
 
 /*

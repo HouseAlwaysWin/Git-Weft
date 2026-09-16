@@ -59,6 +59,9 @@ landing page that lists two hundred things tells you nothing about any of them.
 - Ticket ids as links, with `weft.ticketLinks`: an id in a commit message opens where the tracker
   keeps it, from the details pane or a branch badge's menu. Only an id that matches a pattern whole
   opens, and only to an http or https address the extension builds itself
+- A commit id printed in the integrated terminal is a link: click it and the graph opens on that
+  commit, in the repository the terminal is in. Both ends of a range are links; an id inside a URL is
+  left alone, and so is a number
 - **Copy Link to File** and **Open File on the Web**, from the editor, a tab, the Explorer or a row of
   **Commit Files**: the file's address on the site that hosts it, pinned to a commit rather than to a
   branch, opening at the lines the cursor has. No graph need be open. A commit the remote does not

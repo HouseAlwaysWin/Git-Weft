@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A commit id in the terminal is a link.** git prints them everywhere - a commit, a checkout, a
+  rebase, a hook - and clicking one opens the graph on that commit, in the repository the terminal is
+  in. Both ends of `a1b2c3d..e4f5a6b` are links. Nothing is asked of git while the terminal draws: a
+  line is read for words that could be an id, and whether one is a commit at all is asked once, on the
+  click - which is also where the short id becomes the whole one. A hash inside an address is left to
+  the link VS Code already makes of it, and a seven-digit build number is a number.
+
 - **A link to a file, and the lines you have.** **Copy Link to File** and **Open File on the Web** -
   in the editor's right-click menu, on a tab, in the Explorer and on a row of **Commit Files** - build
   the address the site that hosts the repository gives that file, pinned to a commit rather than to a
