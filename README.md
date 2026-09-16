@@ -37,21 +37,6 @@ with, any other graph extension.
 
 Everything else it does is [in the full list](https://github.com/HouseAlwaysWin/Git-Weft/blob/main/docs/features.md).
 
-## Where to find it
-
-The graph opens as an editor tab. Three ways in:
-
-- The **Weft** button in the status bar (hidden when the workspace has no repository)
-- The branch icon in the **Source Control** title bar
-- **Weft: Open Git Graph** in the command palette
-
-Weft has no Activity Bar icon of its own. Its sections - **Commit Files**, **Branches & Tags**,
-**Authors**, and **Line History** once you have asked for one - live in **Source Control**, under
-the changes list: collapsed until you want them, and absent altogether in a workspace with no
-repository. Unticking a ref there narrows
-what `git log` walks, so a repository carrying two hundred `origin/dependabot/*` branches stops
-paying for them.
-
 ## Install
 
 Download the `.vsix` from [Releases](https://github.com/HouseAlwaysWin/Git-Weft/releases), then in
@@ -61,7 +46,24 @@ VS Code: **Extensions** → **…** → **Install from VSIX…**. Or from a term
 code --install-extension git-weft-<version>.vsix
 ```
 
-Requires VS Code 1.100 or later, and git on your `PATH`.
+Once installed it is listed as **Git Weft** in the Extensions view. Requires VS Code 1.100 or later,
+and git on your `PATH`.
+
+## Where to find it
+
+The graph opens as an editor tab. Four ways in:
+
+- **Git Weft: Open Git Graph** in the command palette
+- The **Git Weft** icon in the **Source Control** title bar
+- **Open Git Graph** in the **…** menu of the **Branches & Tags** title bar
+- The **Weft** button in the status bar (hidden when the workspace has no repository)
+
+Weft has no Activity Bar icon of its own. Its sections - **Commit Files**, **Branches & Tags**,
+**Authors**, and **Line History** once you have asked for one - live in **Source Control**, under
+the changes list: collapsed until you want them, and absent altogether in a workspace with no
+repository. Unticking a ref there narrows
+what `git log` walks, so a repository carrying two hundred `origin/dependabot/*` branches stops
+paying for them.
 
 ## Development
 
