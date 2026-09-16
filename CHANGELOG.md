@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Each person over time can stand side by side.** Stacked, the bars add up to what the week or the
+  month came to, which is the picture for a whole history and the wrong one for comparing two people:
+  only the bottom person has a line to read from. **Side by side**, under that chart's heading, gives
+  each person a bar of their own from the baseline, in their own slice of the room the one bar had, and
+  puts the scale on the busiest single person rather than the bar's total - otherwise everybody is drawn
+  at a fraction of the height they have the room for. The page remembers which way it was left, as it
+  does the other switches, and nothing is asked of git or of the extension to change it.
+
 ## 0.10.0
 
 - **Statistics, in a tab of their own.** **Git Weft: Show Statistics** - in the command palette, on

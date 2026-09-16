@@ -24,6 +24,21 @@
     const sent = () => window.__sent || [];
     const summaries = window.__stats || {};
     const hueOf = (el) => (el && el.style.getPropertyValue('--weft-author-hue')) || '-';
+    const countOf = (rect) => {
+      const said = /: ([\d,]+) commits?$/.exec(rect.querySelector('title').textContent);
+      return said === null ? '?' : said[1].replace(/,/g, '');
+    };
+
+    /*
+     * The stacked chart's scale, read off what was drawn rather than from the page's own numbers: the top
+     * the axis says, and the pixels between the line at zero and the line at the top.
+     */
+    const stackedScale = () => {
+      const across = all('#stats-stacked .stats-grid').map((line) => Number(line.getAttribute('y1')));
+      const said = all('#stats-stacked .stats-axis[text-anchor="end"]').map((text) => Number(text.textContent.replace(/,/g, '')));
+
+      return 'top=' + Math.max(0, ...said) + ' plot=' + (across.length > 1 ? Math.max(...across) - Math.min(...across) : 0);
+    };
     const charts = () => 'hidden=' + one('#stats-charts').hidden + ' class=' + JSON.stringify(one('#stats-charts').className);
 
     /** Everything one drawn summary puts on the page, as lines. */
@@ -33,6 +48,7 @@
         'scope: ' + says('#stats-scope'),
         'switch: checked=' + one('#stats-merges').checked,
         'excluded switch: hidden=' + one('#stats-excluded-switch').hidden + ' checked=' + one('#stats-excluded').checked,
+        'side by side: checked=' + one('#stats-side-by-side').checked,
         'notes: ' + all('#stats-notes li').map((note) => note.textContent).join(' | '),
         'state: hidden=' + one('#stats-state').hidden + ' message=' + JSON.stringify(says('#stats-message')),
         'charts: ' + charts(),
@@ -71,17 +87,7 @@
        * at the same x in each. The scale is read off the lines across, so the height the pieces have to
        * make is worked out from what was drawn rather than from the page's own numbers.
        */
-      const across = all('#stats-stacked .stats-grid').map((line) => Number(line.getAttribute('y1')));
-      const scale = all('#stats-stacked .stats-axis[text-anchor="end"]').map((text) => Number(text.textContent.replace(/,/g, '')));
-
-      lines.push(
-        'stacked scale: top=' + Math.max(0, ...scale) + ' plot=' + (across.length > 1 ? Math.max(...across) - Math.min(...across) : 0),
-      );
-
-      const countOf = (rect) => {
-        const said = /: ([\d,]+) commits?$/.exec(rect.querySelector('title').textContent);
-        return said === null ? '?' : said[1].replace(/,/g, '');
-      };
+      lines.push('stacked scale: ' + stackedScale());
 
       const totals = new Map(all('#stats-total rect').map((rect) => [rect.getAttribute('x'), countOf(rect)]));
       const bars = new Map();
@@ -193,6 +199,52 @@
     excludedBox.checked = false;
     excludedBox.dispatchEvent(new Event('change', { bubbles: true }));
     post({ type: 'summary', summary: summaries.long });
+    await settle(400);
+
+    /*
+     * Side by side: the same three years, each band a bar of its own. Written down a bar at a time - the
+     * counts, the heights, where each starts, how wide it is and what it stands on - since what has to hold
+     * is that they share the bar's room without running into each other and all stand on one baseline.
+     */
+    const sideBox = one('#stats-side-by-side');
+    sideBox.checked = true;
+    sideBox.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle(400);
+
+    const months = new Map();
+
+    for (const rect of all('#stats-stacked rect')) {
+      const title = rect.querySelector('title').textContent;
+      const when = title.slice(title.indexOf(', ') + 2, title.lastIndexOf(': '));
+
+      months.set(when, [
+        ...(months.get(when) || []),
+        {
+          count: countOf(rect),
+          x: Number(rect.getAttribute('x')),
+          width: Number(rect.getAttribute('width')),
+          height: Number(rect.getAttribute('height')),
+          base: Number(rect.getAttribute('y')) + Number(rect.getAttribute('height')),
+        },
+      ]);
+    }
+
+    section('side by side', [
+      'switch: checked=' + sideBox.checked,
+      'remembered: ' + JSON.stringify(window.__state === undefined ? null : window.__state),
+      'scale: ' + stackedScale(),
+      ...[...months].map(
+        ([when, bars]) =>
+          'month ' + when + ': counts=' + bars.map((bar) => bar.count).join('+') +
+          ' heights=' + bars.map((bar) => bar.height).join('+') +
+          ' xs=' + bars.map((bar) => bar.x).join('+') +
+          ' widths=' + bars.map((bar) => bar.width).join('+') +
+          ' bases=' + bars.map((bar) => bar.base).join('+'),
+      ),
+    ]);
+
+    sideBox.checked = false;
+    sideBox.dispatchEvent(new Event('change', { bubbles: true }));
     await settle(400);
 
     section('a name that is markup', [

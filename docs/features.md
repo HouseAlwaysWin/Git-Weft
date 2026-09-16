@@ -206,6 +206,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   bar a month beyond that - and the eight busiest people stacked over the same bars, each in the colour
   the graph gives their name, with everyone else in one grey band on top. Every piece of a bar says who
   and when on hover, and the pieces make the bar to the pixel
+- **Side by side**, under that chart's heading, redraws it as one bar per person from the same baseline,
+  each in their own slice of the week or month, on a scale of the busiest single person - the comparison
+  a stack cannot give. Remembered, like the other switches
 - `weft.statistics.excludeMessages` leaves commits out of the statistics by their subject - release
   commits a build writes, say - while the graph draws them as ever. They are counted apart the way
   merges are: how many on the line at the top, how many for each person, and a switch that puts them

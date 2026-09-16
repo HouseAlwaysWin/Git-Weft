@@ -1,6 +1,7 @@
 /**
  * The geometry of a chart over time, worked out without a page: the top of the scale, the lines across,
- * which bars get a label along the bottom, and how a stacked bar is cut so its pieces make it exactly.
+ * which bars get a label along the bottom, how a stacked bar is cut so its pieces make it exactly, and how
+ * a bar's room is shared out when the bands stand side by side instead.
  *
  * Numbers in and numbers out, so all of it is tested in Node rather than trusted from a look.
  */
@@ -73,6 +74,46 @@ export function columns(counts: readonly number[], top: number, height: number):
 
     return { y: height - upper, height: upper - lower };
   });
+}
+
+/** One band's own bar inside the room a bar has: where it starts, across, and how wide it is. */
+export interface Slot {
+  readonly x: number;
+  readonly width: number;
+}
+
+/**
+ * Where each of `bands` bars goes across the room one bar would have had, side by side.
+ *
+ * Cut at rounded edges, the way a stacked bar is cut, so the slots tile the room exactly however awkwardly
+ * it divides: nine people in twenty-five pixels are bars of three and two rather than nine of two with
+ * four pixels of the month left over. None is thinner than a pixel, which is the one case - a room too
+ * small for its bands - where they overlap rather than disappear.
+ */
+export function beside(bands: number, room: number): Slot[] {
+  const slots: Slot[] = [];
+
+  for (let band = 0; band < bands; band++) {
+    const from = Math.round((room * band) / bands);
+    const to = Math.round((room * (band + 1)) / bands);
+
+    slots.push({ x: from, width: Math.max(1, to - from) });
+  }
+
+  return slots;
+}
+
+/**
+ * How tall each count stands on a scale of `top`, each from the baseline rather than on the one below it.
+ *
+ * A count that is not zero is a pixel at least. Stacked, a piece that rounds to no height is still part of
+ * a bar the reader can see; standing on its own it would be a month with no bar at all, which reads as
+ * nobody rather than as somebody quiet.
+ */
+export function heights(counts: readonly number[], top: number, plot: number): number[] {
+  const scale = top > 0 ? plot / top : 0;
+
+  return counts.map((count) => (count === 0 || scale === 0 ? 0 : Math.max(1, Math.round(count * scale))));
 }
 
 /** A label along the bottom: the bar it sits under, and what it says. */

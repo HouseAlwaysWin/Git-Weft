@@ -1759,6 +1759,20 @@ body.weft-stats .stats-time {
   overflow: hidden;
 }
 
+/* Under the heading of the chart it changes, rather than up with the switches that change what is counted. */
+body.weft-stats #stats-side-by-side-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+body.weft-stats #stats-side-by-side {
+  margin: 0;
+}
+
 /* The lines across are there to read a bar against, not to be read themselves. */
 body.weft-stats .stats-grid {
   stroke: var(--vscode-descriptionForeground);

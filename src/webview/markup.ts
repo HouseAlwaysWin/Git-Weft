@@ -190,6 +190,9 @@ export const STATS_MARKUP = `<header id="stats-header">
     <h2 id="stats-total-heading">Commits over time</h2>
     <svg id="stats-total" class="stats-time" role="img"></svg>
     <h2 id="stats-stacked-heading">Each person over time</h2>
+    <label id="stats-side-by-side-switch" title="One bar each from the same baseline, rather than stacked into the bar's total. Easier to compare a few people; the stack says what a week or a month came to.">
+      <input id="stats-side-by-side" type="checkbox"> Side by side
+    </label>
     <svg id="stats-stacked" class="stats-time" role="img"></svg>
     <ul id="stats-legend" class="stats-legend"></ul>
   </section>

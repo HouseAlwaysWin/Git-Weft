@@ -7,7 +7,7 @@
 
 import type { StatsHostMessage, StatsWebviewMessage } from '../protocol.ts';
 import { describeBucket } from '../stats/calendar.ts';
-import { ceiling, columns, gridLines, ticks } from '../stats/chart.ts';
+import { beside, ceiling, columns, gridLines, heights, ticks } from '../stats/chart.ts';
 import type { StatsSummary } from '../stats/summary.ts';
 
 interface VsCodeApi {
@@ -68,6 +68,7 @@ const legendEl = element('stats-legend');
 const mergesEl = element<HTMLInputElement>('stats-merges');
 const excludedSwitchEl = element('stats-excluded-switch');
 const excludedEl = element<HTMLInputElement>('stats-excluded');
+const sideBySideEl = element<HTMLInputElement>('stats-side-by-side');
 
 /** What the charts are drawn from, or null while there is nothing to draw. */
 let summary: StatsSummary | null = null;
@@ -76,10 +77,11 @@ let staleTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Remembered by the page rather than the host, so the switches are where they were left when the tab is shown again.
 const remembered = vscode.getState() as
-  | { readonly includeMerges?: unknown; readonly includeExcluded?: unknown }
+  | { readonly includeMerges?: unknown; readonly includeExcluded?: unknown; readonly sideBySide?: unknown }
   | undefined;
 mergesEl.checked = remembered?.includeMerges === true;
 excludedEl.checked = remembered?.includeExcluded === true;
+sideBySideEl.checked = remembered?.sideBySide === true;
 
 /** A count as a reader says it: "1 commit", "2,314 commits". */
 function commits(count: number): string {
@@ -271,13 +273,27 @@ function drawOverTime(
   bands: readonly Band[],
   height: number,
   label: string,
+  sideBySide = false,
 ): void {
   const width = Math.max(240, Math.floor(timeEl.clientWidth));
   const plotWidth = width - MARGIN.left - MARGIN.right;
   const plotHeight = height - MARGIN.top - MARGIN.bottom;
   const room = plotWidth / Math.max(1, drawn.buckets.length);
   const gap = room >= 4 ? 1 : 0;
-  const top = ceiling(drawn.perBucket.reduce((most, count) => Math.max(most, count), 0));
+  const barWidth = Math.max(1, room - gap);
+  const slots = beside(bands.length, barWidth);
+
+  /*
+   * The tallest bar the chart will hold, which is what the scale has to reach: a bar's whole stack, or its
+   * busiest single band when they stand side by side. Bars that each start from the baseline, drawn against
+   * the total's scale, would leave everybody at a fraction of the height they have the room for.
+   */
+  const tallest = drawn.buckets.reduce((most, _start, bar) => {
+    const counts = bands.map((band) => band.counts[bar] ?? 0);
+
+    return Math.max(most, sideBySide ? Math.max(0, ...counts) : counts.reduce((sum, count) => sum + count, 0));
+  }, 0);
+  const top = ceiling(tallest);
   const parts: SVGElement[] = [];
 
   for (const value of gridLines(top)) {
@@ -291,29 +307,44 @@ function drawOverTime(
 
   for (const [bar, start] of drawn.buckets.entries()) {
     const when = describeBucket(start, drawn.unit);
-    const pieces = columns(bands.map((band) => band.counts[bar] ?? 0), top, plotHeight);
+    const counts = bands.map((band) => band.counts[bar] ?? 0);
+    const left = MARGIN.left + bar * room + gap / 2;
 
-    for (const [index, piece] of pieces.entries()) {
+    /*
+     * Stacked, the bar is cut into pieces that add up to it, each sitting on the one below. Side by side,
+     * each band is a bar of its own from the baseline in its own slice of the room the one bar would have
+     * had - the comparison a stack cannot give, since only its bottom band has a line to be read from.
+     */
+    const placed = sideBySide
+      ? heights(counts, top, plotHeight).map((tall, index) => ({
+          x: left + (slots[index]?.x ?? 0),
+          width: slots[index]?.width ?? 1,
+          y: plotHeight - tall,
+          height: tall,
+        }))
+      : columns(counts, top, plotHeight).map((piece) => ({ x: left, width: barWidth, y: piece.y, height: piece.height }));
+
+    for (const [index, where] of placed.entries()) {
       const band = bands[index];
 
       // Drawn even when it rounds to no height at all, so every commit in the bar is one of its pieces.
-      if (band === undefined || (band.counts[bar] ?? 0) === 0) {
+      if (band === undefined || (counts[index] ?? 0) === 0) {
         continue;
       }
 
       const rect = shape('rect', {
         class: band.className,
-        x: (MARGIN.left + bar * room + gap / 2).toFixed(2),
-        y: MARGIN.top + piece.y,
-        width: Math.max(1, room - gap).toFixed(2),
-        height: piece.height,
+        x: where.x.toFixed(2),
+        y: MARGIN.top + where.y,
+        width: where.width.toFixed(2),
+        height: where.height,
       });
 
       if (band.hue !== null) {
         rect.style.setProperty('--weft-author-hue', String(band.hue));
       }
 
-      const count = commits(band.counts[bar] ?? 0);
+      const count = commits(counts[index] ?? 0);
       const title = shape('title', {});
       title.textContent =
         band.name === null ? `${when.charAt(0).toUpperCase()}${when.slice(1)}: ${count}` : `${band.name}, ${when}: ${count}`;
@@ -378,7 +409,10 @@ function drawTime(drawn: StatsSummary): void {
     drawn,
     bands,
     STACKED_HEIGHT,
-    `Commits per ${unit} from ${span}, for ${bands.map((band) => band.name).join(', ')}.`,
+    `Commits per ${unit} from ${span}, ${sideBySideEl.checked ? 'side by side' : 'stacked'}, for ${bands
+      .map((band) => band.name)
+      .join(', ')}.`,
+    sideBySideEl.checked,
   );
 
   legendEl.replaceChildren(
@@ -470,9 +504,13 @@ window.addEventListener('message', (event: MessageEvent<StatsHostMessage>) => {
 
 openGraphEl.addEventListener('click', () => vscode.postMessage({ type: 'openGraph' }));
 
-/** Both switches, remembered together by the page. */
+/** Every switch, remembered together by the page. */
 function remember(): void {
-  vscode.setState({ includeMerges: mergesEl.checked, includeExcluded: excludedEl.checked });
+  vscode.setState({
+    includeMerges: mergesEl.checked,
+    includeExcluded: excludedEl.checked,
+    sideBySide: sideBySideEl.checked,
+  });
 }
 
 mergesEl.addEventListener('change', () => {
@@ -483,6 +521,15 @@ mergesEl.addEventListener('change', () => {
 excludedEl.addEventListener('change', () => {
   remember();
   vscode.postMessage({ type: 'includeExcluded', on: excludedEl.checked });
+});
+
+// Nothing for the host to answer: which way the bands go is drawn from the summary the page already has.
+sideBySideEl.addEventListener('change', () => {
+  remember();
+
+  if (summary !== null) {
+    drawTime(summary);
+  }
 });
 
 showAllEl.addEventListener('click', () => {

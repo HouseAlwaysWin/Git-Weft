@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { bucketStarts } from '../src/stats/calendar.ts';
-import { TICK_GAP, ceiling, columns, gridLines, ticks } from '../src/stats/chart.ts';
+import { TICK_GAP, beside, ceiling, columns, gridLines, heights, ticks } from '../src/stats/chart.ts';
 
 test('the scale tops out a whole number of even steps above the tallest bar, five steps or fewer', () => {
   assert.deepEqual(
@@ -108,4 +108,43 @@ test('one bar is labelled, a short span still says when it is, and no bars need 
   assert.deepEqual(ticks(bucketStarts(20260201, 20260331, 'month'), 'month', 30), [{ index: 0, label: 'Feb 2026' }]);
   assert.deepEqual(ticks([], 'month', 600), []);
   assert.deepEqual(columns([], 10, 100), []);
+});
+
+test('side by side, the bands share out the room one bar would have had, none of them thinner than a pixel', () => {
+  for (const bands of [1, 2, 3, 5, 9]) {
+    for (const room of [1, 2, 7, 25, 25.4, 100]) {
+      const slots = beside(bands, room);
+      const where = `${bands} bands in ${room}px`;
+
+      assert.equal(slots.length, bands, where);
+
+      for (const slot of slots) {
+        assert.ok(slot.width >= 1, `${where}: a slot is ${slot.width}px`);
+      }
+
+      // Tiled: each starts where the one before ended, and the last ends where the single bar would have.
+      if (room >= bands) {
+        for (const [index, slot] of slots.entries()) {
+          const before = slots[index - 1];
+
+          assert.equal(slot.x, before === undefined ? 0 : before.x + before.width, `${where}: slot ${index}`);
+        }
+
+        const last = slots.at(-1);
+
+        assert.equal((last?.x ?? 0) + (last?.width ?? 0), Math.round(room), `${where}: the slots fill the room`);
+      }
+    }
+  }
+
+  assert.deepEqual(beside(0, 20), []);
+});
+
+test('side by side, each count stands its own height, and a count that is not zero is a pixel at least', () => {
+  assert.deepEqual(heights([0, 1, 2, 5], 10, 100), [0, 10, 20, 50]);
+
+  // One commit against a scale of a thousand: a pixel, where a piece of a stack could round away to nothing.
+  assert.deepEqual(heights([1, 0, 400], 1000, 190), [1, 0, 76]);
+  assert.deepEqual(heights([3, 4], 0, 100), [0, 0]);
+  assert.deepEqual(heights([], 10, 100), []);
 });

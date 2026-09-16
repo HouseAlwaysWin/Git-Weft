@@ -725,6 +725,76 @@ const INVARIANTS = [
     },
   ],
   [
+    'side by side gives each band its own bar from the baseline, on a scale of the busiest one',
+    (found) => {
+      const scale = /^top=(\d+) plot=(\d+)$/.exec(statsSaid(found, 'side by side', 'scale') ?? '');
+      const months = statsLines(found, 'side by side').filter((line) => line.startsWith('month '));
+
+      if (scale === null || months.length === 0) {
+        return 'nothing was drawn side by side';
+      }
+
+      const top = Number(scale[1]);
+      const plot = Number(scale[2]);
+      const numbers = (text) => text.split('+').filter((n) => n.length > 0).map(Number);
+      const bases = new Set();
+      const wrong = [];
+      let tallest = 0;
+
+      for (const line of months) {
+        const bar = /^month .*: counts=([\d+]*) heights=([\d+]*) xs=([\d.+]*) widths=([\d.+]*) bases=([\d.+]*)$/.exec(line);
+
+        if (bar === null) {
+          wrong.push(`unreadable: ${line.slice(0, 80)}`);
+          continue;
+        }
+
+        const counts = numbers(bar[1]);
+        const heights = numbers(bar[2]);
+        const xs = numbers(bar[3]);
+        const widths = numbers(bar[4]);
+
+        numbers(bar[5]).forEach((base) => bases.add(base));
+        tallest = Math.max(tallest, ...heights);
+
+        for (const [index, count] of counts.entries()) {
+          // Its own height from the baseline, a pixel at least, rather than a piece stacked on the one below.
+          const want = Math.max(1, Math.round((count * plot) / top));
+
+          if (heights[index] !== want) {
+            wrong.push(`${line.slice(0, 60)}: ${count} commits drawn ${heights[index]}px, not ${want}px`);
+          }
+
+          if (index > 0 && xs[index] < xs[index - 1] + widths[index - 1] - 0.01) {
+            wrong.push(`${line.slice(0, 60)}: bar ${index} at ${xs[index]} runs into the one before it`);
+          }
+
+          if (widths[index] < 1) {
+            wrong.push(`${line.slice(0, 60)}: bar ${index} is ${widths[index]}px wide`);
+          }
+        }
+      }
+
+      /*
+       * One baseline under every bar of every month, and the busiest of them filling half the chart at
+       * least: a scale still taken from the bar's total would draw each of nine people at a ninth of it.
+       */
+      if (bases.size !== 1) {
+        wrong.push(`the bars stand on ${bases.size} baselines: ${[...bases].slice(0, 4).join(', ')}`);
+      }
+
+      if (tallest < plot / 2) {
+        wrong.push(`the tallest bar is ${tallest}px of ${plot}px, so the scale is not the busiest band's`);
+      }
+
+      if (!/"sideBySide":true/.test(statsSaid(found, 'side by side', 'remembered') ?? '')) {
+        wrong.push(`it remembered ${statsSaid(found, 'side by side', 'remembered')}`);
+      }
+
+      return wrong.length === 0 ? null : wrong.slice(0, 3).join('; ');
+    },
+  ],
+  [
     'the statistics count by the week over forty days and by the month over three years',
     (found) => {
       const long = statsSaid(found, 'long', 'total heading');
