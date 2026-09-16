@@ -4492,10 +4492,15 @@ await new Promise((r) => setTimeout(r, 2000));
  * Told apart from the line-end one by which side of the text it attaches to: a column is drawn
  * `before`, the quiet one `after`. Both go through the same recorder, and needing to tell them
  * apart at all is the point - turning one on must not have turned the other off.
+ *
+ * The bar of heat beside the column is drawn `before` as well, and told apart from the column by what
+ * it carries: the column has words, the bar has a colour and nothing else.
  */
 {
   const columns = () =>
-    decorations.flat().filter((entry) => entry?.renderOptions?.before !== undefined);
+    decorations.flat().filter((entry) => entry?.renderOptions?.before?.contentText !== undefined);
+  const bars = () =>
+    decorations.flat().filter((entry) => entry?.renderOptions?.before?.backgroundColor !== undefined);
 
   const before = columns().length;
 
@@ -4514,11 +4519,47 @@ await new Promise((r) => setTimeout(r, 2000));
     problems.push(`the file blame column drew "${text}", which does not say when`);
   }
 
+  // The bar beside it: one for every line the blame has an answer for, in a colour the theme owns.
+  const heat = bars();
+  const colours = [...new Set(heat.map((entry) => entry.renderOptions.before.backgroundColor?.id))];
+
+  console.log('blame heat     :', heat.length, 'bar(s) |', JSON.stringify(colours));
+
+  if (heat.length === 0) {
+    problems.push('the blame column was drawn with no bar of heat beside it');
+  }
+
+  if (colours.some((id) => !String(id).startsWith('charts.'))) {
+    problems.push(`the heat was drawn in ${JSON.stringify(colours)}, which is not the theme's own`);
+  }
+
+  // Turned off, the column stays and the bar goes: a repaint draws no more of them.
+  const columnsBefore = columns().length;
+
+  settings.set('weft.blameHeatmap', false);
+  configurationChanged.fire(['weft.blameHeatmap']);
+  await new Promise((r) => setTimeout(r, 2500));
+
+  console.log('heat off       :', bars().length - heat.length, 'more bar(s) |', columns().length - columnsBefore, 'more column');
+
+  if (bars().length !== heat.length) {
+    problems.push(`with weft.blameHeatmap off the column drew ${bars().length - heat.length} more bars`);
+  }
+
+  if (columns().length === columnsBefore) {
+    problems.push('turning the heat off took the blame column with it');
+  }
+
+  settings.delete('weft.blameHeatmap');
+  configurationChanged.fire(['weft.blameHeatmap']);
+  await new Promise((r) => setTimeout(r, 2500));
+
   await commands.get('weft.toggleFileBlame')();
   await new Promise((r) => setTimeout(r, 500));
 
-  const last = decorations[decorations.length - 1];
-  const cleared = Array.isArray(last) && last.length === 0;
+  // Both the column and its bar: two decorations were put on, and two have to come off.
+  const last = decorations.slice(-2);
+  const cleared = last.length === 2 && last.every((entry) => Array.isArray(entry) && entry.length === 0);
 
   console.log('file blame off :', cleared ? 'cleared' : 'STILL THERE');
 

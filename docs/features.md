@@ -154,6 +154,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   where it moved. It answers from HEAD, because `git log -L` walks from one commit and “the history
   of these lines” is a different question on a different branch. Click a row to find that commit in
   the graph
+- Beside that column, a bar in the colour of each line's age - this week, this month, six months, a
+  year, older - in the theme's own chart colours. The same blame, read at a glance instead of a line
+  at a time; `weft.blameHeatmap` turns it off
 - **Toggle File Blame**, on the editor’s right-click menu, puts every line’s author and date in
   a column down the left. Off unless asked for, and per file: it moves the code right and gives
   the eye a second column, which is worth it while reading a file’s history and in the way while

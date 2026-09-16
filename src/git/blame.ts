@@ -179,3 +179,32 @@ export function describeAge(then: number, now: number = Date.now()): string {
 
   return `${size} ${unit}${size === 1 ? '' : 's'} ago`;
 }
+
+/** How many bands the heat is drawn in, newest first. */
+export const HEAT_BANDS = 5;
+
+/**
+ * Which band of the heat a line falls in: 0 for the last week, 4 for a year and older.
+ *
+ * Bands rather than a gradient, and these bands rather than even ones. The question a heat map answers
+ * is whether a part of a file is current, and a line from last year and one from five years ago are
+ * the same answer; the difference that matters is all in the last month, so that is where the colours
+ * are spent.
+ */
+export function heatBand(then: number, now: number = Date.now()): number {
+  const gap = Math.max(0, now - then);
+
+  if (gap < 7 * DAY) {
+    return 0;
+  }
+
+  if (gap < MONTH) {
+    return 1;
+  }
+
+  if (gap < 6 * MONTH) {
+    return 2;
+  }
+
+  return gap < YEAR ? 3 : 4;
+}

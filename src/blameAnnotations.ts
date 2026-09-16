@@ -9,6 +9,9 @@
  * eye - so it is a thing you turn on to read a file's history and turn off to go back to writing
  * it. Per file, because turning it on for one is not a statement about the next.
  *
+ * The column carries a bar beside it, coloured by how old each line is: the same blame, said at a
+ * glance rather than a line at a time. `weft.blameHeatmap` turns the bar off and leaves the column.
+ *
  * They share the blame rather than each asking for their own: it is the same question about the
  * same text, keyed on the document's version, so the two annotations cost one `git blame` between
  * them and moving about inside unchanged text costs none.
@@ -21,7 +24,7 @@ import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { discover } from './git/discovery.ts';
 import type { Blame, BlameLine } from './git/blame.ts';
-import { blameFile, describeAge } from './git/blame.ts';
+import { blameFile, describeAge, heatBand } from './git/blame.ts';
 import { watchRepositoryChanges } from './git/vscodeGit.ts';
 
 /** Long enough that a held arrow key is one blame rather than forty, short enough not to lag. */
@@ -35,6 +38,13 @@ const SUMMARY_LIMIT = 60;
 
 /** How much of a name the column shows before it gives up and truncates. */
 const NAME_WIDTH = 16;
+
+/**
+ * The heat, newest first: the theme's own chart colours, so what it looks like is the theme's business
+ * and a high-contrast one gets colours it chose. Nothing is written on the bar, so none of this is text
+ * over a colour - the column's own words keep the foreground they always had.
+ */
+const HEAT_COLOURS: readonly string[] = ['charts.red', 'charts.orange', 'charts.yellow', 'charts.green', 'charts.blue'];
 
 /** Padding that survives being rendered as a decoration, where ordinary runs of spaces do not. */
 const PAD = ' ';
@@ -63,6 +73,17 @@ export class BlameAnnotations {
     // The annotation belongs to the line, not to the text: typing at the end of the line must push
     // it along rather than absorb it.
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+  });
+
+  /**
+   * The bar beside the column, in the colour of the line's age.
+   *
+   * Made before the column so it is drawn to its left: attachments on one line are laid out in the
+   * order their decoration types were made, and a bar belongs against the margin.
+   */
+  private readonly heatDecoration = vscode.window.createTextEditorDecorationType({
+    before: { contentText: ' ', width: '3px', margin: '0 6px 0 0' },
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   });
 
   /** The column down the left, when a file has asked for one. */
@@ -101,7 +122,7 @@ export class BlameAnnotations {
    * Null when not known - after a clear, nothing is taken to be on screen.
    */
   private paintedLine: string | null = null;
-  private paintedColumn: { blame: Blame; width: number; lines: number } | 'off' | null = null;
+  private paintedColumn: { blame: Blame; width: number; lines: number; heat: boolean } | 'off' | null = null;
 
   /** The one-line blame being waited for, stopped when the cursor moves on before it answers. */
   private inflight: AbortController | null = null;
@@ -148,7 +169,7 @@ export class BlameAnnotations {
         this.annotated.delete(key);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration('weft.inlineBlame')) {
+        if (event.affectsConfiguration('weft.inlineBlame') || event.affectsConfiguration('weft.blameHeatmap')) {
           this.clear();
           this.schedule();
         }
@@ -179,6 +200,7 @@ export class BlameAnnotations {
 
     this.lineDecoration.dispose();
     this.fileDecoration.dispose();
+    this.heatDecoration.dispose();
   }
 
   /**
@@ -198,6 +220,7 @@ export class BlameAnnotations {
 
     if (this.annotated.delete(key)) {
       editor.setDecorations(this.fileDecoration, []);
+      editor.setDecorations(this.heatDecoration, []);
       this.paintedColumn = null;
       return;
     }
@@ -230,6 +253,7 @@ export class BlameAnnotations {
   private clear(): void {
     this.decorated?.setDecorations(this.lineDecoration, []);
     this.decorated?.setDecorations(this.fileDecoration, []);
+    this.decorated?.setDecorations(this.heatDecoration, []);
     this.decorated = null;
     this.paintedLine = null;
     this.paintedColumn = null;
@@ -353,6 +377,7 @@ export class BlameAnnotations {
     if (!wanted) {
       if (this.paintedColumn !== 'off') {
         editor.setDecorations(this.fileDecoration, []);
+        editor.setDecorations(this.heatDecoration, []);
         this.paintedColumn = 'off';
       }
 
@@ -361,21 +386,25 @@ export class BlameAnnotations {
 
     const width = columnWidth(blame);
     const lines = editor.document.lineCount;
+    const heat = vscode.workspace.getConfiguration('weft').get<boolean>('blameHeatmap', true);
     const painted = this.paintedColumn;
 
-    // The same blame, at the same width, over the same lines, is the column already on screen.
+    // The same blame, at the same width, over the same lines, with or without the bar, is on screen.
     if (
       painted !== null &&
       painted !== 'off' &&
       painted.blame === blame &&
       painted.width === width &&
-      painted.lines === lines
+      painted.lines === lines &&
+      painted.heat === heat
     ) {
       return;
     }
 
-    this.paintedColumn = { blame, width, lines };
+    this.paintedColumn = { blame, width, lines, heat };
     const options: vscode.DecorationOptions[] = [];
+    const bars: vscode.DecorationOptions[] = [];
+    const now = Date.now();
 
     for (let line = 0; line < editor.document.lineCount; line++) {
       const entry = blame[line];
@@ -383,15 +412,24 @@ export class BlameAnnotations {
       // Every line gets one, including the ones with nothing to say: a column with holes in it
       // stops being a column, and the code beside it would step in and out as you read down.
       const start = new vscode.Position(line, 0);
+      const range = new vscode.Range(start, start);
 
       options.push({
-        range: new vscode.Range(start, start),
+        range,
         renderOptions: { before: { contentText: columnLabel(entry, width) } },
         ...(entry === undefined ? {} : { hoverMessage: hover(entry, root) }),
       });
+
+      // No bar where git said nothing: an age nobody has is not a colour, and a gap says so.
+      if (heat && entry !== undefined) {
+        const colour = HEAT_COLOURS[heatBand(entry.authorTime, now)] ?? 'charts.blue';
+
+        bars.push({ range, renderOptions: { before: { backgroundColor: new vscode.ThemeColor(colour) } } });
+      }
     }
 
     editor.setDecorations(this.fileDecoration, options);
+    editor.setDecorations(this.heatDecoration, bars);
   }
 
   private repoOf(path: string): Promise<RepoInfo | null> {

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The blame column has a bar beside it, coloured by how old each line is.** The last week, the last
+  month, six months, a year, and older: five bands in the theme's own chart colours, which answer at a
+  glance what the column answers a line at a time - is this part of the file current. It costs
+  nothing, because the column's blame already says when each line was written, and nothing is drawn
+  where git had no answer. `weft.blameHeatmap` turns the bar off and leaves the column.
+
 - **A line above every file says who last changed it, and when.** "Ada Fischer, 3 days ago", above
   the first line, and clicking it narrows the graph to that file - which is the question that usually
   comes next. It costs one `git log -1` per file, held until a commit, a checkout or a fetch could

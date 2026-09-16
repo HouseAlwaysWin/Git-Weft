@@ -17,7 +17,7 @@ import {
 } from '../src/git/search.ts';
 import { dateArgs, isDay } from '../src/git/dates.ts';
 import { parseBranchName } from '../src/git/repoState.ts';
-import { describeAge, parseBlame } from '../src/git/blame.ts';
+import { HEAT_BANDS, describeAge, heatBand, parseBlame } from '../src/git/blame.ts';
 
 const RS = '\x1e';
 const NUL = '\x00';
@@ -585,4 +585,29 @@ test('an age is said the way a person would say it', () => {
   assert.equal(ago(6 * 30 * 86_400_000), '6 months ago');
   assert.equal(ago(3 * 365 * 86_400_000), '3 years ago');
   assert.equal(ago(-1000), 'just now', 'a clock ahead of ours is not "in -1 minutes"');
+});
+
+test('the heat is banded by what a reader is actually asking: is this part of the file current', () => {
+  const now = Date.parse('2026-09-16T12:00:00Z');
+  const ago = (days: number): number => heatBand(now - days * 24 * 60 * 60 * 1000, now);
+
+  assert.equal(ago(0), 0, 'committed today');
+  assert.equal(ago(6), 0, 'still this week');
+  assert.equal(ago(7), 1, 'and the week is where the first band ends');
+  assert.equal(ago(29), 1);
+  assert.equal(ago(30), 2, 'a month');
+  assert.equal(ago(179), 2);
+  assert.equal(ago(180), 3, 'six months');
+  assert.equal(ago(364), 3);
+  assert.equal(ago(365), 4, 'a year, and everything older is the same answer');
+  assert.equal(ago(5000), 4);
+
+  // A line committed in the future - a clock somewhere is wrong - is as new as it gets, not as old.
+  assert.equal(heatBand(now + 24 * 60 * 60 * 1000, now), 0);
+
+  for (let days = 0; days < 800; days += 1) {
+    const band = ago(days);
+
+    assert.ok(band >= 0 && band < HEAT_BANDS, `${days} days ago is band ${band}`);
+  }
 });
