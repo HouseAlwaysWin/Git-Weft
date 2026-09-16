@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Rebase interactively, from the graph.** Right-click a commit or a branch for **Rebase the current
+  branch onto … , interactively…**: it says how many commits will be rewritten, as the plain rebase
+  does, and then opens the list. It sets git's sequence editor for that one command rather than
+  changing the setting, so nothing about your git config is touched - and `GIT_SEQUENCE_EDITOR`, if you
+  have chosen an editor, still wins.
+
 - **`git rebase -i` opens a list of commits instead of a text file.** Each commit is a row: what to do
   with it in a menu that says what each word means, the subject and the author git left out of the
   file, and a way to move it. Alt and an arrow move the commit the keyboard is on, and the keyboard

@@ -1109,6 +1109,24 @@ if (done === undefined) {
   if (onCurrent?.items?.[0]?.disabledReason !== 'Already checked out') {
     problems.push('checkout was offered for the branch that is already checked out');
   }
+
+  // The interactive rebase, which is offered onto another branch and refused onto the one you are on.
+  const interactive = (menu) => menu?.items?.find((item) => item.id === 'weft.rebaseInteractive');
+
+  console.log(
+    'interactive    :',
+    JSON.stringify(interactive(onSide)?.label ?? '(not offered)'),
+    '| on the current branch:',
+    JSON.stringify(interactive(onCurrent)?.disabledReason ?? null),
+  );
+
+  if (!/interactively/.test(interactive(onSide)?.label ?? '') || interactive(onSide)?.disabledReason !== null) {
+    problems.push(`an interactive rebase onto another branch was ${JSON.stringify(interactive(onSide) ?? null)}`);
+  }
+
+  if (interactive(onCurrent)?.disabledReason !== 'Already on this branch') {
+    problems.push(`an interactive rebase onto the branch you are on said ${JSON.stringify(interactive(onCurrent)?.disabledReason)}`);
+  }
 }
 
 /*

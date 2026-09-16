@@ -212,6 +212,20 @@ const mergeSquash: Action = {
   },
 };
 
+/**
+ * The command that starts an interactive rebase with VS Code as the editor git waits for.
+ *
+ * `-c` rather than a setting of somebody's own: it lasts exactly as long as this one rebase, so nobody's
+ * `sequence.editor` is rewritten to make a menu item work. `GIT_SEQUENCE_EDITOR` in the environment beats
+ * it, which is how anybody who has already chosen an editor keeps the one they chose.
+ *
+ * `code` is VS Code's own command line, which its installer puts on the PATH. Where it is not, git says
+ * so and the rebase stops before it has done anything.
+ */
+export function interactiveRebaseArgs(revision: string): string[] {
+  return ['-c', 'sequence.editor=code --wait', 'rebase', '-i', revision];
+}
+
 const rebase: Action = {
   id: 'weft.rebase',
   group: 'commit',
@@ -267,6 +281,44 @@ const rebase: Action = {
     await ui.progress(`Rebasing ${branch}`, () =>
       git.runWrite(repo.root, ['rebase', revisionOf(target)]),
     );
+
+    return { message: `Rebased ${branch} onto ${shortLabel(target)}`, ran: true };
+  },
+};
+
+/**
+ * The same rebase, with the list of commits opened first.
+ *
+ * git writes the list and waits for an editor; VS Code opens it, and Weft's own editor draws it as rows
+ * rather than as text. Closing that editor is what lets the rebase run, which is git's own arrangement
+ * and not something added here.
+ */
+const rebaseInteractive: Action = {
+  id: 'weft.rebaseInteractive',
+  group: 'commit',
+  tier: Tier.Confirm,
+
+  label: (target) => `Rebase the current branch onto ${shortLabel(target)}, interactively…`,
+
+  appliesTo: (target) => target.kind === 'commit' || (target.kind === 'ref' && target.refKind !== 'tag'),
+
+  unavailable: (target, state) => rebase.unavailable?.(target, state) ?? null,
+
+  async confirmDetail(context) {
+    const said = await rebase.confirmDetail?.(context);
+
+    return `${said ?? ''}\n\nThe list of commits opens first: closing it starts the rebase, and emptying it stops.`;
+  },
+
+  async run({ git, repo, state, target, ui }) {
+    const branch = state.branch ?? 'HEAD';
+
+    /*
+     * This waits for as long as the list is open, which is the point of it: git is holding the rebase
+     * until its editor closes. Writes take no timeout, so a list somebody thinks about for an hour is
+     * a rebase that still runs afterwards.
+     */
+    await ui.progress(`Rebasing ${branch}`, () => git.runWrite(repo.root, interactiveRebaseArgs(revisionOf(target))));
 
     return { message: `Rebased ${branch} onto ${shortLabel(target)}`, ran: true };
   },
@@ -355,6 +407,7 @@ export const MERGE_ACTIONS: readonly Action[] = [
   merge,
   mergeSquash,
   rebase,
+  rebaseInteractive,
   control('continue', { tier: Tier.Safe, label: 'Continue' }),
   control('skip', {
     tier: Tier.Confirm,

@@ -106,6 +106,9 @@ landing page that lists two hundred things tells you nothing about any of them.
   base, ticked and oldest first, with those whose upstream is gone listed apart and left unticked.
   HEAD's branch, the base, a branch checked out elsewhere and `weft.protectedBranches` are never
   offered; every tip is logged before anything is deleted, and git's own `-d` has the last word
+- **Rebase the current branch onto … , interactively…**, on a commit's or a branch's menu: the same
+  confirmation the plain rebase gives, then the list. git's sequence editor is set for that one command
+  only, so no setting of yours changes
 - An interactive rebase opens as a list rather than as a file: a row per commit with its subject and
   author, a menu saying what each action does, Alt and the arrows to move one, and a line saying what
   the list comes to. Closing it starts the rebase; Abort empties the file, which stops it. The todo

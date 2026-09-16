@@ -16,6 +16,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { interactiveRebaseArgs } from '../src/actions/merge.ts';
 import { createServer } from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 
@@ -2617,4 +2618,36 @@ test('open on the web: a GitLab only Git Credential Manager names, a commit the 
     (item) => item.id === 'weft.openOnWeb',
   );
   assert.equal(entry?.disabledReason, 'No remote to open it on');
+});
+
+test('an interactive rebase asks VS Code to draw the list, and rebases once it is accepted', async () => {
+  // What git needs to open the list here and wait for it, without changing anybody's own setting.
+  assert.deepEqual(interactiveRebaseArgs('abc1234'), ['-c', 'sequence.editor=code --wait', 'rebase', '-i', 'abc1234']);
+
+  const dir = makeConflictingRepo();
+
+  sh(dir, 'checkout', '-q', 'main');
+  writeFileSync(join(dir, 'c.txt'), 'main moves on\n');
+  sh(dir, 'add', '-A');
+  sh(dir, 'commit', '-q', '-m', 'on main');
+  sh(dir, 'checkout', '-q', 'feature');
+
+  /*
+   * git reads GIT_SEQUENCE_EDITOR before `-c sequence.editor`, so this stands in for a person closing
+   * the list unchanged - and proves the arrangement: whatever accepts the list is what lets git run.
+   */
+  process.env.GIT_SEQUENCE_EDITOR = 'true';
+
+  try {
+    const ui = fakeUi();
+
+    await run(dir, 'weft.rebaseInteractive', branch('main'), ui);
+
+    assert.match(ui.confirmations[0] ?? '', /1 commit on feature will be rewritten/);
+    assert.match(ui.confirmations[0] ?? '', /closing it starts the rebase/);
+    assert.equal(sh(dir, 'rev-list', '--count', 'HEAD').trim(), '3', 'feature sits on top of main');
+    assert.equal(sh(dir, 'status', '--porcelain').trim(), '', 'and the rebase finished rather than stopping');
+  } finally {
+    delete process.env.GIT_SEQUENCE_EDITOR;
+  }
 });
