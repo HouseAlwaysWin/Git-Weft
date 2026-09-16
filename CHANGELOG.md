@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A line above every file says who last changed it, and when.** "Ada Fischer, 3 days ago", above
+  the first line, and clicking it narrows the graph to that file - which is the question that usually
+  comes next. It costs one `git log -1` per file, held until a commit, a checkout or a fetch could
+  change the answer, so typing in the file costs nothing. `weft.codeLens` turns it off.
+
 - **A commit id in the terminal is a link.** git prints them everywhere - a commit, a checkout, a
   rebase, a hook - and clicking one opens the graph on that commit, in the repository the terminal is
   in. Both ends of `a1b2c3d..e4f5a6b` are links. Nothing is asked of git while the terminal draws: a

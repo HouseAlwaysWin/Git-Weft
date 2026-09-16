@@ -856,6 +856,11 @@
           "default": true,
           "description": "Show who last changed the line the cursor is on, at the end of that line."
         },
+        "weft.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show who last changed a file, and how long ago, on a line above its first. Clicking it narrows the graph to that file. One `git log -1` per file, kept until a commit or a checkout could change the answer."
+        },
         "weft.networkIdleTimeoutSeconds": {
           "type": "number",
           "default": 60,

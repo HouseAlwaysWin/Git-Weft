@@ -235,6 +235,7 @@ const documentClosed = new StubEmitter();
 /** What the blame annotation was last asked to draw, so a test can read it back. */
 const decorations = [];
 const terminalProviders = [];
+const codeLensProviders = [];
 
 const editorDocument = {
   uri: uri(repoPath.replace(/\\/g, '/') + '/f1.txt'),
@@ -496,6 +497,13 @@ const vscodeStub = {
   ThemeColor: class { constructor(id) { this.id = id; } },
   MarkdownString: class { constructor() { this.value = ''; } appendMarkdown(v) { this.value += v; } },
   Range: class { constructor(start, end) { this.start = start; this.end = end; } },
+  CodeLens: class { constructor(range, command) { this.range = range; this.command = command; } },
+  languages: {
+    registerCodeLensProvider: (selector, provider) => {
+      codeLensProviders.push({ selector, provider });
+      return { dispose() {} };
+    },
+  },
   Position: class { constructor(line, character) { this.line = line; this.character = character; } },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   TreeItem: class { constructor(label, collapsibleState) { this.label = label; this.collapsibleState = collapsibleState; } },
@@ -4830,6 +4838,45 @@ await new Promise((r) => setTimeout(r, 2000));
   runGit(repoPath, 'config', '--unset', 'credential.http://10.20.30.40.provider');
   runGit(repoPath, 'remote', 'remove', 'origin');
   await new Promise((r) => setTimeout(r, 2500));
+}
+
+/*
+ * The line above a file: who last changed it and how long ago, from one `git log -1`, pointing at that
+ * file's history. And the setting that takes it away, which has to be read every time rather than once.
+ */
+{
+  const lens = codeLensProviders[0];
+  const document = { uri: uri(`${repoPath}/f1.txt`), version: 1 };
+  const who = String(runGit(repoPath, 'log', '-1', '--format=%aN', '--', 'f1.txt')).trim();
+  const lenses = lens === undefined ? [] : await lens.provider.provideCodeLenses(document, {});
+  const said = lenses[0]?.command?.title ?? '';
+  const runs = lenses[0]?.command?.command ?? '';
+
+  settings.set('weft.codeLens', false);
+  configurationChanged.fire(['weft.codeLens']);
+
+  const off = lens === undefined ? [] : await lens.provider.provideCodeLenses(document, {});
+
+  settings.delete('weft.codeLens');
+  configurationChanged.fire(['weft.codeLens']);
+
+  console.log('\ncode lens      :', JSON.stringify(said), '->', runs, '| with it off:', off.length);
+
+  if (lens?.selector?.scheme !== 'file') {
+    problems.push(`the code lens was offered for ${JSON.stringify(lens?.selector)}, not for files`);
+  }
+
+  if (!said.startsWith(`${who},`) || said.length <= who.length + 1) {
+    problems.push(`the line above a file said ${JSON.stringify(said)}, and ${who} last changed it`);
+  }
+
+  if (runs !== 'weft.showFileHistory') {
+    problems.push(`clicking the line above a file runs ${runs}, not that file's history`);
+  }
+
+  if (off.length !== 0) {
+    problems.push(`with weft.codeLens off a file still had ${off.length} of them`);
+  }
 }
 
 /*

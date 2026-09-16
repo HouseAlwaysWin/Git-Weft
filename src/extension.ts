@@ -14,6 +14,7 @@ import type { AuthorNode } from './authorsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
 import { BlameAnnotations } from './blameAnnotations.ts';
+import { FileCodeLens } from './codeLens.ts';
 import { LineHistoryProvider } from './lineHistoryView.ts';
 import { lineHistory } from './git/lineHistory.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
@@ -599,6 +600,7 @@ function start(context: vscode.ExtensionContext): void {
    * it - which is the point of it.
    */
   const blame = new BlameAnnotations(git, (root) => WeftPanel.isBusy(root));
+  const codeLens = new FileCodeLens(git);
 
   // Read fresh on every reload, so neither view has to push anything at the panel.
   const filters = {
@@ -766,6 +768,8 @@ function start(context: vscode.ExtensionContext): void {
      * a workspace with no graph open still gets it.
      */
     blame,
+    codeLens,
+    vscode.languages.registerCodeLensProvider({ scheme: 'file' }, codeLens),
 
     refs.attach(refsView),
     authors.attach(authorsView),
