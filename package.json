@@ -735,6 +735,21 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "weft.rebaseTodo",
+        "displayName": "Git Weft Interactive Rebase",
+        "selector": [
+          {
+            "filenamePattern": "**/rebase-merge/git-rebase-todo"
+          },
+          {
+            "filenamePattern": "**/git-rebase-todo"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "configuration": {
       "title": "Weft",
       "properties": {

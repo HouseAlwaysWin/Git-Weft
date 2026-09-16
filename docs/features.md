@@ -106,6 +106,10 @@ landing page that lists two hundred things tells you nothing about any of them.
   base, ticked and oldest first, with those whose upstream is gone listed apart and left unticked.
   HEAD's branch, the base, a branch checked out elsewhere and `weft.protectedBranches` are never
   offered; every tip is logged before anything is deleted, and git's own `-d` has the last word
+- An interactive rebase opens as a list rather than as a file: a row per commit with its subject and
+  author, a menu saying what each action does, Alt and the arrows to move one, and a line saying what
+  the list comes to. Closing it starts the rebase; Abort empties the file, which stops it. The todo
+  file is written as each change is made, and the lines git put there that are not commits are kept
 - Merge and rebase, with a banner while either is unfinished: Continue, Skip, Abort, and the
   conflicted files as links into VS Code's merge editor
 - Cherry-pick, revert, and reset (soft, mixed or hard) from any commit

@@ -236,6 +236,10 @@ const documentClosed = new StubEmitter();
 const decorations = [];
 const terminalProviders = [];
 const codeLensProviders = [];
+const customEditors = [];
+
+/** Documents a custom editor is allowed to write into, by path: the stand-in for a file on disk. */
+const editableDocuments = new Map();
 
 const editorDocument = {
   uri: uri(repoPath.replace(/\\/g, '/') + '/f1.txt'),
@@ -292,6 +296,10 @@ const vscodeStub = {
     createTextEditorDecorationType: () => ({ dispose() {} }),
     registerTerminalLinkProvider: (provider) => {
       terminalProviders.push(provider);
+      return { dispose() {} };
+    },
+    registerCustomEditorProvider: (viewType, provider, options) => {
+      customEditors.push({ viewType, provider, options });
       return { dispose() {} };
     },
     createOutputChannel: () => ({
@@ -497,6 +505,15 @@ const vscodeStub = {
   ThemeColor: class { constructor(id) { this.id = id; } },
   MarkdownString: class { constructor() { this.value = ''; } appendMarkdown(v) { this.value += v; } },
   Range: class { constructor(start, end) { this.start = start; this.end = end; } },
+  WorkspaceEdit: class {
+    constructor() {
+      this.changes = [];
+    }
+
+    replace(uri, range, text) {
+      this.changes.push({ uri, range, text });
+    }
+  },
   CodeLens: class { constructor(range, command) { this.range = range; this.command = command; } },
   languages: {
     registerCodeLensProvider: (selector, provider) => {
@@ -518,6 +535,22 @@ const vscodeStub = {
       },
     }),
     onDidChangeWorkspaceFolders: () => ({ dispose() {} }),
+    /*
+     * The real one writes the document and tells everybody watching. Both halves matter here: an editor
+     * that writes a file and never hears about it draws the list it had before the change.
+     */
+    applyEdit: async (edit) => {
+      for (const change of edit?.changes ?? []) {
+        const document = editableDocuments.get(String(change.uri?.fsPath ?? change.uri));
+
+        if (document !== undefined) {
+          document.setText(change.text);
+          documentChanged.fire({ document });
+        }
+      }
+
+      return true;
+    },
     onDidChangeTextDocument: documentChanged.event,
     onDidCloseTextDocument: documentClosed.event,
     onDidChangeConfiguration: (fn) => {
@@ -4949,6 +4982,133 @@ await new Promise((r) => setTimeout(r, 2000));
   if (revealed?.sha !== head) {
     problems.push(`clicking a commit id in a terminal revealed ${revealed?.sha}, not the whole ${head}`);
   }
+}
+
+/*
+ * The editor that opens instead of git-rebase-todo, driven the way VS Code drives a custom editor: a
+ * document, a panel, and the messages its page sends. What has to hold is that the file is the truth -
+ * every change is in it straight away - and that the lines git put there which are not commits survive
+ * a list that knows nothing about them.
+ */
+{
+  const editor = customEditors.find((entry) => entry.viewType === 'weft.rebaseTodo');
+  const shas = String(runGit(repoPath, 'log', '--format=%h', '-2')).trim().split('\n');
+  const todoPath = `${repoPath}/.git/rebase-merge/git-rebase-todo`;
+  const comments = '\n# Rebase 0123456..9999999 onto 0123456 (2 commands)\n#\n# p, pick <commit> = use commit\n';
+  let text = `pick ${shas[0]} the newest\npick ${shas[1]} the one before it\nexec make test\n${comments}`;
+  let saves = 0;
+  let closed = 0;
+
+  const document = {
+    uri: uri(todoPath),
+    getText: () => text,
+    setText: (next) => void (text = next),
+    positionAt: (offset) => ({ offset }),
+    save: async () => void (saves += 1),
+  };
+
+  editableDocuments.set(todoPath, document);
+
+  const sent = [];
+  let handler = null;
+  const panel = {
+    webview: {
+      options: {},
+      html: '',
+      cspSource: 'vscode-webview://weft',
+      asWebviewUri: (value) => value,
+      postMessage: async (message) => void sent.push(message),
+      onDidReceiveMessage: (fn) => {
+        handler = fn;
+        return { dispose() {} };
+      },
+    },
+    onDidDispose: () => ({ dispose() {} }),
+    dispose: () => void (closed += 1),
+  };
+
+  const until = async (done, ms = 10_000) => {
+    const by = Date.now() + ms;
+
+    while (Date.now() < by && !done()) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
+
+  if (editor === undefined) {
+    problems.push('no editor was registered for git-rebase-todo');
+  } else {
+    editor.provider.resolveCustomTextEditor(document, panel);
+    handler({ type: 'ready' });
+    await until(() => sent.length > 0);
+
+    const drawn = sent.at(-1);
+    const subjects = (drawn?.rows ?? []).map((row) => `${row.action} ${row.sha} ${row.subject} (${row.author})`);
+
+    console.log('');
+    console.log('rebase editor  :', JSON.stringify(drawn?.summary ?? ''), '|', JSON.stringify(subjects));
+
+    if (!panel.webview.html.includes('/dist/rebase.js')) {
+      problems.push('the rebase editor does not load dist/rebase.js');
+    }
+
+    // Two commits, in the file's order, with what the file could not say filled in from the repository.
+    if (drawn?.rows.length !== 2 || drawn.rows.some((row) => row.author === '' || row.subject === '')) {
+      problems.push(`the rebase editor drew ${JSON.stringify(drawn?.rows ?? [])}`);
+    }
+
+    if (drawn?.summary !== '2 commits' || !String(drawn.onto).startsWith('Rebase ')) {
+      problems.push(`the rebase editor said ${JSON.stringify(drawn?.summary)} of ${JSON.stringify(drawn?.onto)}`);
+    }
+
+    // An action changes the file, and the file changing is what redraws the list.
+    const beforeAction = sent.length;
+
+    handler({ type: 'action', at: 1, action: 'fixup' });
+    await until(() => sent.length > beforeAction);
+
+    const squashed = sent.at(-1);
+
+    console.log('after fixup    :', JSON.stringify(text.split('\n').slice(0, 3)), '|', JSON.stringify(squashed?.summary));
+
+    if (!text.startsWith(`pick ${shas[0]} the newest\nfixup ${shas[1]}`)) {
+      problems.push(`changing an action wrote ${JSON.stringify(text.split('\n')[1] ?? '')}`);
+    }
+
+    if (squashed?.summary !== '1 commit, 1 squashed into the one before') {
+      problems.push(`with a fixup in it the editor said ${JSON.stringify(squashed?.summary)}`);
+    }
+
+    // Moving one moves it among the commits: the exec line and the comments stay where they were.
+    const beforeMove = sent.length;
+
+    handler({ type: 'move', at: 1, by: -1 });
+    await until(() => sent.length > beforeMove);
+
+    const lines = text.split('\n');
+
+    console.log('after move     :', JSON.stringify(lines.slice(0, 3)));
+
+    if (!lines[0]?.startsWith('fixup ') || !lines[1]?.startsWith('pick ')) {
+      problems.push(`moving a commit left the file as ${JSON.stringify(lines.slice(0, 2))}`);
+    }
+
+    if (lines[2] !== 'exec make test' || !text.includes('# p, pick <commit> = use commit')) {
+      problems.push('a move took the lines git wrote that are not commits with it');
+    }
+
+    // Abort is an empty file, saved and closed: that is how git is told to stop.
+    handler({ type: 'abort' });
+    await until(() => closed > 0);
+
+    console.log('after abort    :', JSON.stringify(text), '| saved', saves, '| closed', closed);
+
+    if (text !== '' || saves === 0 || closed === 0) {
+      problems.push(`aborting left ${JSON.stringify(text)}, saved ${saves} time(s), closed ${closed} time(s)`);
+    }
+  }
+
+  editableDocuments.delete(todoPath);
 }
 
 /*

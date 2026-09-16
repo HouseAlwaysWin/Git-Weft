@@ -15,6 +15,7 @@ import { AuthorsProvider } from './authorsView.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
 import { BlameAnnotations } from './blameAnnotations.ts';
 import { FileCodeLens } from './codeLens.ts';
+import { RebaseEditor } from './rebaseEditor.ts';
 import { LineHistoryProvider } from './lineHistoryView.ts';
 import { lineHistory } from './git/lineHistory.ts';
 import { watchRepositories } from './git/vscodeGit.ts';
@@ -770,6 +771,17 @@ function start(context: vscode.ExtensionContext): void {
     blame,
     codeLens,
     vscode.languages.registerCodeLensProvider({ scheme: 'file' }, codeLens),
+
+    /*
+     * The file `git rebase -i` opens, opened as a list instead. It is registered whether or not git is
+     * set up to use VS Code as its editor: when it is not, no such file is ever opened here and this
+     * costs nothing.
+     */
+    vscode.window.registerCustomEditorProvider(
+      RebaseEditor.viewType,
+      new RebaseEditor(git, context.extensionUri),
+      { webviewOptions: { retainContextWhenHidden: true } },
+    ),
 
     refs.attach(refsView),
     authors.attach(authorsView),

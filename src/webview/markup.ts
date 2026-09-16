@@ -197,3 +197,21 @@ export const STATS_MARKUP = `<header id="stats-header">
     <ul id="stats-legend" class="stats-legend"></ul>
   </section>
 </main>`;
+
+/**
+ * The interactive rebase editor's body: the commits the rebase will replay, in the order it will replay
+ * them, and what it will do with each. Every rule for it sits under `body.weft-rebase`.
+ */
+export const REBASE_MARKUP = `<header id="rebase-header">
+  <h1 id="rebase-title">Interactive rebase</h1>
+  <p id="rebase-onto"></p>
+</header>
+<ol id="rebase-rows"></ol>
+<footer id="rebase-footer">
+  <p id="rebase-summary"></p>
+  <p id="rebase-help">Alt and the arrow keys move a commit. Closing this editor starts the rebase.</p>
+  <div id="rebase-buttons">
+    <button id="rebase-start" type="button">Start Rebase</button>
+    <button id="rebase-abort" type="button">Abort</button>
+  </div>
+</footer>`;

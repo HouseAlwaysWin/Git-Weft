@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`git rebase -i` opens a list of commits instead of a text file.** Each commit is a row: what to do
+  with it in a menu that says what each word means, the subject and the author git left out of the
+  file, and a way to move it. Alt and an arrow move the commit the keyboard is on, and the keyboard
+  stays with it. A line at the bottom says what the list comes to - "9 commits, 3 squashed into the one
+  before, 1 dropped" - because that is the number worth checking before it runs. Closing the editor
+  starts the rebase, as it always did; **Abort** empties the file, which is how git is told to stop.
+  The file stays the truth: every change is written into it as it is made, so saving is saving and
+  reopening it as text loses nothing. `exec`, `label`, `reset` and the rest are kept exactly as they
+  were.
+
 - **The blame column has a bar beside it, coloured by how old each line is.** The last week, the last
   month, six months, a year, and older: five bands in the theme's own chart colours, which answer at a
   glance what the column answers a line at a time - is this part of the file current. It costs

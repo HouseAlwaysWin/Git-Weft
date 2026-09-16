@@ -1827,3 +1827,116 @@ body.weft-stats .stats-swatch.stats-unbanded {
   background: var(--vscode-descriptionForeground);
   opacity: 0.45;
 }
+
+/* --- the interactive rebase editor ------------------------------------------------------------- */
+
+body.weft-rebase {
+  padding: 12px 16px 0;
+  max-width: 960px;
+}
+
+body.weft-rebase #rebase-title {
+  font-size: 1.3em;
+  margin: 0 0 4px;
+}
+
+body.weft-rebase #rebase-onto {
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 12px;
+}
+
+body.weft-rebase #rebase-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A row is one line: what to do with the commit, which commit it is, and the way to move it. */
+body.weft-rebase .rebase-row {
+  display: grid;
+  grid-template-columns: 22ch 9ch minmax(0, 1fr) minmax(0, 14ch) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 0;
+}
+
+body.weft-rebase .rebase-sha {
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+body.weft-rebase .rebase-subject,
+body.weft-rebase .rebase-author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.weft-rebase .rebase-author {
+  color: var(--vscode-descriptionForeground);
+}
+
+/* What the rebase will do to the commit, said by the row as well as by the menu on it. */
+body.weft-rebase .rebase-drop .rebase-subject {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+body.weft-rebase .rebase-squash .rebase-subject,
+body.weft-rebase .rebase-fixup .rebase-subject {
+  padding-left: 12px;
+  border-left: 2px solid var(--vscode-descriptionForeground);
+}
+
+body.weft-rebase .rebase-move {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+body.weft-rebase .rebase-move:hover {
+  border-color: var(--vscode-contrastBorder, transparent);
+  background: var(--vscode-toolbar-hoverBackground, transparent);
+}
+
+body.weft-rebase #rebase-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--vscode-editor-background);
+  border-top: 1px solid var(--vscode-panel-border, var(--vscode-descriptionForeground));
+  margin-top: 12px;
+  padding: 10px 0;
+}
+
+body.weft-rebase #rebase-summary {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+body.weft-rebase #rebase-help {
+  margin: 0 0 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+body.weft-rebase #rebase-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+body.weft-rebase #rebase-start {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 1px solid var(--vscode-button-border, transparent);
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+body.weft-rebase #rebase-abort {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: 1px solid var(--vscode-button-border, transparent);
+  padding: 4px 12px;
+  cursor: pointer;
+}

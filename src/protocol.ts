@@ -303,6 +303,40 @@ export type StatsHostMessage =
   /** The walk stopped on an error, in git's words. */
   | { readonly type: 'failed'; readonly message: string };
 
+/** One commit in the rebase, as the editor draws it. */
+export interface RebaseRow {
+  /** As the todo file spells it, which is short and is what git will read. */
+  readonly sha: string;
+  readonly action: 'pick' | 'reword' | 'edit' | 'squash' | 'fixup' | 'drop';
+  /** The subject, from the repository where it could be read and from the file otherwise. */
+  readonly subject: string;
+  /** Who wrote it, or empty where the repository could not say. */
+  readonly author: string;
+}
+
+/** What the host tells the rebase editor. */
+export type RebaseHostMessage = {
+  readonly type: 'todo';
+  readonly rows: readonly RebaseRow[];
+  /** What the list comes to: "2 commits, 1 squashed into the one before". */
+  readonly summary: string;
+  /** The line git wrote at the top of the file's comments, which says what this is rebasing onto. */
+  readonly onto: string;
+};
+
+/** What the rebase editor asks of its host. Every one of them ends in the file being written. */
+export type RebaseWebviewMessage =
+  /** The page's script is running, and has nothing to draw yet. */
+  | { readonly type: 'ready' }
+  /** A commit's action was changed, by its place among the commits. */
+  | { readonly type: 'action'; readonly at: number; readonly action: RebaseRow['action'] }
+  /** A commit was moved by `by` places. */
+  | { readonly type: 'move'; readonly at: number; readonly by: number }
+  /** Save the file and close the editor, which is what starts the rebase. */
+  | { readonly type: 'start' }
+  /** Empty the file, which is how git is told to stop. */
+  | { readonly type: 'abort' };
+
 export type StatsWebviewMessage =
   /**
    * The page's script is running. Sent again whenever the tab is shown, since that builds the page afresh -
