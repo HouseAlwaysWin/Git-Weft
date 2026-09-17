@@ -41,6 +41,8 @@ const PAGE_SCRIPT = join(ROOT, 'scripts', 'ui-probe', 'page.js');
 const PAGE = 'ui-probe.html';
 const STATS_SCRIPT = join(ROOT, 'scripts', 'ui-probe', 'stats.js');
 const STATS_PAGE = 'ui-probe-stats.html';
+const REBASE_SCRIPT = join(ROOT, 'scripts', 'ui-probe', 'rebase.js');
+const REBASE_PAGE = 'ui-probe-rebase.html';
 
 /** Stops the run with an exit code - by throwing, so every `finally` on the way out still runs. */
 class Stop extends Error {
@@ -210,6 +212,25 @@ async function writePage() {
       .replace('</head>', () => `${SHIMS}</head>`)
       .replace('</body>', () => `<script>\n${statsScript}\n</script>\n</body>`),
   );
+
+  // And the rebase editor's, which had no page here at all - see the invariants headed `rebase: `.
+  const rebaseSource = readFileSync(join(DIST, 'rebase-preview.html'), 'utf8');
+  const rebaseScript = readFileSync(REBASE_SCRIPT, 'utf8').replaceAll('\r\n', '\n');
+
+  if (!rebaseSource.includes('</head>') || !rebaseSource.includes('</body>')) {
+    fail(2, 'dist/rebase-preview.html is not the shape the probe expects');
+  }
+
+  if (rebaseScript.toLowerCase().includes('</script')) {
+    fail(2, 'rebase.js contains "</script", which would end the tag it is put inside');
+  }
+
+  writeFileSync(
+    join(DIST, REBASE_PAGE),
+    rebaseSource
+      .replace('</head>', () => `${SHIMS}</head>`)
+      .replace('</body>', () => `<script>\n${rebaseScript}\n</script>\n</body>`),
+  );
 }
 
 function chromePath() {
@@ -237,12 +258,17 @@ function chromePath() {
 }
 
 /**
- * One recording of the pages as they are served now: the graph's, then the statistics tab's, as one text.
- * The statistics page heads its sections `stats: `, so the two never share a name.
+ * One recording of the pages as they are served now: the graph's, then the statistics tab's, then the
+ * rebase editor's, as one text. The other two head their sections `stats: ` and `rebase: `, so no two
+ * pages ever share a name.
  */
 async function record(port) {
   await writePage();
-  return `${await recordPage(port, PAGE)}\n\n${await recordPage(port, STATS_PAGE)}`;
+  return [
+    await recordPage(port, PAGE),
+    await recordPage(port, STATS_PAGE),
+    await recordPage(port, REBASE_PAGE),
+  ].join('\n\n');
 }
 
 /** One page, loaded in headless Chrome until it has written its recording. */
@@ -557,6 +583,106 @@ const INVARIANTS = [
       return JSON.stringify(ids) === JSON.stringify(['XERP-3'])
         ? null
         : `marked ${JSON.stringify(ids)} rather than ["XERP-3"]`;
+    },
+  ],
+  [
+    'the rebase editor draws the file it was given, and nothing of it threw',
+    (found) => {
+      const lines = (found['=== rebase: the list as drawn ==='] ?? '').trim().split('\n');
+      const thrown = (found['=== rebase: thrown ==='] ?? '').trim();
+      const drawn = lines.filter((line) => line.startsWith('action='));
+      const actions = drawn.map((line) => /^action=(\w+)/.exec(line)?.[1]);
+      const ok =
+        thrown === '(nothing)' &&
+        lines[0]?.startsWith('onto: Rebase ') &&
+        /^summary: \d+ commits?/.test(lines[1] ?? '') &&
+        lines[2] === 'problem: hidden=true' &&
+        JSON.stringify(actions) ===
+          JSON.stringify(['pick', 'squash', 'pick', 'drop', 'reword', 'fixup', 'edit', 'pick']) &&
+        drawn.every((line) => /sha=[0-9a-f]{7} /.test(line) && !/subject="" /.test(line)) &&
+        drawn[1]?.includes('class="rebase-row rebase-squash"');
+
+      return ok ? null : `thrown ${thrown} | ${lines.slice(0, 3).join(' / ')} | ${JSON.stringify(actions)}`;
+    },
+  ],
+  [
+    'every action the rebase editor offers says what it does',
+    (found) => {
+      const offered = (found['=== rebase: what a row can be ==='] ?? '').trim().split('\n');
+      const ok =
+        offered.length === 6 &&
+        JSON.stringify(offered.map((line) => line.split(':')[0])) ===
+          JSON.stringify(['pick', 'reword', 'edit', 'squash', 'fixup', 'drop']) &&
+        offered.every((line) => / - \w/.test(line));
+
+      return ok ? null : `offered ${JSON.stringify(offered)}`;
+    },
+  ],
+  [
+    'a subject in the rebase editor is text, whatever it looks like',
+    (found) => {
+      const said = (found['=== rebase: a subject with markup in it ==='] ?? '').trim().split('\n');
+      const ok =
+        said[0]?.includes('<b>the</b>') &&
+        said[1] === 'elements: 0' &&
+        (said[2] ?? '').includes('&lt;b&gt;') &&
+        !(said[2] ?? '').includes('<b>');
+
+      return ok ? null : said.join(' / ');
+    },
+  ],
+  [
+    'the rebase editor sends a change by the commit it is on',
+    (found) => {
+      const action = sentIn(found, 'rebase: changing an action sends');
+      const moves = sentIn(found, 'rebase: the move buttons send');
+      const keys = sentIn(found, 'rebase: the keyboard sends');
+      const ok =
+        JSON.stringify(action) === JSON.stringify([{ type: 'action', at: 2, action: 'fixup' }]) &&
+        JSON.stringify(moves) ===
+          JSON.stringify([
+            { type: 'move', at: 1, by: 1 },
+            { type: 'move', at: 3, by: -1 },
+          ]) &&
+        // Alt and an arrow move the commit; the same arrow without it belongs to the list and sends nothing.
+        JSON.stringify(keys) === JSON.stringify([{ type: 'move', at: 4, by: -1 }]);
+
+      return ok ? null : `action ${JSON.stringify(action)} | moves ${JSON.stringify(moves)} | keys ${JSON.stringify(keys)}`;
+    },
+  ],
+  [
+    'the keyboard follows the commit that moved, not the place it left',
+    (found) => {
+      const said = (found['=== rebase: after the list came back ==='] ?? '').trim().split('\n');
+      const value = (name) => said.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2);
+      const ok =
+        value('focus row') === '3' &&
+        value('focus class') === 'rebase-action' &&
+        value('sha there') === value('sha that moved');
+
+      return ok ? null : said.join(' / ');
+    },
+  ],
+  [
+    'a rebase change that could not be written is said where the buttons are',
+    (found) => {
+      const said = (found['=== rebase: a write that failed ==='] ?? '').trim().split('\n');
+      const after = (found['=== rebase: and the list after it ==='] ?? '').trim();
+      const ok =
+        said[0] === 'problem: hidden=false' &&
+        (said[1] ?? '').includes('could not be written') &&
+        after === 'problem: hidden=true';
+
+      return ok ? null : `${said.join(' / ')} | after: ${after}`;
+    },
+  ],
+  [
+    'Start Rebase and Abort ask for what they say',
+    (found) => {
+      const sent = sentIn(found, 'rebase: the buttons send');
+      const ok = JSON.stringify(sent) === JSON.stringify([{ type: 'start' }, { type: 'abort' }]);
+
+      return ok ? null : JSON.stringify(sent);
     },
   ],
   [
@@ -1184,6 +1310,7 @@ try {
   server?.close();
   rmSync(join(DIST, PAGE), { force: true });
   rmSync(join(DIST, STATS_PAGE), { force: true });
+  rmSync(join(DIST, REBASE_PAGE), { force: true });
 }
 
 process.exit(code);

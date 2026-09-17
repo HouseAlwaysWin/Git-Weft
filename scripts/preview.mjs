@@ -14,7 +14,8 @@ import { writeFileSync } from 'node:fs';
 import { Git } from '../src/git/exec.ts';
 import { discover } from '../src/git/discovery.ts';
 import { HistoryLoader } from '../src/git/history.ts';
-import { BODY_MARKUP, STATS_MARKUP } from '../src/webview/markup.ts';
+import { BODY_MARKUP, REBASE_MARKUP, STATS_MARKUP } from '../src/webview/markup.ts';
+import { describeTodo, parseTodo } from '../src/git/rebaseTodo.ts';
 import { authorHue } from '../src/webview/authorColor.ts';
 import { describeScope } from '../src/stats/scope.ts';
 import { summarize } from '../src/stats/summary.ts';
@@ -470,4 +471,94 @@ ${STATS_MARKUP}
   );
 
   console.log(`dist/stats-preview.html  <- the walk, and ${long.length} made-up commits over three years among the rest`);
+}
+
+/*
+ * The interactive rebase editor's page, beside the other two.
+ *
+ * Fed the way the editor feeds it: a todo file as git writes one, read back by `parseTodo` and summed up
+ * by `describeTodo`, its commits filled in with the subjects and authors of real commits from this
+ * repository - the same shape `rebaseEditor.send` posts, built by the same two functions.
+ *
+ * One commit at the end is made up, and its subject carries markup and quotes on purpose: the page
+ * promises that subjects and names only ever go in as text, and a promise about other people's
+ * keyboards needs something from one.
+ */
+{
+  const recent = messages.flatMap((message) => (message.type === 'page' ? message.rows : [])).slice(0, 7);
+  const actions = ['pick', 'squash', 'pick', 'drop', 'reword', 'fixup', 'edit'];
+  const written = [
+    ...recent.map((row, at) => ({
+      sha: row.sha.slice(0, 7),
+      action: actions[at] ?? 'pick',
+      subject: row.subject,
+      author: row.author,
+    })),
+    {
+      sha: 'beef123',
+      action: 'pick',
+      subject: 'Fix <b>the</b> total & "half" of it <script>alert(1)</script>',
+      author: 'A. Person <someone@example.invalid>',
+    },
+  ];
+
+  // As git writes it: the commands, a blank line, and the comments it puts underneath, one of which is onto.
+  const file = [
+    ...written.map((row) => `${row.action} ${row.sha} ${row.subject}`),
+    '',
+    `# Rebase ${written.at(-1).sha}..${written[0].sha} onto ${written.at(-1).sha} (${written.length} commands)`,
+    '#',
+    '# Commands:',
+    '# p, pick <commit> = use commit',
+  ].join('\n');
+
+  const lines = parseTodo(file);
+  const known = new Map(written.map((row) => [row.sha, row]));
+  const todo = {
+    type: 'todo',
+    rows: lines
+      .filter((line) => line.kind === 'commit')
+      .map((line) => ({
+        sha: line.sha,
+        action: line.action,
+        subject: known.get(line.sha)?.subject ?? line.rest,
+        author: known.get(line.sha)?.author ?? '',
+      })),
+    summary: describeTodo(lines),
+    onto: /^#\s*(Rebase\s.*)$/m.exec(file)?.[1] ?? '',
+  };
+
+  // Into a script element, where a `<` in somebody's subject must not be taken for markup.
+  const inline = (value) => JSON.stringify(value).replaceAll('<', '\\u003c');
+
+  writeFileSync(
+    'dist/rebase-preview.html',
+    `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Weft interactive rebase preview</title>
+<style>:root {\n${vars}\n}</style>
+<link href="style.css" rel="stylesheet">
+</head>
+<body class="weft-rebase ${light ? 'vscode-light' : 'vscode-dark'}">
+${REBASE_MARKUP}
+<script>
+  const sent = window.__sent = [];
+  window.__todo = ${inline(todo)};
+  window.acquireVsCodeApi = () => ({
+    postMessage: (m) => {
+      sent.push(m);
+      // The host answers a ready with the file as it stands, and answers nothing else by itself: what a
+      // change comes back as is the probe's to say, because that is the part this page does not decide.
+      if (m.type === 'ready') window.postMessage(window.__todo, '*');
+    },
+  });
+</script>
+<script src="rebase.js"></script>
+</body>
+</html>`,
+  );
+
+  console.log(`dist/rebase-preview.html  <- ${todo.rows.length} commits as a todo git could have written`);
 }
