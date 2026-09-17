@@ -180,18 +180,29 @@ export function describeAge(then: number, now: number = Date.now()): string {
   return `${size} ${unit}${size === 1 ? '' : 's'} ago`;
 }
 
-/** How many bands the heat is drawn in, newest first. */
-export const HEAT_BANDS = 5;
+/**
+ * The bands the heat is drawn in, newest first.
+ *
+ * A list rather than a count, because the colours these stand for live in `blameAnnotations.ts` and
+ * nothing but agreement held the two together. A sixth band added here would have been drawn in the
+ * fifth band's colour - the oldest one, for the newer band - quietly, by the fallback at the one place
+ * that indexes them. The type below is what keys that table now, so a band with no colour to draw it
+ * in does not compile.
+ */
+export const HEAT_BANDS = [0, 1, 2, 3, 4] as const;
+
+/** One of those bands: 0 for the last week, 4 for a year and older. */
+export type HeatBand = (typeof HEAT_BANDS)[number];
 
 /**
- * Which band of the heat a line falls in: 0 for the last week, 4 for a year and older.
+ * Which band of the heat a line falls in.
  *
  * Bands rather than a gradient, and these bands rather than even ones. The question a heat map answers
  * is whether a part of a file is current, and a line from last year and one from five years ago are
  * the same answer; the difference that matters is all in the last month, so that is where the colours
  * are spent.
  */
-export function heatBand(then: number, now: number = Date.now()): number {
+export function heatBand(then: number, now: number = Date.now()): HeatBand {
   const gap = Math.max(0, now - then);
 
   if (gap < 7 * DAY) {

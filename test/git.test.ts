@@ -17,6 +17,7 @@ import {
 } from '../src/git/search.ts';
 import { dateArgs, isDay } from '../src/git/dates.ts';
 import { parseBranchName } from '../src/git/repoState.ts';
+import type { HeatBand } from '../src/git/blame.ts';
 import { HEAT_BANDS, describeAge, heatBand, parseBlame } from '../src/git/blame.ts';
 
 const RS = '\x1e';
@@ -589,7 +590,7 @@ test('an age is said the way a person would say it', () => {
 
 test('the heat is banded by what a reader is actually asking: is this part of the file current', () => {
   const now = Date.parse('2026-09-16T12:00:00Z');
-  const ago = (days: number): number => heatBand(now - days * 24 * 60 * 60 * 1000, now);
+  const ago = (days: number): HeatBand => heatBand(now - days * 24 * 60 * 60 * 1000, now);
 
   assert.equal(ago(0), 0, 'committed today');
   assert.equal(ago(6), 0, 'still this week');
@@ -608,6 +609,6 @@ test('the heat is banded by what a reader is actually asking: is this part of th
   for (let days = 0; days < 800; days += 1) {
     const band = ago(days);
 
-    assert.ok(band >= 0 && band < HEAT_BANDS, `${days} days ago is band ${band}`);
+    assert.ok(HEAT_BANDS.includes(band), `${days} days ago is band ${band}`);
   }
 });

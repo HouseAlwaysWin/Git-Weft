@@ -23,7 +23,7 @@ import { dirname } from 'node:path';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { discover } from './git/discovery.ts';
-import type { Blame, BlameLine } from './git/blame.ts';
+import type { Blame, BlameLine, HeatBand } from './git/blame.ts';
 import { blameFile, describeAge, heatBand } from './git/blame.ts';
 import { watchRepositoryChanges } from './git/vscodeGit.ts';
 
@@ -44,7 +44,13 @@ const NAME_WIDTH = 16;
  * and a high-contrast one gets colours it chose. Nothing is written on the bar, so none of this is text
  * over a colour - the column's own words keep the foreground they always had.
  */
-const HEAT_COLOURS: readonly string[] = ['charts.red', 'charts.orange', 'charts.yellow', 'charts.green', 'charts.blue'];
+const HEAT_COLOURS: Readonly<Record<HeatBand, string>> = {
+  0: 'charts.red',
+  1: 'charts.orange',
+  2: 'charts.yellow',
+  3: 'charts.green',
+  4: 'charts.blue',
+};
 
 /** Padding that survives being rendered as a decoration, where ordinary runs of spaces do not. */
 const PAD = ' ';
@@ -422,7 +428,8 @@ export class BlameAnnotations {
 
       // No bar where git said nothing: an age nobody has is not a colour, and a gap says so.
       if (heat && entry !== undefined) {
-        const colour = HEAT_COLOURS[heatBand(entry.authorTime, now)] ?? 'charts.blue';
+        // Keyed by the bands themselves, so there is no band this can fail to find and none to guess at.
+        const colour = HEAT_COLOURS[heatBand(entry.authorTime, now)];
 
         bars.push({ range, renderOptions: { before: { backgroundColor: new vscode.ThemeColor(colour) } } });
       }
