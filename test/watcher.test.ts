@@ -16,7 +16,7 @@ import { Git } from '../src/git/exec.ts';
 import { discover } from '../src/git/discovery.ts';
 import type { RepoInfo } from '../src/git/discovery.ts';
 import { Operation } from '../src/git/repoState.ts';
-import { repoFingerprint } from '../src/git/watcher.ts';
+import { isNoise, repoFingerprint } from '../src/git/watcher.ts';
 
 const git = new Git({});
 const made: string[] = [];
@@ -99,4 +99,24 @@ test('a file written into the worktree changes nothing', async () => {
   writeFileSync(join(dir, 'untracked.txt'), 'not a commit\n');
 
   assert.deepEqual(await repoFingerprint(git, repo), before);
+});
+
+test('the churn a watcher sleeps through, and the churn it must not', () => {
+  // Written by every `git status`, including the built-in git extension's, on every file saved.
+  assert.equal(isNoise('index'), true);
+
+  // A ref actually called `index` arrives from the deep watch as the same word, and is a ref moving.
+  assert.equal(isNoise('index', true), false);
+  assert.equal(isNoise('heads/index', true), false);
+
+  assert.equal(isNoise('heads/main.lock'), true, 'a lock is a write in progress, not a write');
+  assert.equal(isNoise('objects/ab/cdef0123'), true, 'objects arrive before the ref that points at them');
+  assert.equal(isNoise('COMMIT_EDITMSG'), true);
+  assert.equal(isNoise('FETCH_HEAD'), true, "Weft's own fetches must not wake it");
+
+  assert.equal(isNoise('HEAD'), false, 'the one that says a checkout happened');
+  assert.equal(isNoise('packed-refs'), false);
+  assert.equal(isNoise('heads/main', true), false);
+  assert.equal(isNoise('remotes/origin/main', true), false);
+  assert.equal(isNoise('ORIG_HEAD'), false);
 });

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Saving a file no longer wakes the ref watcher.** Every `git status` rewrites `.git/index`,
+  including the ones the built-in git extension runs on every save, and that counted as a change
+  worth looking at: a `for-each-ref` and a `rev-parse` to work out that nothing had moved, every
+  time. Nothing a ref watcher cares about lives in the index, so it is ignored now - except when the
+  name comes from `refs/`, where a branch somebody called `index` is a real one.
+
 - **The rebase editor takes one change at a time, and will not close on a save that failed.** Holding
   Alt and an arrow sent changes faster than the file could be written, and each was worked out from
   the file as it stood before the one before it landed - so the second wrote over the first, and

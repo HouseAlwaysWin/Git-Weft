@@ -25,8 +25,14 @@ import type { RepoInfo } from './discovery.ts';
 import { readOperation } from './repoState.ts';
 import type { Operation } from './repoState.ts';
 
-/** Churn that says nothing about what the user would see. */
-export function isNoise(path: string): boolean {
+/**
+ * Churn that says nothing about what the user would see.
+ *
+ * `inRefs` says which of the two watches the name came from, because they cannot be told apart by the
+ * name alone: the git directory is watched shallow, so its index arrives as `index`, and `refs` is
+ * watched deep, where a ref actually called `index` arrives as exactly the same word.
+ */
+export function isNoise(path: string, inRefs = false): boolean {
   const p = path.replace(/\\/g, '/');
 
   return (
@@ -34,7 +40,14 @@ export function isNoise(path: string): boolean {
     p.includes('objects/') ||
     p.endsWith('COMMIT_EDITMSG') ||
     // Our own reads should never wake us up.
-    p.endsWith('FETCH_HEAD')
+    p.endsWith('FETCH_HEAD') ||
+    /*
+     * The index, which is rewritten by every `git status` - including the ones Weft does not run. The
+     * built-in git extension's status refreshes the stat cache on every file saved, and this woke the
+     * watcher each time: a ref fingerprint (a `for-each-ref` and a `rev-parse`) to find that nothing
+     * had moved, and a working-tree read behind it. Nothing a ref watcher cares about lives in there.
+     */
+    (!inRefs && p === 'index')
   );
 }
 
@@ -52,9 +65,9 @@ export class RepoWatcher {
     // The two dirs are the same for an ordinary clone; a Set keeps that from watching it twice.
     for (const dir of new Set([repo.commonDir, repo.gitDir])) {
       // The dir itself, shallow: HEAD, ORIG_HEAD, packed-refs.
-      this.add(dir, false);
+      this.add(dir, false, false);
       // refs/, deep: loose refs live several levels down (refs/remotes/origin/feature/x).
-      this.add(`${dir}/refs`, true);
+      this.add(`${dir}/refs`, true, true);
     }
   }
 
@@ -62,10 +75,10 @@ export class RepoWatcher {
     return this.watchers.length;
   }
 
-  private add(path: string, recursive: boolean): void {
+  private add(path: string, recursive: boolean, inRefs: boolean): void {
     try {
       const watcher = watch(path, { recursive, persistent: false }, (_event, filename) => {
-        if (filename === null || !isNoise(String(filename))) {
+        if (filename === null || !isNoise(String(filename), inRefs)) {
           this.schedule();
         }
       });
