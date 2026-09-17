@@ -4,9 +4,9 @@
 
 - **Rebase interactively, from the graph.** Right-click a commit or a branch for **Rebase the current
   branch onto … , interactively…**: it says how many commits will be rewritten, as the plain rebase
-  does, and then opens the list. It sets git's sequence editor for that one command rather than
-  changing the setting, so nothing about your git config is touched - and `GIT_SEQUENCE_EDITOR`, if you
-  have chosen an editor, still wins.
+  does, and then opens the list. VS Code is named as git's editor for that one command rather than by
+  changing any setting, so nothing about your git config is touched, and `git rebase -i` in a terminal
+  goes on using whatever editor you chose for it.
 
 - **`git rebase -i` opens a list of commits instead of a text file.** Each commit is a row: what to do
   with it in a menu that says what each word means, the subject and the author git left out of the

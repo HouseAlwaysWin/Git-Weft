@@ -212,18 +212,31 @@ const mergeSquash: Action = {
   },
 };
 
-/**
- * The command that starts an interactive rebase with VS Code as the editor git waits for.
- *
- * `-c` rather than a setting of somebody's own: it lasts exactly as long as this one rebase, so nobody's
- * `sequence.editor` is rewritten to make a menu item work. `GIT_SEQUENCE_EDITOR` in the environment beats
- * it, which is how anybody who has already chosen an editor keeps the one they chose.
- *
- * `code` is VS Code's own command line, which its installer puts on the PATH. Where it is not, git says
- * so and the rebase stops before it has done anything.
- */
+/** The command that starts an interactive rebase. What makes it interactive is the environment below. */
 export function interactiveRebaseArgs(revision: string): string[] {
-  return ['-c', 'sequence.editor=code --wait', 'rebase', '-i', revision];
+  return ['rebase', '-i', revision];
+}
+
+/**
+ * The editors git is given for it.
+ *
+ * In the environment rather than through `-c sequence.editor`, because the environment is what was in
+ * the way: every write runs with `GIT_SEQUENCE_EDITOR=true` and `GIT_EDITOR=true` so that nothing a
+ * write does can stop and wait for somebody (`gitEnv` in `git/exec.ts`), and git reads both of those
+ * before it reads any config. A `-c sequence.editor` therefore never reached git at all - the rebase
+ * ran with every commit picked while the confirmation promised a list.
+ *
+ * Both of them, not one: `GIT_SEQUENCE_EDITOR` draws the list, and `GIT_EDITOR` is what a `reword` stops
+ * at. Left at `true` that one keeps the old message without saying so, which is the same failure one
+ * step further in.
+ *
+ * `code` is VS Code's own command line, which its installer puts on the PATH; where it is not, git says
+ * so and the rebase stops before it has done anything. This deliberately overrides an editor of
+ * somebody's own for this one command, because the menu item exists to open Weft's list - `git rebase
+ * -i` in a terminal is untouched by any of it.
+ */
+export function interactiveRebaseEnv(): NodeJS.ProcessEnv {
+  return { GIT_SEQUENCE_EDITOR: 'code --wait', GIT_EDITOR: 'code --wait' };
 }
 
 const rebase: Action = {
@@ -318,7 +331,9 @@ const rebaseInteractive: Action = {
      * until its editor closes. Writes take no timeout, so a list somebody thinks about for an hour is
      * a rebase that still runs afterwards.
      */
-    await ui.progress(`Rebasing ${branch}`, () => git.runWrite(repo.root, interactiveRebaseArgs(revisionOf(target))));
+    await ui.progress(`Rebasing ${branch}`, () =>
+      git.runWrite(repo.root, interactiveRebaseArgs(revisionOf(target)), { env: interactiveRebaseEnv() }),
+    );
 
     return { message: `Rebased ${branch} onto ${shortLabel(target)}`, ran: true };
   },

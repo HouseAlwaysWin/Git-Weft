@@ -14,9 +14,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
-import { interactiveRebaseArgs } from '../src/actions/merge.ts';
+import { interactiveRebaseArgs, interactiveRebaseEnv } from '../src/actions/merge.ts';
 import { createServer } from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 
@@ -49,6 +49,53 @@ const made: string[] = [];
 
 function sh(dir: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+}
+
+/**
+ * A stand-in for VS Code's own command line, to be put first on the PATH.
+ *
+ * git runs its editors through `sh` - on Windows too - so a shell script named `code` is what both
+ * `GIT_SEQUENCE_EDITOR` and `GIT_EDITOR` will find. It writes down every file it was handed and edits
+ * it: the list loses everything after `keep`'s first line, or has its first line reworded, and a commit
+ * message becomes one sentence. Being called at all is half of what is being tested - an editor that is
+ * never run is exactly the failure this is here for.
+ */
+function fakeEditor(edit: 'keep one' | 'reword the first'): { dir: string; called: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'weft-editor-')).split('\\').join('/');
+  made.push(dir);
+
+  const called = `${dir}/called.txt`;
+  const todo =
+    edit === 'keep one' ? 'head -n 1 "$2" > "$2.next"' : `sed '1s/^pick/reword/' "$2" > "$2.next"`;
+
+  writeFileSync(
+    `${dir}/code`,
+    [
+      '#!/bin/sh',
+      `printf '%s\\n' "$2" >> '${called}'`,
+      'case "$2" in',
+      `  *git-rebase-todo) ${todo} && mv "$2.next" "$2" ;;`,
+      `  *) printf 'reworded by the editor\\n' > "$2" ;;`,
+      'esac',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+
+  return { dir, called };
+}
+
+/** Run something with the fake editor first on the PATH, and put the PATH back afterwards. */
+async function withEditor(editor: { dir: string }, run: () => Promise<unknown>): Promise<void> {
+  const path = process.env.PATH ?? '';
+
+  process.env.PATH = `${editor.dir}${delimiter}${path}`;
+
+  try {
+    await run();
+  } finally {
+    process.env.PATH = path;
+  }
 }
 
 /** A repository with `main`, a `feature` branch one commit ahead, and a clean tree. */
@@ -2620,34 +2667,43 @@ test('open on the web: a GitLab only Git Credential Manager names, a commit the 
   assert.equal(entry?.disabledReason, 'No remote to open it on');
 });
 
-test('an interactive rebase asks VS Code to draw the list, and rebases once it is accepted', async () => {
-  // What git needs to open the list here and wait for it, without changing anybody's own setting.
-  assert.deepEqual(interactiveRebaseArgs('abc1234'), ['-c', 'sequence.editor=code --wait', 'rebase', '-i', 'abc1234']);
+test('an interactive rebase opens the list, waits for it, and replays what the list says', async () => {
+  assert.deepEqual(interactiveRebaseArgs('abc1234'), ['rebase', '-i', 'abc1234']);
+  assert.deepEqual(interactiveRebaseEnv(), { GIT_SEQUENCE_EDITOR: 'code --wait', GIT_EDITOR: 'code --wait' });
 
-  const dir = makeConflictingRepo();
+  const dir = makeRepo();
 
-  sh(dir, 'checkout', '-q', 'main');
-  writeFileSync(join(dir, 'c.txt'), 'main moves on\n');
+  // Two commits on feature, so a list that keeps one line is a rebase that replays one of them.
+  sh(dir, 'checkout', '-q', 'feature');
+  writeFileSync(join(dir, 'd.txt'), 'three\n');
   sh(dir, 'add', '-A');
-  sh(dir, 'commit', '-q', '-m', 'on main');
+  sh(dir, 'commit', '-q', '-m', 'third');
+
+  const editor = fakeEditor('keep one');
+  const ui = fakeUi();
+
+  await withEditor(editor, () => run(dir, 'weft.rebaseInteractive', branch('main'), ui));
+
+  assert.match(ui.confirmations[0] ?? '', /2 commits on feature will be rewritten/);
+  assert.match(readFileSync(editor.called, 'utf8'), /git-rebase-todo/, 'the list was handed to an editor');
+  assert.deepEqual(
+    sh(dir, 'log', '--format=%s', 'main..HEAD').trim().split('\n'),
+    ['second'],
+    'and only the line the editor left behind was replayed',
+  );
+  assert.equal(sh(dir, 'status', '--porcelain').trim(), '', 'the rebase finished rather than stopping');
+});
+
+test('a reword in the list stops at the message editor, which is the other one git is given', async () => {
+  const dir = makeRepo();
+
   sh(dir, 'checkout', '-q', 'feature');
 
-  /*
-   * git reads GIT_SEQUENCE_EDITOR before `-c sequence.editor`, so this stands in for a person closing
-   * the list unchanged - and proves the arrangement: whatever accepts the list is what lets git run.
-   */
-  process.env.GIT_SEQUENCE_EDITOR = 'true';
+  const editor = fakeEditor('reword the first');
 
-  try {
-    const ui = fakeUi();
+  await withEditor(editor, () => run(dir, 'weft.rebaseInteractive', branch('main')));
 
-    await run(dir, 'weft.rebaseInteractive', branch('main'), ui);
-
-    assert.match(ui.confirmations[0] ?? '', /1 commit on feature will be rewritten/);
-    assert.match(ui.confirmations[0] ?? '', /closing it starts the rebase/);
-    assert.equal(sh(dir, 'rev-list', '--count', 'HEAD').trim(), '3', 'feature sits on top of main');
-    assert.equal(sh(dir, 'status', '--porcelain').trim(), '', 'and the rebase finished rather than stopping');
-  } finally {
-    delete process.env.GIT_SEQUENCE_EDITOR;
-  }
+  // Both editors ran: the list, and then the message the reword stopped at.
+  assert.equal(readFileSync(editor.called, 'utf8').trim().split('\n').length, 2);
+  assert.equal(sh(dir, 'log', '-1', '--format=%s', 'feature').trim(), 'reworded by the editor');
 });

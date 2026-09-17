@@ -39,6 +39,14 @@ export interface GitRunOptions {
   /** Fed to git on stdin, for the commands that read a list of paths. */
   readonly stdin?: string;
   /**
+   * Environment for this one command, on top of what the mode already sets.
+   *
+   * The write environment names `true` as every editor, so that nothing a write does can stop and wait
+   * for somebody - which is right for every write but one. An interactive rebase's whole purpose is to
+   * stop and wait, and it hands its own editors in here.
+   */
+  readonly env?: NodeJS.ProcessEnv;
+  /**
    * Kill the process after this long with **no output at all**. Zero disables it.
    *
    * Deliberately an idle timeout and not a total one. A first fetch of a large repository can
@@ -280,7 +288,7 @@ export class Git {
     args: readonly string[],
     options: GitRunOptions = {},
   ): Promise<string> {
-    const result = await this.execute(cwd, args, options, 'write');
+    const result = await this.execute(cwd, args, options, 'write', options.env);
     return this.throwOnFailure(result, args);
   }
 
