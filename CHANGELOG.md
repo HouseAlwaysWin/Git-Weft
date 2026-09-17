@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **The rebase editor takes one change at a time, and will not close on a save that failed.** Holding
+  Alt and an arrow sent changes faster than the file could be written, and each was worked out from
+  the file as it stood before the one before it landed - so the second wrote over the first, and
+  since a row's place is where the page last drew it, what came of that was the wrong commit moved or
+  dropped rather than an error. A write the editor refuses now says so and puts the list back to what
+  the file actually holds, instead of looking like a click that did nothing. And **Start Rebase** on a
+  file that could not be saved keeps the editor open and says why: closing it would hand git the list
+  as it was before any of your changes, and call that success.
+
 - **Ticking a branch reloads the graph it belongs to, and no others.** Every filter change reloaded
   every open graph. On a second repository that meant a walk of a whole history nobody had asked
   about - and worse: the sidebar answers with the refs of the repository it is showing and with

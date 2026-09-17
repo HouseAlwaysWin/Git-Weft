@@ -28,6 +28,17 @@ export class RebaseEditor implements vscode.CustomTextEditorProvider {
   private readonly git: Git;
   private readonly extensionUri: vscode.Uri;
 
+  /**
+   * The messages of one editor, worked through one at a time.
+   *
+   * Each is worked out from the file as it stands - `parseTodo(document.getText())` - and then writes
+   * it back. Two arriving together, which is a held-down Alt and an arrow, would both read the text
+   * from before either landed, and the second would write over the first. `at` is a place among the
+   * commits as the page last drew them, and both `withAction` and `moveCommit` clamp rather than
+   * throw, so what comes of that is not an error: it is the wrong commit squashed or dropped.
+   */
+  private work: Promise<void> = Promise.resolve();
+
   constructor(git: Git, extensionUri: vscode.Uri) {
     this.git = git;
     this.extensionUri = extensionUri;
@@ -51,7 +62,9 @@ export class RebaseEditor implements vscode.CustomTextEditorProvider {
     });
 
     panel.onDidDispose(() => changed.dispose());
-    panel.webview.onDidReceiveMessage((message: RebaseWebviewMessage) => void this.onMessage(message, document, panel));
+    panel.webview.onDidReceiveMessage((message: RebaseWebviewMessage) => {
+      this.work = this.work.catch(() => undefined).then(() => this.onMessage(message, document, panel));
+    });
   }
 
   private async onMessage(
@@ -67,28 +80,61 @@ export class RebaseEditor implements vscode.CustomTextEditorProvider {
         break;
 
       case 'action':
-        await this.write(document, withAction(lines, message.at, message.action));
+        await this.change(document, panel, withAction(lines, message.at, message.action));
         break;
 
       case 'move':
-        await this.write(document, moveCommit(lines, message.at, message.by));
+        await this.change(document, panel, moveCommit(lines, message.at, message.by));
         break;
 
       /*
        * Saving and closing is what starts it: git has been waiting for the editor to exit since it
        * wrote the file, and an empty file is how it is told to stop instead.
+       *
+       * Which is why a save that did not happen must not close anything. Everything the list says is
+       * in the document until then, so closing on a failed save hands git the file as it was - a
+       * different rebase from the one on screen, announced as the one on screen.
        */
       case 'start':
-        await document.save();
-        panel.dispose();
+        if (await document.save()) {
+          panel.dispose();
+        } else {
+          this.say(panel, 'The rebase file could not be saved. Closing this now would run the list as it was before your changes.');
+        }
+
         break;
 
       case 'abort':
-        await this.write(document, []);
-        await document.save();
-        panel.dispose();
+        if ((await this.write(document, [])) && (await document.save())) {
+          panel.dispose();
+        } else {
+          this.say(panel, 'The rebase file could not be emptied, so the rebase has not been stopped. Closing this now would run the list.');
+        }
+
         break;
     }
+  }
+
+  /**
+   * Write the list, and say so if the write was refused.
+   *
+   * A refused edit posts no document change, so nothing redraws and the click looks like it did
+   * nothing at all. Drawing from the file as it actually is puts the page back to the truth.
+   */
+  private async change(
+    document: vscode.TextDocument,
+    panel: vscode.WebviewPanel,
+    lines: readonly TodoLine[],
+  ): Promise<void> {
+    if (!(await this.write(document, lines))) {
+      this.say(panel, 'That change could not be written to the rebase file, so nothing has changed.');
+      await this.send(document, panel);
+    }
+  }
+
+  /** Tell the page something went wrong, where it can put it in front of the person about to rebase. */
+  private say(panel: vscode.WebviewPanel, message: string): void {
+    void panel.webview.postMessage({ type: 'failed', message } satisfies RebaseHostMessage);
   }
 
   /** The todo as it stands, with what the repository knows about each commit in it. */
@@ -148,12 +194,12 @@ export class RebaseEditor implements vscode.CustomTextEditorProvider {
     return known;
   }
 
-  private async write(document: vscode.TextDocument, lines: readonly TodoLine[]): Promise<void> {
+  private async write(document: vscode.TextDocument, lines: readonly TodoLine[]): Promise<boolean> {
     const edit = new vscode.WorkspaceEdit();
     const whole = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
 
     edit.replace(document.uri, whole, renderTodo(lines));
-    await vscode.workspace.applyEdit(edit);
+    return vscode.workspace.applyEdit(edit);
   }
 }
 

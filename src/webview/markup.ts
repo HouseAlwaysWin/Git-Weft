@@ -208,6 +208,7 @@ export const REBASE_MARKUP = `<header id="rebase-header">
 </header>
 <ol id="rebase-rows"></ol>
 <footer id="rebase-footer">
+  <p id="rebase-problem" hidden></p>
   <p id="rebase-summary"></p>
   <p id="rebase-help">Alt and the arrow keys move a commit. Closing this editor starts the rebase.</p>
   <div id="rebase-buttons">

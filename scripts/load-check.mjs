@@ -296,6 +296,15 @@ const customEditors = [];
 /** Documents a custom editor is allowed to write into, by path: the stand-in for a file on disk. */
 const editableDocuments = new Map();
 
+/**
+ * Whether `applyEdit` should refuse, which only the rebase editor's section turns on. A workspace that
+ * says no to an edit is a real answer - a read-only file, a document closed under it - and what the
+ * editor does about it is the thing being checked.
+ */
+let refusingEdits = () => false;
+
+const setRefusingEdits = (fn) => void (refusingEdits = fn);
+
 const editorDocument = {
   uri: uri(repoPath.replace(/\\/g, '/') + '/f1.txt'),
   version: 1,
@@ -595,6 +604,18 @@ const vscodeStub = {
      * that writes a file and never hears about it draws the list it had before the change.
      */
     applyEdit: async (edit) => {
+      /*
+       * Never synchronous, because the real one never is: it crosses to the extension host and back.
+       * Applying the moment it is asked would hide every race an editor has to survive - two messages
+       * arriving together would each find the other's work already done, and the harness would say
+       * an editor was safe that is only safe here.
+       */
+      await new Promise((r) => setTimeout(r, 5));
+
+      if (refusingEdits()) {
+        return false;
+      }
+
       for (const change of edit?.changes ?? []) {
         const document = editableDocuments.get(String(change.uri?.fsPath ?? change.uri));
 
@@ -5240,13 +5261,19 @@ if (!(await until(blamedAgain))) {
     getText: () => text,
     setText: (next) => void (text = next),
     positionAt: (offset) => ({ offset }),
-    save: async () => void (saves += 1),
+    save: async () => {
+      saves += 1;
+      return !refuseSave;
+    },
   };
 
   editableDocuments.set(todoPath, document);
+  setRefusingEdits(() => refuseEdits);
 
   const sent = [];
   let handler = null;
+  let refuseEdits = false;
+  let refuseSave = false;
   const panel = {
     webview: {
       options: {},
@@ -5325,9 +5352,70 @@ if (!(await until(blamedAgain))) {
       problems.push('a move took the lines git wrote that are not commits with it');
     }
 
-    // Abort is an empty file, saved and closed: that is how git is told to stop.
-    handler({ type: 'abort' });
+    /*
+     * Two messages together, which is a held-down Alt and an arrow. Each has to be worked out from the
+     * file as it stands after the one before it landed: both reading the text from before either did
+     * would leave the second overwriting the first, and since `at` is a place among the commits as the
+     * page last drew them, what comes of that is the wrong commit moved rather than an error.
+     */
+    const beforeBoth = sent.length;
+
+    handler({ type: 'move', at: 0, by: 1 });
+    handler({ type: 'action', at: 0, action: 'drop' });
+    await until(() => sent.length > beforeBoth + 1);
+
+    const bothLines = text.split('\n');
+
+    console.log('two at once    :', JSON.stringify(bothLines.slice(0, 2)));
+
+    if (!bothLines[0]?.startsWith('drop ') || !bothLines[1]?.startsWith('fixup ')) {
+      problems.push(`two changes at once left ${JSON.stringify(bothLines.slice(0, 2))}`);
+    }
+
+    // A write the workspace refuses: said out loud, and the list put back to what the file really says.
+    refuseEdits = true;
+    const beforeRefused = sent.length;
+
+    handler({ type: 'action', at: 0, action: 'reword' });
+    await until(() => sent.length > beforeRefused);
+    refuseEdits = false;
+
+    const refused = sent.slice(beforeRefused);
+
+    console.log('refused write  :', JSON.stringify(refused.map((message) => message.type)));
+
+    if (!refused.some((message) => message.type === 'failed') || text.split('\n')[0]?.startsWith('reword ')) {
+      problems.push(`a refused write left ${JSON.stringify(refused.map((m) => m.type))} and ${JSON.stringify(text.split('\n')[0])}`);
+    }
+
+    // Start, which is the whole point of the editor, and a save that fails while it is pressed.
+    refuseSave = true;
+    const beforeSave = sent.length;
+
+    handler({ type: 'start' });
+    await until(() => sent.length > beforeSave);
+    refuseSave = false;
+
+    console.log('save refused   :', closed === 0 ? 'still open' : 'CLOSED ANYWAY');
+
+    if (closed !== 0 || !sent.slice(beforeSave).some((message) => message.type === 'failed')) {
+      problems.push(`a save that failed closed the editor ${closed} time(s) and said ${JSON.stringify(sent.at(-1))}`);
+    }
+
+    handler({ type: 'start' });
     await until(() => closed > 0);
+
+    console.log('start          :', saves, 'save(s),', closed, 'close(s)');
+
+    if (closed === 0) {
+      problems.push('Start Rebase did not close the editor, which is what lets git run');
+    }
+
+    // Abort is an empty file, saved and closed: that is how git is told to stop.
+    const closedBefore = closed;
+
+    handler({ type: 'abort' });
+    await until(() => closed > closedBefore);
 
     console.log('after abort    :', JSON.stringify(text), '| saved', saves, '| closed', closed);
 

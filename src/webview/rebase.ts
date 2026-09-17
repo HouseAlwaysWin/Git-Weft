@@ -45,6 +45,7 @@ function element<T extends Element = HTMLElement>(id: string): T {
 const ontoEl = element('rebase-onto');
 const rowsEl = element('rebase-rows');
 const summaryEl = element('rebase-summary');
+const problemEl = element('rebase-problem');
 const startEl = element<HTMLButtonElement>('rebase-start');
 const abortEl = element<HTMLButtonElement>('rebase-abort');
 
@@ -60,9 +61,10 @@ function remember(at: number, what: string): void {
   focused = { at, what };
 }
 
-function draw(message: RebaseHostMessage): void {
+function draw(message: Extract<RebaseHostMessage, { type: 'todo' }>): void {
   ontoEl.textContent = message.onto;
   summaryEl.textContent = message.summary;
+  problemEl.hidden = true;
 
   rowsEl.replaceChildren(
     ...message.rows.map((row, at) => {
@@ -138,7 +140,12 @@ function move(at: number, by: number, glyph: string, label: string): HTMLButtonE
 window.addEventListener('message', (event: MessageEvent<RebaseHostMessage>) => {
   if (event.data.type === 'todo') {
     draw(event.data);
+    return;
   }
+
+  // Beside the buttons rather than in a notification: whoever is about to press Start is looking here.
+  problemEl.textContent = event.data.message;
+  problemEl.hidden = false;
 });
 
 /*

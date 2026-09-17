@@ -315,14 +315,20 @@ export interface RebaseRow {
 }
 
 /** What the host tells the rebase editor. */
-export type RebaseHostMessage = {
-  readonly type: 'todo';
-  readonly rows: readonly RebaseRow[];
-  /** What the list comes to: "2 commits, 1 squashed into the one before". */
-  readonly summary: string;
-  /** The line git wrote at the top of the file's comments, which says what this is rebasing onto. */
-  readonly onto: string;
-};
+export type RebaseHostMessage =
+  | {
+      readonly type: 'todo';
+      readonly rows: readonly RebaseRow[];
+      /** What the list comes to: "2 commits, 1 squashed into the one before". */
+      readonly summary: string;
+      /** The line git wrote at the top of the file's comments, which says what this is rebasing onto. */
+      readonly onto: string;
+    }
+  /**
+   * The file could not be written or saved. Said rather than swallowed: every one of these ends with
+   * git replaying a list that is not the one on screen.
+   */
+  | { readonly type: 'failed'; readonly message: string };
 
 /** What the rebase editor asks of its host. Every one of them ends in the file being written. */
 export type RebaseWebviewMessage =

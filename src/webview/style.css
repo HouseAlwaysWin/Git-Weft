@@ -1910,6 +1910,16 @@ body.weft-rebase #rebase-footer {
   padding: 10px 0;
 }
 
+body.weft-rebase #rebase-problem {
+  margin: 0 0 6px;
+  color: var(--vscode-errorForeground, var(--vscode-foreground));
+}
+
+/* A display of its own beats the hidden attribute's, so hidden has to be said again. */
+body.weft-rebase #rebase-problem[hidden] {
+  display: none;
+}
+
 body.weft-rebase #rebase-summary {
   margin: 0 0 2px;
   font-weight: 600;
