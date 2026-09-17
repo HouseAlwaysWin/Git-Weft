@@ -346,7 +346,16 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
           ];
         });
     } catch {
-      this.refs = [];
+      /*
+       * A read that failed is not an answer, and an empty list would be read as one.
+       *
+       * With no refs there is no HEAD; no HEAD reads as HEAD having moved; HEAD having moved is a
+       * checkout, and a checkout puts the ticks back to the default. So one `for-each-ref` losing a
+       * race with a lock - or a repository read mid-checkout - threw away a hand-picked set, widened
+       * the graph to everything, and wrote that away on the next read that worked, with nothing on
+       * screen to say why. What is held is still the best answer there is; the next read decides.
+       */
+      return;
     }
 
     /*

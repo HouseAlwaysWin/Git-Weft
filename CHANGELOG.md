@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A momentary failure to read the refs no longer empties Branches & Tags or throws away what you
+  had ticked.** git's ref read can fail for a moment - a lock held by something else, a repository
+  read in the middle of a checkout - and the list was emptied when it did. An empty list reads as
+  every ref having gone, which reads as a checkout, which puts the ticks back to the default: so a
+  blink of bad luck discarded a hand-picked set, widened the graph to everything, and wrote that away
+  on the next read that worked, without saying anything. A read that fails now changes nothing and
+  the next one decides.
+
 - **Rebase interactively, from the graph.** Right-click a commit or a branch for **Rebase the current
   branch onto … , interactively…**: it says how many commits will be rewritten, as the plain rebase
   does, and then opens the list. VS Code is named as git's editor for that one command rather than by

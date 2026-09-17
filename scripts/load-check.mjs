@@ -5690,6 +5690,82 @@ if (!(await until(blamedAgain))) {
   }
 }
 
+/*
+ * A ref read that fails, which is a thing git does: a lock held by another process, a repository read
+ * in the middle of a checkout, a permissions blip.
+ *
+ * It must change nothing. Emptying the list on a failure is read as every ref having gone, which is
+ * read as a checkout, which puts the ticks back to the default - so a momentary failure used to throw
+ * away a hand-picked set and widen the graph to everything.
+ */
+{
+  const provider = treeProviders.get('weft.refs');
+  const listed = () => provider.getChildren().flatMap((group) => provider.getChildren(group)).length;
+  // Its own spelling of the root: the provider normalises separators and this path may not have.
+  const ticked = () => JSON.stringify(provider.visibleRefs(provider.repoRoot ?? ''));
+
+  /*
+   * A hand-picked set to lose, and one the default would never produce: everything except one ref.
+   *
+   * Ticked everywhere is answered with null - nothing is being narrowed, so there is no set to lose -
+   * and 'only the branch you are on' is the default itself, so a reset to it would look exactly like
+   * nothing having happened.
+   */
+  const refsHandler = checkboxHandlers.get('weft.refs');
+  const everyRef = () => provider.getChildren().flatMap((group) => provider.getChildren(group));
+  const allFrom = posted.filter((m) => m.type === 'done').length;
+
+  await commands.get('weft.showAllRefs')();
+  await settle(allFrom, SETTLING);
+
+  // The branch HEAD is on, so that what is left is a set the default would never hand back.
+  const victim = everyRef().find((ref) => ref.isHead);
+  const untickFrom = posted.filter((m) => m.type === 'done').length;
+
+  refsHandler({ items: [[victim, 0]] });
+  await settle(untickFrom, SETTLING);
+
+  const refsBefore = listed();
+  const ticksBefore = ticked();
+
+  // git itself made to fail, which is what a lock does to this read, and undone immediately after.
+  process.env.GIT_DIR = `${repoPath}/not-a-git-dir`;
+  await provider.reload();
+  delete process.env.GIT_DIR;
+
+  console.log('\nfailed ref read:', listed(), 'ref(s) still listed | ticks', ticked());
+
+  if (refsBefore === 0 || ticksBefore === 'null') {
+    problems.push(`nothing was held before the failed read - ${refsBefore} refs, ticks ${ticksBefore} - so this proves nothing`);
+  }
+
+  /*
+   * And it has to be a set the default would not produce. The default is the branch HEAD is on and
+   * nothing else, so holding exactly that would make a reset to the default look like nothing having
+   * happened - which is how the first draft of this check passed while the bug was still there.
+   */
+  const byDefault = JSON.stringify(everyRef().filter((ref) => ref.isHead).map((ref) => ref.refName));
+
+  if (ticksBefore === byDefault) {
+    problems.push(`the set held was ${byDefault}, which is the default one - a reset to it would look like nothing`);
+  }
+
+  if (listed() !== refsBefore) {
+    problems.push(`a failed ref read left ${listed()} refs listed, not the ${refsBefore} it was holding`);
+  }
+
+  if (ticked() !== ticksBefore) {
+    problems.push(`a failed ref read changed the ticks from ${ticksBefore} to ${ticked()}`);
+  }
+
+  // And a read that works is still the one that decides what is listed and what is ticked.
+  await provider.reload();
+
+  if (listed() !== refsBefore || ticked() !== ticksBefore) {
+    problems.push(`after the read worked again the sidebar held ${listed()} refs and ${ticked()}`);
+  }
+}
+
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');
 
 if (problems.length > 0) {
