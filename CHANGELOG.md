@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Clicking back into a graph no longer re-reads every ref.** Taking focus pointed the sidebar at
+  its repository again, and being pointed where it already was meant a `for-each-ref` over every ref
+  in the repository - with the committer date, which makes git peel each one to reach the commit
+  behind it. On a clone with fourteen hundred refs that was the price of clicking between an editor
+  and the graph. Refs move when something moves them, and the watcher is what notices.
+
 - **Saving a file no longer wakes the ref watcher.** Every `git status` rewrites `.git/index`,
   including the ones the built-in git extension runs on every save, and that counted as a change
   worth looking at: a `for-each-ref` and a `rev-parse` to work out that nothing had moved, every

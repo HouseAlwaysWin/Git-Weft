@@ -185,6 +185,20 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
   /** Point the view at a repository and reload its refs. */
   async setRepository(repo: RepoInfo | null): Promise<void> {
     if (repo?.root === this.repo?.root) {
+      /*
+       * Already pointed here, and what is held is what a read would say: refs move when something
+       * moves them, and the watcher is what notices that. This is called every time a graph takes
+       * focus, so re-reading cost a `for-each-ref` over every ref in the repository - and
+       * `%(committerdate:unix)` makes git peel each one to reach the commit behind it - to be told
+       * what it was told when the tab was last clicked.
+       *
+       * Holding nothing is the exception: nothing has been read yet, or a read failed and left the
+       * list as it was, and this is the next chance to ask.
+       */
+      if (repo !== null && this.refs.length > 0) {
+        return;
+      }
+
       await this.reload();
       return;
     }

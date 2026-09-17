@@ -5851,6 +5851,37 @@ if (!(await until(blamedAgain))) {
 }
 
 /*
+ * Pointing the sidebar at the repository it is already on.
+ *
+ * Every graph taking focus does this, and it used to re-read every ref in the repository each time -
+ * with the committer date, which makes git peel each ref to the commit behind it.
+ */
+{
+  const provider = treeProviders.get('weft.refs');
+  const root = provider.repoRoot;
+  const reads = () => outputLines.filter((line) => line.startsWith('debug') && line.includes('for-each-ref')).length;
+  const before = reads();
+
+  await provider.setRepository({ root });
+  await provider.setRepository({ root });
+
+  console.log('\nre-pointed     :', reads() - before, 'ref read(s) for being pointed where it already was');
+
+  if (reads() !== before) {
+    problems.push(`pointing the sidebar at the repository it is on read the refs ${reads() - before} time(s)`);
+  }
+
+  // And it still reads when something asks it to, which is what the watcher does when a ref moves.
+  const asked = reads();
+
+  await provider.reload();
+
+  if (reads() === asked) {
+    problems.push('the sidebar stopped reading refs even when asked');
+  }
+}
+
+/*
  * A tick in another repository is not this graph's business.
  *
  * Every filter change used to reload every open graph. Besides the cost - a walk of a whole history
