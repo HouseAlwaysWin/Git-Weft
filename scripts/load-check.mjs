@@ -118,6 +118,61 @@ const infoAnswers = [];
 const picks = [];
 const pickAnswers = [];
 
+/**
+ * Waits for something to become true, rather than for a length of time.
+ *
+ * Polls every 25 ms up to `ms` and answers whether it ever held, so a caller that has nothing else
+ * to assert can say so itself. The predicate has to be cheap - it runs forty times a second on the
+ * same thread the extension is working on, so reading `posted` or a tree is fine and spawning a git
+ * process is not.
+ */
+const until = async (test, ms = 20_000) => {
+  const by = Date.now() + ms;
+
+  while (Date.now() < by) {
+    if (test()) {
+      return true;
+    }
+
+    await new Promise((r) => setTimeout(r, 25));
+  }
+
+  return false;
+};
+
+/**
+ * How long a walk took, waited for rather than guessed at.
+ *
+ * `from` is how many `done` messages had arrived before whatever was asked for; this returns once
+ * there is another one, and hands back its total so the caller can compare counts.
+ *
+ * `ms` bounds the wait. The default is longer than any walk here takes, and is what to use when the
+ * walk is the thing being measured. `SETTLING` is for the calls that put the graph back to a known
+ * state between sections: Show All walks only if something was unticked, Show Only This Branch only
+ * if something else was ticked, and either can be handed a graph already in that state - so a wait
+ * for a walk that was never owed would have nothing to do but run out. It is the longest any of
+ * those used to sleep for unconditionally, so a restore is never given less time than it had.
+ */
+const SETTLING = 1_500;
+
+const settle = async (from, ms = 20_000) => {
+  await until(() => posted.filter((m) => m.type === 'done').length > from, ms);
+  return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
+};
+
+/**
+ * The one thing a predicate cannot wait for: that something does *not* happen.
+ *
+ * Every other wait in this file is a condition - a walk that landed, a message that arrived, a
+ * branch that left the sidebar - and finishes the moment it holds. A check that nothing reloaded,
+ * nothing re-walked, nothing repainted has no such moment: the only evidence is time passing with
+ * the counter still where it was. So these stay as a sleep, and each one says below why it is one.
+ *
+ * The default is twice the watcher's 600 ms debounce, which is the slowest path from a change to a
+ * reload; a wait shorter than that would pass by arriving before the thing it is ruling out.
+ */
+const quiet = (ms = 1200) => new Promise((r) => setTimeout(r, ms));
+
 /*
  * Settings, so that a default is not the only value any of them can have. Every `get` used to
  * return the fallback it was handed, which meant the branches behind a non-default - a hidden
@@ -674,7 +729,21 @@ const context = {
 };
 extension.activate(context);
 
-await new Promise((r) => setTimeout(r, 800));
+/*
+ * Until the extension has found the repository it was activated over, or has said it could not
+ * activate at all.
+ *
+ * Not until `Weft activated` is in the log: that line is written while the pass that discovers the
+ * repository is still running - `void updatePresence()` - so a run that waits for it finds no
+ * `weft.hasRepository`, a status bar still hidden and an empty refs tree, and blames the extension
+ * for all three. The end of that pass is the refs view having been pointed at something, which is
+ * the last thing it does.
+ */
+await until(
+  () =>
+    outputLines.some((line) => line.includes('Weft failed to activate')) ||
+    (contextKeys.has('weft.hasRepository') && (treeProviders.get('weft.refs')?.listRefs().length ?? 0) > 0),
+);
 
 /*
  * Activation is all or nothing: everything below is meaningless if `activate` threw on the way
@@ -1188,10 +1257,10 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     );
   }
 
+  const widenedFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showAllRefs')();
-  await new Promise((r) => setTimeout(r, 1500));
 
-  const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
+  const baseline = await settle(widenedFrom);
 
   console.log('opened with    :', done?.total, 'commits; every ref ->', baseline);
 
@@ -1284,18 +1353,22 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
         .flatMap((g) => refsProvider.getChildren(g))
         .filter((ref) => refsProvider.getTreeItem(ref).checkboxState === 1);
 
-    const settle = async (from) => {
-      const deadline = Date.now() + 20_000;
-      while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length <= from) {
-        await new Promise((r) => setTimeout(r, 25));
-      }
-      return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
-    };
-
+    /*
+     * A preset that asks for the state the graph is already in moves no tick and walks nothing -
+     * which is what "everything" does here, the section above having just put every ref back. So the
+     * ticks say whether there is a walk to wait for: where they moved, the count comes from the walk
+     * that follows; where they did not, it comes from the walk already drawn.
+     */
     const send = async (preset) => {
       const from = posted.filter((m) => m.type === 'done').length;
+      const ticked = tickedNow().length;
+
       await messageHandler({ type: 'refsPreset', preset });
-      return settle(from);
+      await until(() => tickedNow().length !== ticked, SETTLING);
+
+      return tickedNow().length === ticked
+        ? posted.filter((m) => m.type === 'done').pop()?.total ?? -1
+        : settle(from);
     };
 
     const all = await send('all');
@@ -1347,9 +1420,12 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   } else {
     const everyRef = () => refsProvider.getChildren().flatMap((g) => refsProvider.getChildren(g));
 
-    // From the default, which is the branch HEAD is on and nothing else.
+    // From the default, which is the branch HEAD is on and nothing else. Whatever walk that sets off
+    // has to have landed before the count below is taken, or the walk this section insists did not
+    // happen is that one - and it sets off none at all when the graph is already showing just that.
+    const narrowedFrom = posted.filter((m) => m.type === 'done').length;
     await commands.get('weft.showCurrentRefOnly')();
-    await new Promise((r) => setTimeout(r, 1200));
+    await settle(narrowedFrom, SETTLING);
 
     const before = everyRef().length;
     const walkBefore = posted.filter((m) => m.type === 'done').length;
@@ -1533,7 +1609,7 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   const before = posted.filter((m) => m.type === 'showHistory').length;
 
   await commands.get('weft.showFileHistory')(uri(`${repoPath}/f1.txt`));
-  await new Promise((r) => setTimeout(r, 2000));
+  await until(() => posted.filter((m) => m.type === 'showHistory').length > before);
 
   const asked = posted.filter((m) => m.type === 'showHistory');
   const path = asked[asked.length - 1]?.path;
@@ -1574,7 +1650,10 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   // Said no.
   confirmed = false;
   await messageHandler({ type: 'runAction', id: 'weft.checkoutBranch', target: side });
-  await new Promise((r) => setTimeout(r, 2000));
+  await until(() => confirmations.length > before);
+  // And then a moment with no second question, because "asked once" is half a statement about a
+  // question that was never asked twice, and only time can say that one.
+  await quiet();
 
   const asked = confirmations.slice(before);
 
@@ -1645,12 +1724,18 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   const backToMain = async () => {
     confirmed = true;
+    const said = statusMessages.length;
     await messageHandler({
       type: 'runAction',
       id: 'weft.checkoutBranch',
       target: { kind: 'ref', refName: 'refs/heads/main', label: 'main', refKind: 'local' },
     });
-    await new Promise((r) => setTimeout(r, 2500));
+
+    // The status line is said once the action has returned, which is after HEAD has moved - so a new
+    // one is the checkout being over, and it is the later of the two things to wait for.
+    if (!(await until(() => statusMessages.length > said))) {
+      problems.push('going back to main never finished: no status line was said for the checkout');
+    }
   };
 
   await backToMain();
@@ -1671,14 +1756,19 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     confirmed = false;
     const beforeNo = confirmations.length;
     await commands.get('weft.checkoutRef')(sideNode);
-    await new Promise((r) => setTimeout(r, 2500));
+    await until(() => confirmations.length > beforeNo);
+    // Then a moment of silence, which is the other half of both statements here: that the question
+    // was not asked twice, and that saying no did not check the branch out anyway.
+    await quiet();
     const askedNo = confirmations.length - beforeNo;
     const afterNo = head();
 
     confirmed = true;
     const beforeYes = confirmations.length;
+    const saidYes = statusMessages.length;
     await commands.get('weft.checkoutRef')(sideNode);
-    await new Promise((r) => setTimeout(r, 2500));
+    await until(() => confirmations.length > beforeYes && statusMessages.length > saidYes);
+    await quiet();
     const askedYes = confirmations.length - beforeYes;
 
     console.log('  sidebar      : asked', askedNo, 'then', askedYes, '| HEAD after no:', afterNo, 'after yes:', head());
@@ -1709,7 +1799,10 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     id: 'weft.checkoutCommit',
     target: { kind: 'commit', sha: detachAt, subject: detachSubject },
   });
-  await new Promise((r) => setTimeout(r, 2500));
+  await until(() => confirmations.length > beforeCommit);
+  // And a moment with nothing more, for the two things absence says here: asked once, and HEAD left
+  // where it was.
+  await quiet();
   const commitAsked = confirmations.slice(beforeCommit);
 
   console.log(
@@ -1750,7 +1843,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
   inputAnswers.length = 0;
   await messageHandler({ type: 'runAction', id: 'weft.createBranch', target: { kind: 'commit', sha: at, subject: 'main' } });
-  await new Promise((r) => setTimeout(r, 1500));
+  // Nothing to wait for by name: what is being asserted is that the walk which used to follow a
+  // dismissed name box does not, and a walk that never starts posts nothing to poll for.
+  await quiet();
 
   const walked = posted.slice(postedBefore).filter((m) => m.type === 'reset' || m.type === 'done').length;
   const said = statusMessages.slice(statusBefore);
@@ -1786,8 +1881,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     const tickedNow = () =>
       everyRef().filter((ref) => refsProvider.getTreeItem(ref).checkboxState === 1);
 
+    const shownFrom = posted.filter((m) => m.type === 'done').length;
     await commands.get('weft.showAllRefs')();
-    await new Promise((r) => setTimeout(r, 1200));
+    await settle(shownFrom, SETTLING);
 
     const chosen = tickedNow().length;
 
@@ -1831,7 +1927,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     }
 
     // Back to main, so nothing after this is reading a different branch's history - and waited for the
-    // same way, then given the time the walk after it used to have, before the next check reads the sidebar.
+    // same way, then for the walk the checkout sets off, before the next check reads the sidebar.
+    const backFrom = posted.filter((m) => m.type === 'done').length;
+
     await messageHandler({
       type: 'runAction',
       id: 'weft.checkoutBranch',
@@ -1839,7 +1937,7 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     });
 
     await ticksAre('refs/heads/main');
-    await new Promise((r) => setTimeout(r, 2500));
+    await settle(backFrom, SETTLING);
   }
 }
 
@@ -1904,8 +2002,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
         problems.push('a hand-picked set of refs was not reported as narrowing anything');
       }
 
+      const untickedFrom = posted.filter((m) => m.type === 'done').length;
       refsHandler({ items: [[victim, 0]] });
-      await new Promise((r) => setTimeout(r, 1200));
+      await settle(untickedFrom, SETTLING);
     }
   }
 }
@@ -1981,8 +2080,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
    * Its premise is "nothing unticked", and a graph opens on the branch HEAD is on - so that is a
    * state to reach first rather than one to assume.
    */
+  const everythingFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showAllRefs')();
-  await new Promise((r) => setTimeout(r, 1500));
+  await settle(everythingFrom, SETTLING);
 
   await typeIntoRefFilter('side');
 
@@ -1996,8 +2096,10 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     problems.push(`Show All left the text filter applied (${restored} of ${before} refs listed)`);
   }
 
-  // And it should not have re-walked the history: no tick changed, so the graph is unaffected.
-  await new Promise((r) => setTimeout(r, 400));
+  // And it should not have re-walked the history: no tick changed, so the graph is unaffected. A walk
+  // that never starts posts nothing, so the only evidence is a stretch of time with the count still
+  // where it was.
+  await quiet();
 
   if (posted.filter((m) => m.type === 'done').length !== reloadsBefore) {
     problems.push('clearing a text-only filter reloaded the graph for nothing');
@@ -2029,8 +2131,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       problems.push(`unticking ${victim.label} did not stick: the group's own tick put it back`);
     }
 
+    const restoreFrom = posted.filter((m) => m.type === 'done').length;
     await commands.get('weft.showAllRefs')();
-    await new Promise((r) => setTimeout(r, 500));
+    await settle(restoreFrom, SETTLING);
   }
 }
 
@@ -2088,9 +2191,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     problems.push(`applying the list filter left ${applied} of ${baseline} commits`);
   }
 
+  const wholeFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showAllRefs')();
-  await new Promise((r) => setTimeout(r, 500));
-
+  await settle(wholeFrom, SETTLING);
 }
 
 {
@@ -2111,12 +2214,11 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       problems.push('the authors view listed nobody');
     } else {
       /*
-       * Let the walk before this one land first. The block above ends by putting every ref back,
-       * and reading the baseline while that reload is still in flight gets the narrowed number -
-       * against which the author filter appears to have narrowed nothing.
+       * The walk before this one has landed: the block above puts every ref back and waits for the
+       * reload it sets off, rather than sleeping over it. Reading the baseline while that reload was
+       * still in flight got the narrowed number - against which the author filter appears to have
+       * narrowed nothing.
        */
-      await new Promise((r) => setTimeout(r, 1500));
-
       const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
       const from = posted.filter((m) => m.type === 'done').length;
 
@@ -2210,8 +2312,9 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   }
 
   // Back to everyone, so nothing after this is measuring a filtered history.
+  const everyoneFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showAllAuthors')();
-  await new Promise((r) => setTimeout(r, 1200));
+  await settle(everyoneFrom, SETTLING);
 
   if (provider.filterText !== '') {
     problems.push('Show All left the author list still narrowed');
@@ -2406,14 +2509,6 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
   /** The walk this block starts from, which is what the filters below are narrowing. */
   const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
 
-  const settle = async (from) => {
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length <= from) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
-  };
-
   // A ref unticked, an author ticked, a search, and a date range that ends before the repository.
   const group = refsProvider.getChildren()[0];
   refsHandler({ items: [[refsProvider.getChildren(group)[0], 0]] });
@@ -2515,7 +2610,12 @@ if (watchTest) {
   // And the opposite: churn that changes no ref must not cost a reload.
   const quietFrom = posted.filter((m) => m.type === 'done').length;
   writeFileSync(join(repoPath, 'untracked.txt'), 'not a commit\n');
-  await new Promise((r) => setTimeout(r, 2500));
+  /*
+   * The reload being ruled out would arrive one watcher debounce - 600 ms - plus a walk after the
+   * write, and a reload that never starts posts nothing to wait for. So this one stays a wait, long
+   * enough that a reload on its way would have got here first.
+   */
+  await quiet(1500);
 
   if (posted.filter((m) => m.type === 'done').length > quietFrom) {
     problems.push('writing an untracked file triggered a needless reload');
@@ -2523,20 +2623,14 @@ if (watchTest) {
     console.log('quiet churn    : ignored, as it should be');
   }
 
-  const settle = (ms = 2500) => new Promise((r) => setTimeout(r, ms));
-  const until = async (test, ms) => {
-    const by = Date.now() + ms;
-
-    while (Date.now() < by) {
-      if (test()) {
-        return true;
-      }
-
-      await new Promise((r) => setTimeout(r, 50));
-    }
-
-    return false;
+  const walks = () => posted.filter((m) => m.type === 'done').length;
+  const headsNodes = () => {
+    const provider = treeProviders.get('weft.refs');
+    return provider.getChildren(provider.getChildren().find((g) => g.id === 'heads'));
   };
+  /** Which branch the graph was last told HEAD is on - the watcher's news of a checkout, arrived. */
+  const namesBranch = () => posted.filter((m) => m.type === 'refs').pop()?.branch ?? null;
+  const listsHead = (label) => headsNodes().some((node) => node.label === label);
 
   /*
    * A checkout to a branch at the same commit, made in a terminal. HEAD was fingerprinted by its
@@ -2544,7 +2638,10 @@ if (watchTest) {
    * drawing the one you had left.
    */
   runGit(repoPath, 'branch', 'twin');
-  await settle();
+
+  if (!(await until(() => listsHead('twin')))) {
+    problems.push('a branch made in a terminal never reached Branches & Tags before the checkout');
+  }
 
   const twinFrom = posted.length;
   runGit(repoPath, 'checkout', '-q', 'twin');
@@ -2563,10 +2660,16 @@ if (watchTest) {
     problems.push('after checking out twin in a terminal the graph names ' + named);
   }
 
+  /*
+   * Back to main, which the graph says nothing about: measured here, this checkout posts no message
+   * of any kind for at least five seconds, where the one onto twin posted a walk within one. So
+   * there is nothing to wait for by name, and what the fixture below needs is only that the watcher
+   * is not still inside a debounce when it starts moving refs about.
+   */
   runGit(repoPath, 'checkout', '-q', 'main');
-  await settle();
+  await quiet();
   runGit(repoPath, 'branch', '-D', 'twin');
-  await settle();
+  await until(() => !listsHead('twin'));
 
   /*
    * A merge that stops on a conflict, started in a terminal. It moves no ref, so it walked nothing and
@@ -2582,7 +2685,14 @@ if (watchTest) {
   writeFileSync(join(repoPath, 'clash.txt'), 'ours\n');
   runGit(repoPath, 'add', 'clash.txt');
   runGit(repoPath, 'commit', '-q', '-m', 'ours');
-  await settle();
+
+  /*
+   * Until the graph has caught up with the branch this left HEAD on, and then a moment longer: what
+   * is asserted below is that the merge itself walked nothing, and a walk still in flight from
+   * setting the fixture up would be counted as the merge's.
+   */
+  await until(() => namesBranch() === 'clash-ours');
+  await quiet();
 
   const mergeFrom = posted.length;
 
@@ -2621,9 +2731,9 @@ if (watchTest) {
   }
 
   runGit(repoPath, 'checkout', '-q', 'main');
-  await settle();
+  await until(() => namesBranch() === 'main');
   runGit(repoPath, 'branch', '-D', 'clash-theirs', 'clash-ours');
-  await settle();
+  await until(() => !headsNodes().some((node) => node.label.startsWith('clash-')));
 
   /*
    * A branch the graph is not drawing costs no walk - unless it points at something the graph has
@@ -2633,20 +2743,25 @@ if (watchTest) {
    * branches a fetch moves dozens nobody has ticked. The walk decorates every row with every ref
    * pointing at it, though, so "not ticked" is not "not on screen", and both halves are checked here.
    */
+  const narrowFrom = walks();
   await commands.get('weft.showCurrentRefOnly')();
-  await settle();
-
-  const walks = () => posted.filter((m) => m.type === 'done').length;
-  const headsNodes = () => {
-    const provider = treeProviders.get('weft.refs');
-    return provider.getChildren(provider.getChildren().find((g) => g.id === 'heads'));
-  };
+  await settle(narrowFrom, SETTLING);
 
   // A commit hanging off main that main does not reach: nothing the graph has drawn.
   const offGraph = runGit(repoPath, 'commit-tree', 'main^{tree}', '-p', 'main', '-m', 'off the graph').trim();
   const farFrom = walks();
   runGit(repoPath, 'branch', 'far', offGraph);
-  await settle();
+
+  /*
+   * Until both places that list refs have heard of it - and then a moment more, because the other
+   * half of this is that hearing of it cost no walk, and a walk is proved absent only by time.
+   */
+  await until(
+    () =>
+      listsHead('far') &&
+      JSON.stringify(posted.filter((m) => m.type === 'refs').pop()?.refs ?? []).includes('refs/heads/far'),
+  );
+  await quiet();
 
   const farWalks = walks() - farFrom;
   const farNode = headsNodes().find((node) => node.label === 'far');
@@ -2668,10 +2783,12 @@ if (watchTest) {
   if (farNode === undefined) {
     problems.push('Branches & Tags never heard of a branch made in a terminal');
   } else {
-    // Ticked, it is drawn: one walk, which is the tick's own.
+    // Ticked, it is drawn: one walk, which is the tick's own. So: wait for that walk, then for a
+    // moment with no second one, which is the half of "one walk" that has nothing to poll for.
     const tickFrom = walks();
     checkboxHandlers.get('weft.refs')({ items: [[farNode, 1]] });
-    await settle();
+    await settle(tickFrom);
+    await quiet();
 
     console.log('  ticked       :', walks() - tickFrom, 'walk(s)');
 
@@ -2685,17 +2802,22 @@ if (watchTest) {
   }
 
   // And a hidden branch made at a commit the graph has drawn is a badge on it, so that one walks.
+  const currentFrom = walks();
   await commands.get('weft.showCurrentRefOnly')();
-  await settle();
+  await settle(currentFrom, SETTLING);
 
   const nearFrom = posted.length;
   runGit(repoPath, 'branch', 'near', 'main~1');
-  await settle();
 
-  const badged = posted
-    .slice(nearFrom)
-    .filter((m) => m.type === 'page')
-    .some((m) => m.rows.some((row) => JSON.stringify(row.refs).includes('near')));
+  const drawnBadge = () =>
+    posted
+      .slice(nearFrom)
+      .filter((m) => m.type === 'page')
+      .some((m) => m.rows.some((row) => JSON.stringify(row.refs).includes('near')));
+
+  await until(drawnBadge);
+
+  const badged = drawnBadge();
 
   console.log('  on a drawn row:', badged ? 'walked, badge drawn' : 'NO BADGE');
 
@@ -2704,7 +2826,7 @@ if (watchTest) {
   }
 
   runGit(repoPath, 'branch', '-D', 'far', 'near');
-  await settle();
+  await until(() => !listsHead('far') && !listsHead('near'));
 
   /*
    * A hand-picked set stays hand-picked.
@@ -2719,24 +2841,27 @@ if (watchTest) {
     return node === undefined ? 'missing' : provider.getTreeItem(node).checkboxState === 1 ? 'ticked' : 'unticked';
   };
 
+  const untickFrom = walks();
   await commands.get('weft.untickAllRefs')();
-  await settle();
+  await settle(untickFrom, SETTLING);
 
   const mainNode = headsNodes().find((n) => n.label === 'main');
+  const pickFrom = walks();
 
   if (mainNode !== undefined) {
     checkboxHandlers.get('weft.refs')({ items: [[mainNode, 1]] });
+    await settle(pickFrom, SETTLING);
   }
 
-  await settle();
   runGit(repoPath, 'branch', 'arrival', 'main');
-  await settle();
+  await until(() => listsHead('arrival'));
   const inPicked = tickState('arrival');
 
+  const allFrom = walks();
   await commands.get('weft.showAllRefs')();
-  await settle();
+  await settle(allFrom, SETTLING);
   runGit(repoPath, 'branch', 'arrival-2', 'main');
-  await settle();
+  await until(() => listsHead('arrival-2'));
   const inAll = tickState('arrival-2');
 
   console.log('arrivals       : in a picked set', inPicked, '| after Show All', inAll);
@@ -2767,14 +2892,16 @@ if (watchTest) {
    * inside the debounce. The second is forced here: the watcher is held off until the walk has read
    * the refs, by a file git has no use for, rewritten under .git - the watcher waits for quiet there.
    */
-  await settle();
+  // Quiet first, both times: the race below is between the watcher and a walk, and a watcher still
+  // working through the branches deleted above would start it from somewhere nobody chose.
+  await quiet();
   runGit(repoPath, 'branch', 'racer', 'main');
 
   if (!(await until(() => headsNodes().some((node) => node.label === 'racer'), 10_000))) {
     problems.push('a branch made in a terminal never reached Branches & Tags');
   }
 
-  await settle();
+  await quiet();
   runGit(repoPath, 'branch', '-D', 'racer');
 
   const nudge = join(repoPath, '.git', 'weft-nudge');
@@ -2789,7 +2916,9 @@ if (watchTest) {
 
   await messageHandler({ type: 'order', order: 'topo' });
   await until(() => posted.filter((m) => m.type === 'done').length > walksBefore, 15_000);
-  await new Promise((r) => setTimeout(r, 1000));
+  // Held on purpose rather than waited on: the nudger has to keep the watcher quiet for a moment
+  // after the walk has finished, so that the walk's own read of the refs is the last one in.
+  await quiet(1000);
   nudging = false;
   await nudger;
 
@@ -2801,11 +2930,13 @@ if (watchTest) {
     problems.push('a branch deleted in a terminal stayed in Branches & Tags after a walk for a filter read the refs first');
   }
 
+  const orderFrom = walks();
   await messageHandler({ type: 'order', order: 'date' });
-  await settle();
+  await settle(orderFrom, SETTLING);
 
+  const endFrom = walks();
   await commands.get('weft.showCurrentRefOnly')();
-  await settle();
+  await settle(endFrom, SETTLING);
 }
 
 /*
@@ -2822,24 +2953,16 @@ if (watchTest) {
 
   // From a known state. The block before this one cleared the filters, which puts the ticks back
   // to the branch HEAD is on - and "unticking narrows the walk" needs something to narrow.
+  const wideFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showAllRefs')();
-  await new Promise((r) => setTimeout(r, 1500));
 
-  const baseline = posted.filter((m) => m.type === 'done').pop()?.total ?? 0;
+  const baseline = await settle(wideFrom);
 
   // The graph is no longer the focused editor, exactly as it is not when a sidebar is being used.
   if (panelObject !== null && viewStateHandler !== null) {
     panelObject.active = false;
     viewStateHandler();
   }
-
-  const settle = async (from) => {
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length <= from) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
-  };
 
   const groups = refsProvider.getChildren();
   const locals = refsProvider.getChildren(groups.find((g) => g.id === 'heads'));
@@ -3065,7 +3188,10 @@ if (watchTest) {
     const walksBeforeGroup = posted.filter((m) => m.type === 'done').length;
 
     await messageHandler({ type: 'setRefsVisible', refNames: many, visible: false });
-    await new Promise((r) => setTimeout(r, 1500));
+    // The walk the message is owed, and then a moment for the ones it is not: "one walk" is half a
+    // count and half an absence, and only the first half has anything to wait for.
+    await settle(walksBeforeGroup);
+    await quiet();
 
     const walks = posted.filter((m) => m.type === 'done').length - walksBeforeGroup;
     console.log('group of', many.length, 'hidden:', walks, 'walk' + (walks === 1 ? '' : 's'));
@@ -3076,8 +3202,9 @@ if (watchTest) {
       problems.push(`hiding ${many.length} branches at once cost ${walks} walks of the history`);
     }
 
+    const backFrom = posted.filter((m) => m.type === 'done').length;
     await commands.get('weft.showAllRefs')();
-    await new Promise((r) => setTimeout(r, 500));
+    await settle(backFrom, SETTLING);
   }
 }
 
@@ -3378,14 +3505,6 @@ if (watchTest) {
   const handler = checkboxHandlers.get('weft.authors');
   const walks = () => outputLines.filter((line) => line.includes('git log'));
 
-  const settle = async (from) => {
-    const deadline = Date.now() + 20_000;
-    while (Date.now() < deadline && posted.filter((m) => m.type === 'done').length <= from) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    return posted.filter((m) => m.type === 'done').pop()?.total ?? -1;
-  };
-
   const query = async (search) => {
     const from = posted.filter((m) => m.type === 'done').length;
     messageHandler({ type: 'search', search });
@@ -3566,8 +3685,9 @@ if (watchTest) {
   const before = posted.filter((m) => m.type === 'comparison').length;
 
   // The branch HEAD is on drawn and nothing else, so the tag is an end the graph is not drawing.
+  const onlyHeadFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showCurrentRefOnly')();
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(onlyHeadFrom, SETTLING);
 
   pickAnswers.push('v1.0');
   await commands.get('weft.compareRef')(mainNode);
@@ -3767,7 +3887,12 @@ if (watchTest) {
    * side by side, on a repository where each takes the better part of a second. Five in one go must
    * be one read: they are fired synchronously, so no timing on this machine can split them.
    */
-  await new Promise((r) => setTimeout(r, 400));
+  /*
+   * Quiet first. Writing f1.txt above is a working-tree event of its own, and a read still inside
+   * its 150 ms debounce would be counted among the burst's - so the wait is for nothing being in
+   * flight, which is a thing with no message to poll for.
+   */
+  await quiet();
 
   const statusRuns = () => outputLines.filter((l) => l.startsWith('debug') && l.includes('git status ')).length;
   const burstFrom = statusRuns();
@@ -3777,7 +3902,10 @@ if (watchTest) {
     repositoryState.fire();
   }
 
-  await new Promise((r) => setTimeout(r, 1500));
+  // The one read the five are owed, and then a stretch with no second one - the half of "one read"
+  // that is an absence.
+  await until(() => statusRuns() > burstFrom);
+  await quiet();
 
   const burstRan = statusRuns() - burstFrom;
   console.log('working burst  : 5 events ->', burstRan, 'status runs');
@@ -3799,9 +3927,12 @@ if (watchTest) {
   infoAnswers.push('Never for This Repository');
   const offersFrom = offers.length;
 
+  // Five reads, not five events coalesced into one: each is waited for by the read it causes, since
+  // what the offer is made for is a run of slow reads rather than a run of events.
   for (let i = 0; i < 5; i += 1) {
+    const ran = statusRuns();
     repositoryState.fire();
-    await new Promise((r) => setTimeout(r, 400));
+    await until(() => statusRuns() > ran, 5_000);
   }
 
   const answeredBy = Date.now() + 10_000;
@@ -3858,7 +3989,7 @@ if (watchTest) {
 
   settings.set('weft.autoFetchMinutes', 5);
   configurationChanged.fire(['weft.autoFetchMinutes']);
-  await new Promise((r) => setTimeout(r, 200));
+  await until(() => intervals.length > scheduled);
 
   const timer = intervals[intervals.length - 1];
   console.log('auto-fetch     :', intervals.length > scheduled ? `every ${timer.ms} ms` : 'NOT SCHEDULED');
@@ -3871,7 +4002,9 @@ if (watchTest) {
 
   settings.set('weft.autoFetchMinutes', 0);
   configurationChanged.fire(['weft.autoFetchMinutes']);
-  await new Promise((r) => setTimeout(r, 200));
+  // Nothing being scheduled leaves nothing to poll for: the list stays the length it was, and only
+  // time passing says it stayed that way on purpose.
+  await quiet();
 
   if (intervals.length > scheduled + 1) {
     problems.push('turning auto-fetch off scheduled another one');
@@ -3894,7 +4027,10 @@ if (watchTest) {
 
   settings.set('weft.statusBar.enabled', true);
   configurationChanged.fire(['weft.statusBar.enabled']);
-  await new Promise((r) => setTimeout(r, 400));
+
+  if (!(await until(() => statusBarItem?.visible === true))) {
+    problems.push('turning the status bar item back on left it hidden');
+  }
 }
 
 /*
@@ -3927,12 +4063,15 @@ if (watchTest) {
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  await new Promise((r) => setTimeout(r, 1000));
+  // The tips are written to the log before the branches go, so by now they are there - unless the
+  // clean-up deleted without writing them, which is what the count below is about.
+  const tips = () => outputLines.filter((line) => line.startsWith('info') && line.includes('clean-up: swept_'));
+  await until(() => tips().length >= 2);
 
   const offer = picks.at(-1);
   const ticked = offer?.ticked ?? [];
   const left = runGit(repoPath, 'branch', '--list', 'swept_old', 'swept_new', 'release/kept').trim();
-  const logged = outputLines.filter((line) => line.startsWith('info') && line.includes('clean-up: swept_'));
+  const logged = tips();
 
   console.log('\nclean up       :', JSON.stringify(ticked), '| left', JSON.stringify(left), '|', logged.length, 'tips logged');
 
@@ -3952,9 +4091,15 @@ if (watchTest) {
     problems.push('the clean-up deleted branches without writing their tips to the log first');
   }
 
+  const restoredFrom = posted.filter((m) => m.type === 'done').length;
+
   runGit(repoPath, 'branch', '-D', 'release/kept');
   runGit(repoPath, 'update-ref', 'refs/heads/main', mainWas);
-  await new Promise((r) => setTimeout(r, 2000));
+
+  // Until the graph has walked main where it was put back, so the sections below are not reading a
+  // repository the extension has yet to catch up with. Capped short and unasserted, because nothing
+  // here is about the reload - the fixed wait it replaces made no promise about one either.
+  await until(() => posted.filter((m) => m.type === 'done').length > restoredFrom, 5_000);
 }
 
 /*
@@ -4015,9 +4160,14 @@ if (watchTest) {
 
   if (leftover.length > 0) {
     runGit(repoPath, 'branch', '-D', ...leftover);
-  }
 
-  await new Promise((r) => setTimeout(r, 1500));
+    // Until the sidebar has stopped listing what the lock left behind: the section below reads that
+    // tree, and a row for a branch that no longer exists is one it could pick.
+    const tree = treeProviders.get('weft.refs');
+    const heads = () => tree.getChildren(tree.getChildren().find((g) => g.id === 'heads'));
+
+    await until(() => !heads().some((node) => String(node.label).startsWith('lockbound')), 10_000);
+  }
 }
 
 /*
@@ -4035,18 +4185,18 @@ if (watchTest) {
 
   const victim = heads().find((node) => node.label === 'side');
   const before = confirmations.length;
+  const said = statusMessages.length;
 
   if (victim === undefined) {
     problems.push('no branch to delete from the tree');
   } else {
     await commands.get('weft.deleteRef')(victim);
 
-    const by = Date.now() + 15_000;
-    while (Date.now() < by && confirmations.length === before) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    await until(() => confirmations.length > before);
 
-    await new Promise((r) => setTimeout(r, 1500));
+    // Until the delete has said its piece and the row has gone: the status line comes after the ref
+    // does, and the sidebar losing the row is the half that used to be missed.
+    await until(() => statusMessages.length > said && !heads().some((node) => node.label === 'side'));
 
     const asked = confirmations.at(-1);
     const inGit = runGit(repoPath, 'branch', '--list', 'side').trim();
@@ -4091,20 +4241,6 @@ if (watchTest) {
  * tab with no graph has nothing to count, and that is checked where it closes.
  */
 {
-  const until = async (test, ms = 20_000) => {
-    const by = Date.now() + ms;
-
-    while (Date.now() < by) {
-      if (test()) {
-        return true;
-      }
-
-      await new Promise((r) => setTimeout(r, 25));
-    }
-
-    return false;
-  };
-
   await commands.get('weft.showStatistics')();
   const stats = otherPanels.find((panel) => panel.viewType === 'weft.stats');
 
@@ -4339,8 +4475,9 @@ if (watchTest) {
 
       authorsProvider.addToGroup(spellings, 'Both of Them');
       await until(() => summaries(foldFrom).length > 0, 5_000);
-      // Long enough for a walk to have started, had the group asked for one.
-      await new Promise((r) => setTimeout(r, 500));
+      // Long enough for a walk to have started, had the group asked for one - and a walk that is
+      // never asked for posts nothing, so time passing is the only evidence there is.
+      await quiet();
 
       const since = stats.posted.slice(foldFrom).map((m) => m.type);
       const folded = summaries(foldFrom).at(-1)?.summary;
@@ -4371,16 +4508,22 @@ if (watchTest) {
  * list is showing a commit nobody can point at.
  */
 if (disposeHandler !== null) {
-  disposeHandler();
-  await new Promise((r) => setTimeout(r, 200));
-
   const filesView = treeViews.get('weft.files');
   const filesProvider = treeProviders.get('weft.files');
+  // A statistics tab left open has no walk to show any more, and has to say so rather than keep the last.
+  const statsTab = otherPanels.find((panel) => panel.viewType === 'weft.stats');
+
+  disposeHandler();
+
+  // Until the file list has been emptied and the tab told - what releasing the panel is for.
+  await until(
+    () =>
+      filesProvider?.getChildren().length === 0 &&
+      (statsTab === undefined || statsTab.posted.at(-1)?.type === 'noGraph'),
+  );
 
   console.log('panel closed   :', JSON.stringify(filesView?.message ?? ''), '|', filesProvider?.getChildren().length, 'files listed');
 
-  // A statistics tab left open has no walk to show any more, and has to say so rather than keep the last.
-  const statsTab = otherPanels.find((panel) => panel.viewType === 'weft.stats');
   const statsSays = statsTab?.posted.at(-1)?.type;
 
   console.log('  stats tab    :', statsSays ?? '(none open)');
@@ -4411,8 +4554,12 @@ if (disposeHandler !== null) {
   const walks = () => outputLines.filter((line) => line.startsWith('debug') && line.includes('log'));
   const before = walks().length;
 
+  // Until the walk it sets off has finished, rather than for as long as one usually takes: the last
+  // `git log` on the line is only the one this asked for once nothing is still running.
+  const topoFrom = posted.filter((m) => m.type === 'done').length;
+
   await messageHandler({ type: 'order', order: 'topo' });
-  await new Promise((r) => setTimeout(r, 2500));
+  await settle(topoFrom);
 
   const latest = walks().at(-1) ?? '';
   const asked = (latest.match(/--[a-z-]*order/g) ?? []).join(' ');
@@ -4428,8 +4575,10 @@ if (disposeHandler !== null) {
   }
 
   // And back, so nothing after this reads a differently ordered history.
+  const dateFrom = posted.filter((m) => m.type === 'done').length;
+
   await messageHandler({ type: 'order', order: 'date' });
-  await new Promise((r) => setTimeout(r, 2000));
+  await settle(dateFrom);
 
   const back = walks().at(-1) ?? '';
 
@@ -4455,9 +4604,23 @@ if (disposeHandler !== null) {
  * was edited said so: "You, uncommitted changes" - true of the file, and not what these checks are for.
  */
 runGit(repoPath, 'checkout', '-q', '--', 'f1.txt');
+
+const blamedFrom = decorations.length;
+
 editorDocument.version += 1;
 documentChanged.fire({ document: editorDocument, contentChanges: [] });
-await new Promise((r) => setTimeout(r, 2000));
+
+// Until the annotation has been drawn again for the file as it is now. Without this the checks below
+// read the blame made while f1.txt was still edited, which says something true and beside the point.
+const blamedAgain = () =>
+  decorations
+    .slice(blamedFrom)
+    .flat()
+    .some((entry) => (entry?.renderOptions?.after?.contentText ?? '').length > 0);
+
+if (!(await until(blamedAgain))) {
+  problems.push('a new version of the text drew no line-end blame for it');
+}
 
 /*
  * The line-end blame.
@@ -4521,7 +4684,7 @@ await new Promise((r) => setTimeout(r, 2000));
   const before = posted.filter((m) => m.type === 'reveal').length;
 
   await commands.get('weft.revealCommit')({ sha: head, root: repoPath });
-  await new Promise((r) => setTimeout(r, 2000));
+  await until(() => posted.filter((m) => m.type === 'reveal').length > before);
 
   const asked = posted.filter((m) => m.type === 'reveal');
 
@@ -4556,7 +4719,7 @@ await new Promise((r) => setTimeout(r, 2000));
   const before = columns().length;
 
   await commands.get('weft.toggleFileBlame')();
-  await new Promise((r) => setTimeout(r, 2000));
+  await until(() => columns().length > before);
 
   const drawn = columns();
   const text = drawn[drawn.length - 1]?.renderOptions?.before?.contentText ?? '';
@@ -4589,7 +4752,13 @@ await new Promise((r) => setTimeout(r, 2000));
 
   settings.set('weft.blameHeatmap', false);
   configurationChanged.fire(['weft.blameHeatmap']);
-  await new Promise((r) => setTimeout(r, 2500));
+
+  /*
+   * Until the repaint the setting asks for has drawn its column. The bar is set in the statement
+   * after the column's, so once the column is here the annotation has already decided about the bar
+   * - which is what the count below reads.
+   */
+  await until(() => columns().length > columnsBefore);
 
   console.log('heat off       :', bars().length - heat.length, 'more bar(s) |', columns().length - columnsBefore, 'more column');
 
@@ -4601,12 +4770,24 @@ await new Promise((r) => setTimeout(r, 2000));
     problems.push('turning the heat off took the blame column with it');
   }
 
+  const barsOff = bars().length;
+
   settings.delete('weft.blameHeatmap');
   configurationChanged.fire(['weft.blameHeatmap']);
-  await new Promise((r) => setTimeout(r, 2500));
+
+  // Until the heat is back, so that the repaint putting it there cannot land after the column is
+  // taken away below and leave two decorations on the end that are not the two being read.
+  if (!(await until(() => bars().length > barsOff))) {
+    problems.push('putting weft.blameHeatmap back drew no heat beside the column again');
+  }
+
+  const cleanedFrom = decorations.length;
 
   await commands.get('weft.toggleFileBlame')();
-  await new Promise((r) => setTimeout(r, 500));
+
+  // Two decorations were put on, so two have to come off - waited for by their arriving rather than
+  // by the clock, and read exactly as they were read before.
+  await until(() => decorations.length >= cleanedFrom + 2);
 
   // Both the column and its bar: two decorations were put on, and two have to come off.
   const last = decorations.slice(-2);
@@ -4774,12 +4955,13 @@ await new Promise((r) => setTimeout(r, 2000));
       .pop() ?? '';
   const blamesRun = () => outputLines.filter((l) => l.startsWith('debug') && l.includes('git blame --porcelain')).length;
 
-  // Reports that move nothing: no HEAD change, so no blame.
+  // Reports that move nothing: no HEAD change, so no blame. A blame that is never asked for runs no
+  // command to wait for, so this one stays a wait - long enough that one on its way would have run.
   const quietFrom = blamesRun();
   repositoryState.fire();
   repositoryState.fire();
-  await new Promise((r) => setTimeout(r, 800));
-  const quiet = blamesRun() - quietFrom;
+  await quiet();
+  const ranAnyway = blamesRun() - quietFrom;
 
   writeFileSync(join(repoPath, 'f1.txt'), 'changed where the cursor is\n');
   runGit(repoPath, 'commit', '-qam', 'the commit blame should name');
@@ -4790,10 +4972,10 @@ await new Promise((r) => setTimeout(r, 2000));
     await new Promise((r) => setTimeout(r, 50));
   }
 
-  console.log('\nblame on HEAD  :', quiet, 'blame(s) for reports that moved nothing | after a commit', JSON.stringify(lineSays()));
+  console.log('\nblame on HEAD  :', ranAnyway, 'blame(s) for reports that moved nothing | after a commit', JSON.stringify(lineSays()));
 
-  if (quiet !== 0) {
-    problems.push('a report from the git extension that moved nothing ran blame ' + quiet + ' time(s)');
+  if (ranAnyway !== 0) {
+    problems.push('a report from the git extension that moved nothing ran blame ' + ranAnyway + ' time(s)');
   }
 
   if (!lineSays().includes('the commit blame should name')) {
@@ -4808,13 +4990,20 @@ await new Promise((r) => setTimeout(r, 2000));
  * on, that is a decoration for every line of the file, for each move of the cursor.
  */
 {
-  await new Promise((r) => setTimeout(r, 400));
+  // Quiet before the count starts, so that a repaint the commit above set off is not read as one of
+  // the cursor's - and quiet after each event and at the end, because a repaint that never happens
+  // is the whole assertion and has nothing to poll for.
+  await quiet();
   const paintedFrom = decorations.length;
 
   for (let i = 0; i < 3; i += 1) {
     selectionChanged.fire({ textEditor: activeEditor, selections: [activeEditor.selection] });
-    await new Promise((r) => setTimeout(r, 400));
+    // Three separate events, spaced as they were: fired back to back they could be coalesced, and a
+    // repaint that was coalesced away is not a repaint that never happened.
+    await quiet(400);
   }
+
+  await quiet();
 
   const repainted = decorations.length - paintedFrom;
   console.log('same line      :', repainted, 'repaint(s) for 3 cursor events on one line');
@@ -4861,29 +5050,34 @@ await new Promise((r) => setTimeout(r, 2000));
 
   const head = String(runGit(repoPath, 'rev-parse', 'HEAD')).trim();
   const commit = { kind: 'commit', sha: head, subject: 'the commit' };
-  const until = async (done) => {
-    const by = Date.now() + 10_000;
+  const refsProvider = treeProviders.get('weft.refs');
 
-    while (Date.now() < by && !done()) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-  };
+  /*
+   * A remote arriving is refs arriving: until the sidebar has heard of origin/main, and then a
+   * moment more, because whatever that set walking has to be over before the walks are counted -
+   * and a walk that is finishing has nothing left to post.
+   */
+  await until(() => refsProvider.listRefs().some((ref) => ref.refName === 'refs/remotes/origin/main'));
+  await quiet();
 
-  // A remote arriving is refs arriving: whatever that walks has finished before walks are counted.
-  await new Promise((r) => setTimeout(r, 2500));
   opened.length = 0;
   const mark = posted.length;
 
   await messageHandler({ type: 'runAction', id: 'weft.openOnWeb', target: commit });
-  await until(() => posted.slice(mark).some((m) => m.type === 'error'));
-  await new Promise((r) => setTimeout(r, 1000));
+
+  if (!(await until(() => posted.slice(mark).some((m) => m.type === 'error'), 10_000))) {
+    problems.push('opening a commit on a server nothing identifies was neither refused nor opened');
+  }
+
+  // And nothing after the refusal: "the refusal walks nothing" is an absence, so it is waited out.
+  await quiet(1000);
 
   const refusal = posted.slice(mark).find((m) => m.type === 'error');
   const walked = posted.slice(mark).some((m) => m.type === 'reset');
 
   settings.set('weft.remoteHosts', { '10.20.30.40': 'gitlab' });
   await messageHandler({ type: 'runAction', id: 'weft.openOnWeb', target: commit });
-  await until(() => opened.length > 0);
+  await until(() => opened.length > 0, 10_000);
 
   console.log('\nopen on web    :', JSON.stringify(refusal?.message ?? '(not refused)'), '|', JSON.stringify(opened));
 
@@ -4929,7 +5123,10 @@ await new Promise((r) => setTimeout(r, 2000));
   settings.delete('weft.remoteHosts');
   runGit(repoPath, 'config', '--unset', 'credential.http://10.20.30.40.provider');
   runGit(repoPath, 'remote', 'remove', 'origin');
-  await new Promise((r) => setTimeout(r, 2500));
+
+  // Until the remote has left the sidebar again, so the sections below read the refs this run made
+  // and not a remote branch that no longer exists.
+  await until(() => !refsProvider.listRefs().some((ref) => ref.refName.startsWith('refs/remotes/origin/')), 10_000);
 }
 
 /*
@@ -5064,14 +5261,6 @@ await new Promise((r) => setTimeout(r, 2000));
     },
     onDidDispose: () => ({ dispose() {} }),
     dispose: () => void (closed += 1),
-  };
-
-  const until = async (done, ms = 10_000) => {
-    const by = Date.now() + ms;
-
-    while (Date.now() < by && !done()) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
   };
 
   if (editor === undefined) {
@@ -5354,18 +5543,24 @@ await new Promise((r) => setTimeout(r, 2000));
       .sort();
   const stored = () => Object.values(workspaceMemory.get('weft.refPresets') ?? {})[0] ?? {};
 
+  const allFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showAllRefs')();
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(allFrom, SETTLING);
   const saved = ticked();
 
   inputAnswers.push('everything');
   await commands.get('weft.saveRefPreset')();
   const kept = stored()['everything'];
-  await new Promise((r) => setTimeout(r, 200));
-  const menuLists = JSON.stringify(posted.filter((m) => m.type === 'refs').pop()?.presets ?? []);
 
+  // Until the header has been sent the preset - which is the thing the line below reads back.
+  const presetsSent = () => JSON.stringify(posted.filter((m) => m.type === 'refs').pop()?.presets ?? []);
+  await until(() => presetsSent().includes('"everything"'));
+
+  const menuLists = presetsSent();
+
+  const currentFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showCurrentRefOnly')();
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(currentFrom, SETTLING);
 
   pickAnswers.push('everything');
   await commands.get('weft.manageRefPresets')();
@@ -5374,8 +5569,9 @@ await new Promise((r) => setTimeout(r, 2000));
   const offered = picks.at(-1)?.labels ?? [];
 
   // The same preset from the header's menu: its chip posts the name, and the host draws it.
+  const chipFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showCurrentRefOnly')();
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(chipFrom, SETTLING);
   await messageHandler({ type: 'applyRefsPreset', name: 'everything' });
   await provider.reload();
   const fromMenu = ticked();
@@ -5408,8 +5604,9 @@ await new Promise((r) => setTimeout(r, 2000));
     problems.push("drawing the preset from the header's menu ticked " + JSON.stringify(fromMenu) + ', not ' + JSON.stringify(saved));
   }
 
+  const restoreFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.showCurrentRefOnly')();
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(restoreFrom, SETTLING);
 }
 
 /*
@@ -5432,12 +5629,14 @@ await new Promise((r) => setTimeout(r, 2000));
       .sort();
 
   // Something other than the default, so opening on the default cannot pass for remembering.
+  const bareFrom = posted.filter((m) => m.type === 'done').length;
   await commands.get('weft.untickAllRefs')();
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(bareFrom, SETTLING);
 
   const tag = provider.getChildren(provider.getChildren().find((g) => g.id === 'tags'))[0];
+  const taggedFrom = posted.filter((m) => m.type === 'done').length;
   checkboxHandlers.get('weft.refs')({ items: [[tag, 1]] });
-  await new Promise((r) => setTimeout(r, 800));
+  await settle(taggedFrom, SETTLING);
 
   const before = ticked(provider);
   const kept = Object.values(workspaceMemory.get('weft.refTicks') ?? {})[0];
@@ -5456,12 +5655,27 @@ await new Promise((r) => setTimeout(r, 2000));
     registry.clear();
   }
 
+  const activations = outputLines.filter((line) => line.includes('Weft activated')).length;
+
   delete require_.cache[require_.resolve(resolve('dist/extension.js'))];
   require_(resolve('dist/extension.js')).activate({ ...context, subscriptions: [] });
-  await new Promise((r) => setTimeout(r, 800));
+
+  if (!(await until(() => outputLines.filter((line) => line.includes('Weft activated')).length > activations))) {
+    problems.push('a second copy of the extension over the same workspace never finished activating');
+  }
 
   await commands.get('weft.openGraph')();
-  await new Promise((r) => setTimeout(r, 1500));
+
+  /*
+   * Until the new session's Branches & Tags has read the repository and put ticks on it - and then a
+   * moment with nothing moving, because a tree that has been ticked once may still be corrected, and
+   * what is being compared is where it comes to rest.
+   */
+  if (!(await until(() => ticked(treeProviders.get('weft.refs')).length > 0))) {
+    problems.push('a new session over the same workspace put no ticks back at all');
+  }
+
+  await quiet();
 
   const after = ticked(treeProviders.get('weft.refs'));
 
