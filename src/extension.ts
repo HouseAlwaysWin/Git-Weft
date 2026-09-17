@@ -792,7 +792,7 @@ function start(context: vscode.ExtensionContext): void {
      * unfocusing the graph, so `active()` here was reliably null and the filter reliably did
      * nothing - the one place where "the graph the user is looking at" is the wrong graph.
      */
-    refs.onDidChangeFilter(() => WeftPanel.refreshAll()),
+    refs.onDidChangeFilter(() => WeftPanel.refreshRoot(refs.repoRoot)),
     // Only the list moved, so only the list is sent again.
     refs.onDidChangeOrder(() => WeftPanel.refreshRefs()),
     refs.onDidChangePresets(() => WeftPanel.refreshRefs()),
@@ -807,7 +807,7 @@ function start(context: vscode.ExtensionContext): void {
         WeftPanel.refreshAll();
       }
     }),
-    authors.onDidChangeFilter(() => WeftPanel.refreshAll()),
+    authors.onDidChangeFilter(() => WeftPanel.refreshRoot(authors.repoRoot)),
     // A statistics tab folds people as Authors does, so a new group is a new fold of the walk it already has.
     authors.onDidChangeGroups((root) => StatsPanel.update(root)),
 

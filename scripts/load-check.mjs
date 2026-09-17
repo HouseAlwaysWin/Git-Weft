@@ -5691,6 +5691,55 @@ if (!(await until(blamedAgain))) {
 }
 
 /*
+ * A tick in another repository is not this graph's business.
+ *
+ * Every filter change used to reload every open graph. Besides the cost - a walk of a whole history
+ * nobody asked about - the sidebar answers `visibleRefs` for the repository it is showing and null for
+ * any other, and null means every ref: so a graph elsewhere quietly widened from the branch it was
+ * drawing to all of them.
+ */
+{
+  const provider = treeProviders.get('weft.refs');
+  const here = provider.repoRoot;
+  const elsewhere = makeTempRepo();
+  const walks = () => posted.filter((m) => m.type === 'done').length;
+
+  // Only `root` is read of it, and the point is where the ticks are filed, not what git says about it.
+  await provider.setRepository({ root: elsewhere });
+
+  const before = walks();
+
+  // A tick over there: from that repository's default, which is the branch it is on, to everything.
+  await commands.get('weft.showAllRefs')();
+  await quiet();
+
+  console.log('\nanother repo   :', walks() - before, 'walk(s) here for a tick there');
+
+  if (walks() !== before) {
+    problems.push(`a tick in another repository re-walked this graph ${walks() - before} time(s)`);
+  }
+
+  // And back where it belongs: a tick here still reloads this graph, which is the half that must not
+  // be lost while fixing the other one.
+  await provider.setRepository({ root: here });
+
+  /*
+   * Narrowed first, so that widening is certainly a change: whatever the sections above left ticked,
+   * "only the branch you are on" and then "everything" cannot both be what it already was.
+   */
+  await commands.get('weft.showCurrentRefOnly')();
+  await settle(walks(), SETTLING);
+
+  const mine = walks();
+
+  await commands.get('weft.showAllRefs')();
+
+  if (!(await until(() => walks() > mine, SETTLING))) {
+    problems.push('a tick in this repository no longer reloads its graph');
+  }
+}
+
+/*
  * A ref read that fails, which is a thing git does: a lock held by another process, a repository read
  * in the middle of a checkout, a permissions blip.
  *

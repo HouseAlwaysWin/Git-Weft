@@ -220,6 +220,28 @@ export class WeftPanel {
   }
 
   /**
+   * Reload the graph of one repository, for a filter that belongs to that repository.
+   *
+   * `refreshAll` was doing this job. Besides the cost - a walk of a whole history nobody asked
+   * about - the sidebar answers `visibleRefs` for the repository it is showing and null for any
+   * other, and null means every ref: so a tick in one repository quietly widened a graph somewhere
+   * else from the branch it was drawing to all of them, and paid a `git log --all` to do it.
+   *
+   * A filter with no repository behind it reloads nothing: there is nothing it could be about.
+   */
+  static refreshRoot(root: string | null): void {
+    if (root === null) {
+      return;
+    }
+
+    for (const panel of WeftPanel.open.values()) {
+      if (panel.root === root) {
+        panel.refresh();
+      }
+    }
+  }
+
+  /**
    * Send the ref list again, without re-walking anything.
    *
    * For the sidebar's sort buttons: the order of a list is not a question about which commits are

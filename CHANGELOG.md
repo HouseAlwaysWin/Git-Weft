@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Ticking a branch reloads the graph it belongs to, and no others.** Every filter change reloaded
+  every open graph. On a second repository that meant a walk of a whole history nobody had asked
+  about - and worse: the sidebar answers with the refs of the repository it is showing and with
+  nothing for any other, and nothing means every ref, so the other graph quietly widened from the
+  branch it was drawing to all of them.
+
 - **A momentary failure to read the refs no longer empties Branches & Tags or throws away what you
   had ticked.** git's ref read can fail for a moment - a lock held by something else, a repository
   read in the middle of a checkout - and the list was emptied when it did. An empty list reads as
