@@ -4979,7 +4979,19 @@ await new Promise((r) => setTimeout(r, 2000));
 {
   const provider = terminalProviders[0];
   const head = String(runGit(repoPath, 'rev-parse', 'HEAD')).trim();
-  const short = head.slice(0, 8);
+
+  /*
+   * A short id with a letter in it, found rather than assumed. An id of nothing but digits is a number
+   * as far as a terminal is concerned and is deliberately not linked - and roughly one fixture in forty
+   * has eight digits at the front of HEAD, which made this check fail for exactly the right reason at
+   * random. The rule itself is worth a line of its own below.
+   */
+  let short = head.slice(0, 8);
+
+  for (let length = 9; length <= head.length && !/[a-f]/.test(short); length++) {
+    short = head.slice(0, length);
+  }
+
   const line = `[main ${short}] the commit somebody made in a terminal`;
   const links = provider === undefined ? [] : await provider.provideTerminalLinks({ line, terminal: { creationOptions: { cwd: repoPath } } }, {});
   const said = links.map((link) => line.slice(link.startIndex, link.startIndex + link.length));
@@ -4999,6 +5011,15 @@ await new Promise((r) => setTimeout(r, 2000));
 
   if (revealed?.sha !== head) {
     problems.push(`clicking a commit id in a terminal revealed ${revealed?.sha}, not the whole ${head}`);
+  }
+
+  // The other half of the rule, where it reaches a terminal: eight digits are a build number, not an id.
+  const digits = provider === undefined ? [] : await provider.provideTerminalLinks({ line: 'Build 20260916 finished', terminal: {} }, {});
+
+  console.log('a number        :', digits.length === 0 ? 'left alone' : 'LINKED');
+
+  if (digits.length !== 0) {
+    problems.push(`a line saying "Build 20260916 finished" was given ${digits.length} link(s)`);
   }
 }
 
