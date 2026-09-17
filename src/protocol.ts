@@ -215,7 +215,15 @@ export type HostMessage =
   | { readonly type: 'reveal'; readonly sha: string }
   /** Ask the view to search for one file's history. It owns the boxes, so it sets them itself. */
   | { readonly type: 'showHistory'; readonly path: string }
-  | { readonly type: 'error'; readonly message: string };
+  | { readonly type: 'error'; readonly message: string }
+  /**
+   * The ticket patterns again, for a `weft.ticketLinks` that changed while this graph was open.
+   *
+   * They arrive with the rest of `init` otherwise, and `init` is posted by a reload - so a link
+   * corrected in the settings did nothing visible until a ref moved or the tab was opened again.
+   * Which ids are marked is drawn, not walked, so this is the whole of the change.
+   */
+  | { readonly type: 'ticketPatterns'; readonly patterns: readonly string[] };
 
 export type WebviewMessage =
   /*

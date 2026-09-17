@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A ticket link that cannot be used now says so, and a corrected one takes effect.** `weft.ticketLinks`
+  dropped any entry it could not use without a word - and the two mistakes worth catching are exactly the
+  two the settings editor cannot: a `pattern` that is a string but not a regular expression, and a `url`
+  that is not http or https. An id that stays plain text looks the same either way, so a list pasted into
+  one entry sat there doing nothing. Weft now names what it turned down, when the setting is saved, with
+  the log holding the detail. And because the patterns used to reach an open graph only inside its first
+  message, fixing one did nothing visible until a ref moved or the tab was opened again; the graphs are
+  told now, without walking anything.
+
 - **Clicking back into a graph no longer re-reads every ref.** Taking focus pointed the sidebar at
   its repository again, and being pointed where it already was meant a `for-each-ref` over every ref
   in the repository - with the committer date, which makes git peel each one to reach the commit

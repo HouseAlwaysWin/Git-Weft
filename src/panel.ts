@@ -242,6 +242,22 @@ export class WeftPanel {
   }
 
   /**
+   * Send the ticket patterns again, without re-walking anything.
+   *
+   * For `weft.ticketLinks`: a correction typed while graphs are open is a change to which ids are
+   * marked, and nothing else. The alternative was a reload of every open graph - a walk of a whole
+   * history because somebody fixed a bracket.
+   */
+  static refreshTicketPatterns(): void {
+    const config = vscode.workspace.getConfiguration('weft');
+    const patterns = readTicketLinks(config.get<unknown[]>('ticketLinks', [])).links.map((link) => link.pattern);
+
+    for (const panel of WeftPanel.open.values()) {
+      panel.post({ type: 'ticketPatterns', patterns });
+    }
+  }
+
+  /**
    * Send the ref list again, without re-walking anything.
    *
    * For the sidebar's sort buttons: the order of a list is not a question about which commits are
@@ -1166,7 +1182,7 @@ export class WeftPanel {
    * alone - so nothing the view sends, and nothing a commit message says, chooses where it goes.
    */
   private async openTicket(text: string): Promise<void> {
-    const links = readTicketLinks(vscode.workspace.getConfiguration('weft').get<unknown[]>('ticketLinks', []));
+    const { links } = readTicketLinks(vscode.workspace.getConfiguration('weft').get<unknown[]>('ticketLinks', []));
     const url = ticketUrl(links, text);
 
     if (url !== null) {
@@ -1329,7 +1345,7 @@ export class WeftPanel {
       rowHeight: config.get<number>('rowHeight', 24),
       authorColors: config.get<boolean>('authorColors', true),
       kind: describe(this.repo),
-      ticketPatterns: readTicketLinks(config.get<unknown[]>('ticketLinks', [])).map((link) => link.pattern),
+      ticketPatterns: readTicketLinks(config.get<unknown[]>('ticketLinks', [])).links.map((link) => link.pattern),
     });
 
     const loader = new HistoryLoader(this.git, this.repo);

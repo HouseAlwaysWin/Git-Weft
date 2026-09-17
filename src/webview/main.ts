@@ -1168,6 +1168,13 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       detailsPane.setTicketPatterns(message.ticketPatterns);
       break;
 
+    case 'ticketPatterns':
+      ticketPatterns = message.patterns;
+      detailsPane.setTicketPatterns(message.patterns);
+      // The rows on screen carry badges that were marked with the patterns as they were.
+      schedule();
+      break;
+
     case 'reset':
       reset();
       // Only the host can see all four sources at once - two of them live in Source Control.

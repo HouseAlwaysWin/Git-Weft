@@ -27,6 +27,7 @@ import { filePage, readRemoteHosts } from './git/webLinks.ts';
 import { onRemote, webPlace } from './git/webPlace.ts';
 import { openUrl } from './openUrl.ts';
 import { shasIn } from './terminalLinks.ts';
+import { readTicketLinks } from './git/ticketLinks.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -314,6 +315,61 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       });
   }
+}
+
+/** The last thing said about `weft.ticketLinks`, so the same complaint is not made twice. */
+let saidOfTicketLinks: string | null = null;
+
+/** An entry as it was written, shortened to what fits in a notification. */
+function short(entry: string): string {
+  return entry.length > 60 ? `${entry.slice(0, 60)}...` : entry;
+}
+
+/**
+ * Say which entries of `weft.ticketLinks` cannot be used.
+ *
+ * The mistakes worth a word are the ones the settings editor cannot catch - a `pattern` that is a
+ * string but not a regular expression, a `url` that is neither http nor https - and both used to be
+ * dropped in silence. An id that is not a link looks exactly like an id nobody wrote a rule for, so
+ * a whole list pasted into one entry sits there doing nothing and nothing anywhere says so.
+ *
+ * Announced when the setting is saved, which is when somebody is looking at it, and written to the
+ * log when a window opens: a notification about something typed months ago interrupts nobody's work
+ * about nothing they are doing. Said once either way - VS Code fires this event for more than an
+ * edit, and the same complaint twice reads as a second mistake.
+ */
+function reportTicketLinks(announce: boolean): void {
+  const { unusable } = readTicketLinks(
+    vscode.workspace.getConfiguration('weft').get<unknown[]>('ticketLinks', []),
+  );
+  const said = unusable.map((bad) => `${bad.entry} ${bad.why}`).join('\n');
+
+  if (said === saidOfTicketLinks) {
+    return;
+  }
+
+  saidOfTicketLinks = said;
+
+  for (const bad of unusable) {
+    output?.warn(`weft.ticketLinks: ${bad.entry} cannot be used - ${bad.why}.`);
+  }
+
+  const first = unusable[0];
+
+  if (!announce || first === undefined) {
+    return;
+  }
+
+  const message =
+    unusable.length === 1
+      ? `Weft: ${short(first.entry)} in weft.ticketLinks cannot be used - ${first.why}. The ids it would link stay plain text.`
+      : `Weft: ${unusable.length} entries in weft.ticketLinks cannot be used, from ${short(first.entry)} on. The ids they would link stay plain text.`;
+
+  void vscode.window.showWarningMessage(message, 'Show Log').then((choice) => {
+    if (choice === 'Show Log') {
+      output?.show();
+    }
+  });
 }
 
 /** Where each repository's answer to the offer below is kept: its root, to 'never' or 'enabled'. */
@@ -805,6 +861,12 @@ function start(context: vscode.ExtensionContext): void {
       // What the statistics leave out is decided as a walk is counted, so a new rule is counted by a new walk.
       if (event.affectsConfiguration('weft.statistics.excludeMessages')) {
         WeftPanel.refreshAll();
+      }
+
+      // Which ids are links is drawn rather than walked, so a corrected pattern costs the patterns.
+      if (event.affectsConfiguration('weft.ticketLinks')) {
+        reportTicketLinks(true);
+        WeftPanel.refreshTicketPatterns();
       }
     }),
     authors.onDidChangeFilter(() => WeftPanel.refreshRoot(authors.repoRoot)),
@@ -1551,6 +1613,7 @@ function start(context: vscode.ExtensionContext): void {
 
   void updatePresence();
 
+  reportTicketLinks(false);
   output?.info('Weft activated');
 }
 

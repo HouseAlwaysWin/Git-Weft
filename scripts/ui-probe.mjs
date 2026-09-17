@@ -548,6 +548,18 @@ const INVARIANTS = [
     },
   ],
   [
+    'a corrected weft.ticketLinks marks the commit that is already on screen',
+    (found) => {
+      const body = found['=== ticket links after the setting changed ==='] ?? '';
+      const ids = [...body.matchAll(/title="Open ([^"]+)"/g)].map((match) => match[1]);
+
+      // The patterns that arrived match the one id the first set did not: nothing was re-sent, only re-marked.
+      return JSON.stringify(ids) === JSON.stringify(['XERP-3'])
+        ? null
+        : `marked ${JSON.stringify(ids)} rather than ["XERP-3"]`;
+    },
+  ],
+  [
     'the commit menu opens from the keyboard, and the keyboard works it',
     (found) => {
       const lines = (found['=== the commit menu from the keyboard ==='] ?? '').split('\n');

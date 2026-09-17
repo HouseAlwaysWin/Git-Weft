@@ -399,13 +399,25 @@ const vscodeStub = {
      * A warning with no buttons is still nobody's plan, and still a failure.
      */
     showWarningMessage: async (m, options, ...choices) => {
-      if (choices.length === 0) {
+      /*
+       * Both of VS Code's shapes. The options object is optional, and a string in its place is the
+       * first button - which is how the extension's own `Show Log` warnings are written. The stub
+       * knew only the longer shape, so a warning offering buttons the ordinary way read here as a
+       * warning offering none, which is a failure.
+       */
+      const buttons = typeof options === 'string' ? [options, ...choices] : choices;
+
+      if (buttons.length === 0) {
         problems.push(`unexpected warning: ${m}`);
         return undefined;
       }
 
-      confirmations.push({ message: m, detail: options?.detail ?? '', answered: choices[0] });
-      return confirmed ? choices[0] : undefined;
+      confirmations.push({
+        message: m,
+        detail: typeof options === 'string' ? '' : (options?.detail ?? ''),
+        answered: buttons[0],
+      });
+      return confirmed ? buttons[0] : undefined;
     },
     // An input box, answered from inputAnswers and dismissed when nothing is queued.
     showInputBox: async () => inputAnswers.shift(),
@@ -4052,6 +4064,86 @@ if (watchTest) {
   if (!(await until(() => statusBarItem?.visible === true))) {
     problems.push('turning the status bar item back on left it hidden');
   }
+}
+
+/*
+ * weft.ticketLinks: what cannot be used is said out loud and said once, and what can reaches every open
+ * graph without a walk.
+ *
+ * Both of these were silent. A pattern that is not a regular expression and a url that is not http are
+ * the two mistakes the settings editor cannot catch, and they used to be dropped without a word; and the
+ * patterns only ever reached a view inside `init`, so correcting one changed nothing anybody could see
+ * until a ref moved.
+ */
+{
+  const saidBefore = confirmations.length;
+  const postedBefore = posted.length;
+  const patternsPosted = () => posted.slice(postedBefore).filter((m) => m.type === 'ticketPatterns');
+
+  settings.set('weft.ticketLinks', [
+    { pattern: 'ERP-[0-9]+', url: 'https://tracker.example/browse/$0' },
+    { pattern: '([', url: 'https://tracker.example/$0' },
+    { pattern: 'CALC-[0-9]+', url: 'file:///C:/Windows/System32/calc.exe' },
+  ]);
+  configurationChanged.fire(['weft.ticketLinks']);
+
+  const heard = await until(() => confirmations.length > saidBefore && patternsPosted().length > 0);
+  const said = confirmations
+    .slice(saidBefore)
+    .map((c) => c.message)
+    .join(' | ');
+
+  console.log('\nticket links   :', heard ? said : 'NOTHING SAID');
+
+  if (!heard) {
+    problems.push('a weft.ticketLinks entry that cannot be used was dropped without a word');
+  } else if (!said.includes('weft.ticketLinks') || !said.includes('2 entries')) {
+    problems.push(`the warning did not say what could not be used: ${said}`);
+  }
+
+  const sent = patternsPosted().at(-1)?.patterns ?? [];
+
+  if (JSON.stringify(sent) !== JSON.stringify(['ERP-[0-9]+'])) {
+    problems.push(`the graph was sent ${JSON.stringify(sent)} rather than the one link that can be used`);
+  }
+
+  // Said once: the same setting saved again is not a second mistake, and this event fires for more than an edit.
+  const saidOnce = confirmations.length;
+
+  configurationChanged.fire(['weft.ticketLinks']);
+  await quiet();
+
+  if (confirmations.length > saidOnce) {
+    problems.push('the same weft.ticketLinks mistake was reported twice');
+  }
+
+  // Corrected: nothing to say, and the graph is told without being walked again.
+  const walksBefore = posted.filter((m) => m.type === 'done').length;
+  const correctedFrom = posted.length;
+
+  settings.set('weft.ticketLinks', [{ pattern: 'BUG-[0-9]+', url: 'https://tracker.example/$0' }]);
+  configurationChanged.fire(['weft.ticketLinks']);
+
+  if (!(await until(() => posted.slice(correctedFrom).some((m) => m.type === 'ticketPatterns')))) {
+    problems.push('a corrected weft.ticketLinks never reached the graph');
+  }
+
+  const corrected = posted.slice(correctedFrom).filter((m) => m.type === 'ticketPatterns').at(-1)?.patterns ?? [];
+
+  if (JSON.stringify(corrected) !== JSON.stringify(['BUG-[0-9]+'])) {
+    problems.push(`the corrected setting sent ${JSON.stringify(corrected)}`);
+  }
+
+  if (confirmations.length > saidOnce) {
+    problems.push('a weft.ticketLinks that can be used was complained about');
+  }
+
+  if (posted.filter((m) => m.type === 'done').length > walksBefore) {
+    problems.push('changing weft.ticketLinks walked the history again');
+  }
+
+  settings.delete('weft.ticketLinks');
+  configurationChanged.fire(['weft.ticketLinks']);
 }
 
 /*

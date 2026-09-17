@@ -409,9 +409,19 @@ export function show(details: CommitInfo): void {
   renderDetails(details);
 }
 
-/** The ticket patterns, as the host sent them with the rest of what the view reads at the start. */
+/**
+ * The ticket patterns, as the host sent them - with the rest of what the view reads at the start, or
+ * by themselves when `weft.ticketLinks` changed.
+ *
+ * A commit already on screen was marked with the patterns as they were, and the host does not send it
+ * again: the pane holds it, so the pane draws it again.
+ */
 export function setTicketPatterns(patterns: readonly string[]): void {
   ticketPatterns = patterns;
+
+  if (currentDetails !== null) {
+    renderDetails(currentDetails);
+  }
 }
 
 /** Show the working tree. */

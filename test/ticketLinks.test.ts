@@ -10,21 +10,40 @@ import { findTickets, readTicketLinks, ticketUrl } from '../src/git/ticketLinks.
 
 const ERP = { pattern: 'ERP-[0-9]+', url: 'https://tracker.example/browse/$0' };
 
-test('only links with a pattern that compiles and a web address are used', () => {
+test('only links with a pattern that compiles and a web address are used, and the rest are named', () => {
+  const read = readTicketLinks([
+    ERP,
+    { pattern: 'EVIL-[0-9]+', url: 'file:///C:/Windows/System32/calc.exe' },
+    { pattern: '([', url: 'https://tracker.example/$0' },
+    { pattern: '', url: 'https://tracker.example/$0' },
+    { pattern: 'X', url: 42 },
+    'ERP',
+    null,
+  ]);
+
+  assert.deepEqual(read.links, [ERP]);
+
+  /*
+   * Each entry that was turned down, in the order it was written, said in enough words to find it in
+   * a settings file. The first two are the ones the manifest's own schema cannot catch, which is the
+   * reason any of this is reported rather than dropped.
+   */
   assert.deepEqual(
-    readTicketLinks([
-      ERP,
-      { pattern: 'EVIL-[0-9]+', url: 'file:///C:/Windows/System32/calc.exe' },
-      { pattern: '([', url: 'https://tracker.example/$0' },
-      { pattern: '', url: 'https://tracker.example/$0' },
-      { pattern: 'X', url: 42 },
-      'ERP',
-      null,
-    ]),
-    [ERP],
+    read.unusable.map((bad) => bad.why.replace(/:.*/s, '')),
+    [
+      'its url is not http or https',
+      'its pattern is not a regular expression',
+      'its pattern is empty',
+      'it has no url',
+      'it is not a pattern and a url',
+      'it is not a pattern and a url',
+    ],
   );
 
-  assert.deepEqual(readTicketLinks('not a list'), []);
+  assert.equal(read.unusable[0]?.entry, JSON.stringify({ pattern: 'EVIL-[0-9]+', url: 'file:///C:/Windows/System32/calc.exe' }));
+  assert.match(read.unusable[1]?.why ?? '', /Invalid regular expression|SyntaxError|character class/);
+
+  assert.deepEqual(readTicketLinks('not a list'), { links: [], unusable: [] });
 });
 
 test('an id opens only when it matches whole, and what goes into the address is encoded', () => {

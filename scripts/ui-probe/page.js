@@ -764,6 +764,15 @@
     parts.push('=== opening ticket ids sends ===\n' + sentSince(beforeTicket));
 
     /*
+     * And `weft.ticketLinks` corrected while the graph is open, which sends the patterns by themselves.
+     * The commit is not sent again - the pane holds it - so what this shows is the pane marking what is
+     * already on screen from patterns that arrived after it.
+     */
+    window.postMessage({ type: 'ticketPatterns', patterns: ['XERP-[0-9]+'] }, '*');
+    await settle(250);
+    take('ticket links after the setting changed', document.querySelector('#detail-body'));
+
+    /*
      * The commit menu from the keyboard. Shift+F10 on the selected row asks for its menu, and the first
      * thing on it that can be chosen takes focus; the arrows go past what cannot be; Enter chooses;
      * Escape hands focus back. The contextmenu event a real Shift+F10 is followed by is swallowed, or

@@ -18,31 +18,76 @@ export interface TicketLink {
 
 const WEB = /^https?:\/\//i;
 
-/** The links the setting holds that can be used: a pattern that compiles, and an http or https address. */
-export function readTicketLinks(value: unknown): TicketLink[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
+/** An entry that cannot be used, as it was written, and what is wrong with it. */
+export interface UnusableLink {
+  /** The entry as JSON, which is how it was typed. */
+  readonly entry: string;
+  /** What is wrong with it, as a phrase that follows the entry: `its pattern is empty`. */
+  readonly why: string;
+}
 
-  return value.flatMap((entry): TicketLink[] => {
+/** What the setting holds, sorted into the links that can be used and the entries that cannot. */
+export interface TicketLinks {
+  /** A pattern that compiles and an http or https address, in the order they were written. */
+  readonly links: readonly TicketLink[];
+  /** The rest. They link nothing, and a plain id says nothing about why. */
+  readonly unusable: readonly UnusableLink[];
+}
+
+/**
+ * Read the setting's links.
+ *
+ * Sorted rather than filtered, because the two mistakes that matter are the two the settings editor
+ * cannot catch: the manifest can say `pattern` is a string, not that it is a regular expression, and
+ * that `url` is a string, not that it is http or https. An entry either of those turns down used to
+ * vanish here - and an id that is not a link looks exactly like an id nobody wrote a rule for.
+ */
+export function readTicketLinks(value: unknown): TicketLinks {
+  const links: TicketLink[] = [];
+  const unusable: UnusableLink[] = [];
+  const cannot = (entry: unknown, why: string): void => {
+    unusable.push({ entry: JSON.stringify(entry) ?? String(entry), why });
+  };
+
+  for (const entry of Array.isArray(value) ? (value as unknown[]) : []) {
     if (typeof entry !== 'object' || entry === null) {
-      return [];
+      cannot(entry, 'it is not a pattern and a url');
+      continue;
     }
 
     const { pattern, url } = entry as Record<string, unknown>;
 
-    if (typeof pattern !== 'string' || pattern.length === 0 || typeof url !== 'string' || !WEB.test(url)) {
-      return [];
+    if (typeof pattern !== 'string') {
+      cannot(entry, 'it has no pattern');
+      continue;
+    }
+
+    if (pattern.length === 0) {
+      cannot(entry, 'its pattern is empty');
+      continue;
+    }
+
+    if (typeof url !== 'string') {
+      cannot(entry, 'it has no url');
+      continue;
+    }
+
+    if (!WEB.test(url)) {
+      cannot(entry, 'its url is not http or https');
+      continue;
     }
 
     try {
       new RegExp(pattern);
-    } catch {
-      return [];
+    } catch (err) {
+      cannot(entry, `its pattern is not a regular expression: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
     }
 
-    return [{ pattern, url }];
-  });
+    links.push({ pattern, url });
+  }
+
+  return { links, unusable };
 }
 
 /** Where a clicked id opens, or null when no link's pattern matches the whole of it. */
