@@ -16,7 +16,7 @@ import { Git } from '../src/git/exec.ts';
 import { discover } from '../src/git/discovery.ts';
 import type { RepoInfo } from '../src/git/discovery.ts';
 import { Operation } from '../src/git/repoState.ts';
-import { isNoise, repoFingerprint } from '../src/git/watcher.ts';
+import { RepoWatcher, isNoise, repoFingerprint } from '../src/git/watcher.ts';
 
 const git = new Git({});
 const made: string[] = [];
@@ -119,4 +119,44 @@ test('the churn a watcher sleeps through, and the churn it must not', () => {
   assert.equal(isNoise('heads/main', true), false);
   assert.equal(isNoise('remotes/origin/main', true), false);
   assert.equal(isNoise('ORIG_HEAD'), false);
+});
+
+test('dropping a stash that is not the newest wakes the watcher', async () => {
+  const dir = makeRepo();
+
+  // Two stashes, so that the one dropped is not the one `refs/stash` points at.
+  for (const text of ['first stash\n', 'second stash\n']) {
+    writeFileSync(join(dir, 'a.txt'), text);
+    sh(dir, 'stash', 'push', '-q', '-m', text.trim());
+  }
+
+  const repo = await open(dir);
+  let woke = 0;
+  const watcher = new RepoWatcher(repo, () => (woke += 1), 20);
+
+  try {
+    const top = sh(dir, 'rev-parse', 'refs/stash').trim();
+
+    sh(dir, 'stash', 'drop', 'stash@{1}');
+
+    /*
+     * This is the part worth pinning. Only the newest stash is a ref - the rest of the stack lives in
+     * `logs/refs/stash`, which nothing here watches - so it reads like a change the watcher cannot
+     * see, and it was written up as a bug. It is not one: git rewrites `refs/stash` as well, with the
+     * same value it had, and a rewrite is an event whatever it wrote. Nothing had to be added for
+     * this to work, and a watch of the reflogs would have been a watch for nothing - but the reason
+     * is git's, not Weft's, so it is worth a test rather than a comment.
+     */
+    assert.equal(sh(dir, 'rev-parse', 'refs/stash').trim(), top, 'the ref this is not about did not move');
+
+    const by = Date.now() + 5_000;
+
+    while (Date.now() < by && woke === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    assert.ok(woke > 0, 'the graph would otherwise go on drawing a stash that is gone');
+  } finally {
+    watcher.dispose();
+  }
 });
