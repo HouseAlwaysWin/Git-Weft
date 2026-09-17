@@ -14,6 +14,10 @@
  * options declare has to be stored - because an option accepted and dropped on the floor leaves
  * exactly the same working-looking module running on its defaults.
  *
+ * And: does every page ask for elements its own markup has? The loop above only ever sees modules
+ * that export `connect`, which no page does - so `stats.ts` and `rebase.ts` went past it without a
+ * word. See PAGES, below.
+ *
  *   node scripts/wiring-check.mjs
  */
 
@@ -74,9 +78,114 @@ if (connected.length === 0) {
 
 console.log(`webview wiring : ${connected.join(', ')}`);
 
+/*
+ * The second question, which nothing here used to ask.
+ *
+ * `main.ts` is not the only page: `stats.ts` and `rebase.ts` are pages too, neither exports `connect`,
+ * and so the loop above skipped both without saying so - which is how the rebase editor's page came to
+ * have no check of any kind anywhere. A page that asks for an id its markup does not carry either
+ * throws as it loads, leaving a list nobody can work and buttons that do nothing, or - the older idiom
+ * here, `getElementById('x') as HTMLElement` - carries a null that passes for an element until
+ * something touches it. Neither names the id, and neither happens until somebody opens that page.
+ *
+ * So: every page esbuild builds has to be named below with the markup it is drawn into, and every id
+ * the page or the modules loaded with it look up has to be in that markup.
+ */
+const PAGES = {
+  'main.ts': 'BODY_MARKUP',
+  'stats.ts': 'STATS_MARKUP',
+  'rebase.ts': 'REBASE_MARKUP',
+};
+
+const markup = readFileSync(new URL('markup.ts', dir), 'utf8');
+
+/** What a markup constant holds, from its name to the backtick that ends it. */
+function drawnBy(name) {
+  const at = markup.indexOf(`export const ${name} = \``);
+  const end = at < 0 ? -1 : markup.indexOf('`;', at);
+
+  return at < 0 || end < 0 ? null : markup.slice(at, end);
+}
+
+/** A page's own module and everything it imports from beside it, which is what loads with it. */
+function loadedWith(entry) {
+  const seen = new Set();
+  const walk = (file) => {
+    if (seen.has(file)) {
+      return;
+    }
+
+    seen.add(file);
+
+    for (const [, next] of readFileSync(new URL(file, dir), 'utf8').matchAll(/from '\.\/([\w.-]+)\.ts'/g)) {
+      walk(`${next}.ts`);
+    }
+  };
+
+  walk(entry);
+  return seen;
+}
+
+/*
+ * Ids as this codebase asks for them: `getElementById('x')`, the `element('x')` helper that throws
+ * instead of lying about what it found, and a literal `querySelector('#x')`. Anything computed is
+ * nobody's business here - a check that guessed at expressions would be a check that cried wolf.
+ */
+function idsIn(source) {
+  const patterns = [
+    /getElementById\('([\w-]+)'\)/g,
+    /\belement(?:<[^>]*>)?\('([\w-]+)'\)/g,
+    /querySelector(?:<[^>]*>)?\('#([\w-]+)'\)/g,
+  ];
+
+  return patterns.flatMap((pattern) => [...source.matchAll(pattern)].map(([, id]) => id));
+}
+
+// Read from the build rather than listed here as well: a page added there and not below is the blindness.
+const built = [
+  ...readFileSync(new URL('../../esbuild.mjs', dir), 'utf8').matchAll(/'src\/webview\/([\w.-]+)\.ts'/g),
+].map(([, name]) => `${name}.ts`);
+
+for (const entry of built) {
+  if (!(entry in PAGES)) {
+    problems.push(`esbuild builds src/webview/${entry} as a page of its own, and PAGES here has never heard of it`);
+  }
+}
+
+const pages = [];
+
+for (const [entry, constant] of Object.entries(PAGES)) {
+  const html = drawnBy(constant);
+
+  if (html === null) {
+    problems.push(`${entry} is drawn into ${constant}, which markup.ts does not export`);
+    continue;
+  }
+
+  let asked = 0;
+
+  for (const file of loadedWith(entry)) {
+    for (const id of idsIn(readFileSync(new URL(file, dir), 'utf8'))) {
+      asked += 1;
+
+      if (!html.includes(`id="${id}"`)) {
+        problems.push(`${file} looks up #${id}, which ${constant} - the markup ${entry} is drawn into - does not have`);
+      }
+    }
+  }
+
+  pages.push(`${entry.replace('.ts', '')} (${asked})`);
+}
+
+console.log(`webview pages  : ${pages.join(', ')}`);
+
 for (const problem of problems) {
   console.error(`  ! ${problem}`);
 }
 
-console.log(problems.length === 0 ? 'OK - every split-out module is connected.' : 'FAILED');
+console.log(
+  problems.length === 0
+    ? 'OK - every split-out module is connected, and every page has the elements it asks for.'
+    : 'FAILED',
+);
 process.exit(problems.length === 0 ? 0 : 1);
