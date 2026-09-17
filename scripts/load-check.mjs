@@ -2694,13 +2694,40 @@ if (watchTest) {
   }
 
   /*
-   * Back to main, which the graph says nothing about: measured here, this checkout posts no message
-   * of any kind for at least five seconds, where the one onto twin posted a walk within one. So
-   * there is nothing to wait for by name, and what the fixture below needs is only that the watcher
-   * is not still inside a debounce when it starts moving refs about.
+   * And straight back to main, which is where the graph used to stop being right about anything.
+   *
+   * The branch was made and then checked out, so the redraw for the first of those read the
+   * repository after the second had landed: the graph named twin while the watcher's baseline still
+   * said main. This checkout then matched that baseline exactly, the wake decided nothing had moved,
+   * and the header went on naming twin - measured as no message of any kind for twenty seconds,
+   * against a walk within one for the checkout onto twin.
+   *
+   * Both halves: the name comes back, and it costs no walk, because the two branches are at one commit
+   * and there is nothing about the history that is different.
    */
+  const backFrom = posted.length;
+  const walksBeforeBack = posted.filter((m) => m.type === 'done').length;
+
   runGit(repoPath, 'checkout', '-q', 'main');
+
+  const backNamed = await until(
+    () => posted.slice(backFrom).some((m) => m.type === 'refs' && m.branch === 'main'),
+    15_000,
+  );
+
   await quiet();
+
+  const backWalks = posted.filter((m) => m.type === 'done').length - walksBeforeBack;
+
+  console.log('and back again :', backNamed ? 'names main' : 'STILL NAMES ' + namesBranch(), '|', backWalks, 'walk(s)');
+
+  if (!backNamed) {
+    problems.push('checking out main straight after twin left the graph naming ' + namesBranch());
+  }
+
+  if (backWalks > 0) {
+    problems.push('naming the branch again cost ' + backWalks + ' walk(s) of a history that had not moved');
+  }
   runGit(repoPath, 'branch', '-D', 'twin');
   await until(() => !listsHead('twin'));
 

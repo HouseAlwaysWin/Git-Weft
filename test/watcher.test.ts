@@ -16,7 +16,7 @@ import { Git } from '../src/git/exec.ts';
 import { discover } from '../src/git/discovery.ts';
 import type { RepoInfo } from '../src/git/discovery.ts';
 import { Operation } from '../src/git/repoState.ts';
-import { RepoWatcher, isNoise, repoFingerprint } from '../src/git/watcher.ts';
+import { RepoWatcher, headBranchOf, isNoise, repoFingerprint } from '../src/git/watcher.ts';
 
 const git = new Git({});
 const made: string[] = [];
@@ -159,4 +159,23 @@ test('dropping a stash that is not the newest wakes the watcher', async () => {
   } finally {
     watcher.dispose();
   }
+});
+
+test('a fingerprint says which branch HEAD is on, and says nothing when it is on none', async () => {
+  const dir = makeRepo();
+  const repo = await open(dir);
+  const git = new Git({});
+
+  assert.equal(headBranchOf(await repoFingerprint(git, repo)), 'main');
+
+  sh(dir, 'checkout', '-q', '-b', 'a/branch/with/slashes');
+  assert.equal(headBranchOf(await repoFingerprint(git, repo)), 'a/branch/with/slashes');
+
+  // Detached: `git status` calls this no branch either, so the two agree rather than disagreeing for ever.
+  sh(dir, 'checkout', '-q', '--detach');
+  assert.equal(headBranchOf(await repoFingerprint(git, repo)), null);
+
+  // And the mark is read rather than assumed: an object name is however long this repository's are.
+  assert.equal(headBranchOf({ refs: 'abc\n*0123456789abcdefrefs/heads/main', operation: Operation.None }), 'main');
+  assert.equal(headBranchOf({ refs: 'abc\n 0123456789abcdefrefs/heads/main', operation: Operation.None }), null);
 });

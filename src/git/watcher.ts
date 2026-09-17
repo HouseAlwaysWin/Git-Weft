@@ -144,6 +144,22 @@ export interface Fingerprint {
   readonly operation: Operation;
 }
 
+/**
+ * Which branch HEAD is on, out of a fingerprint that has already been read.
+ *
+ * `for-each-ref` marks it with `%(HEAD)`, which is the whole reason that field is in the format: the
+ * fingerprint has to change when a checkout moves nothing but HEAD. Reading it back out is free, and
+ * saves asking git a question it has already answered.
+ *
+ * Null for a detached HEAD, which is what `git status` says about one too - so the two agree about a
+ * repository that is on no branch at all, rather than disagreeing for ever.
+ */
+export function headBranchOf(fingerprint: Fingerprint): string | null {
+  const marked = fingerprint.refs.split('\n').find((line) => line.startsWith('*'));
+
+  return /^\*[0-9a-f]+refs\/heads\/(.+)$/.exec(marked ?? '')?.[1] ?? null;
+}
+
 /** Both parts at once: two cheap reads and a handful of file checks. */
 export async function repoFingerprint(git: Git, repo: RepoInfo): Promise<Fingerprint> {
   const [refs, head, operation] = await Promise.all([

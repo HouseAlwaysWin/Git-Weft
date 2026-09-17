@@ -14,7 +14,7 @@ import type { CommitDetails } from './git/details.ts';
 import type { FileStatus } from './git/repoState.ts';
 import type { Comparison } from './git/details.ts';
 import { compareCommits, loadCommitDetails } from './git/details.ts';
-import { RepoWatcher, repoFingerprint } from './git/watcher.ts';
+import { RepoWatcher, headBranchOf, repoFingerprint } from './git/watcher.ts';
 import type { Fingerprint } from './git/watcher.ts';
 import { changesDrawing } from './git/refChanges.ts';
 import type { Search } from './git/search.ts';
@@ -629,6 +629,28 @@ export class WeftPanel {
       await readRepoState(this.git, this.repo)
         .then((state) => this.postOperation(state))
         .catch(() => undefined);
+    }
+
+    /*
+     * And the branch on screen, against the branch HEAD is on.
+     *
+     * The fingerprint above is read when a wake begins; the header is named by the redraw that
+     * follows. A checkout landing between the two is drawn - the name that arrives is the new one -
+     * while the baseline still holds the repository from before it. Checking the first branch out
+     * again then matches that baseline exactly: nothing moved, said the watcher, and the header went
+     * on naming a branch nobody was on until something else happened to move a ref.
+     *
+     * Measured before it was believed, on two branches at one commit: the checkout onto the second
+     * posted a walk within a second, and the checkout back posted nothing at all for twenty. A pause
+     * before that second checkout made it post within one, which is what said this was two reads of
+     * different moments rather than anything wrong with the watching.
+     *
+     * Against what was drawn rather than against the baseline, because the baseline is the thing that
+     * is wrong. And it costs no walk to put right: two branches at one commit draw the same graph, and
+     * a branch anywhere else would have moved the fingerprint and been drawn above.
+     */
+    if (headBranchOf(signature) !== this.headBranch) {
+      await this.refreshWorking();
     }
   }
 

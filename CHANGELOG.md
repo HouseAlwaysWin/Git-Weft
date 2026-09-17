@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The header no longer names a branch nobody is on.** The watcher reads the repository when it wakes,
+  and the header is named by the redraw that follows - so a checkout landing between the two was drawn
+  while what the watcher measures against still held the repository from before it. Making a branch,
+  checking it out, and checking the first one out again was enough: that last checkout matched what the
+  watcher held exactly, so it decided nothing had moved, and the graph went on naming the branch you had
+  left until something else happened to move a ref. What is on screen is now checked against what HEAD
+  says, and putting it right costs no walk.
+
 - **A ticket link that cannot be used now says so, and a corrected one takes effect.** `weft.ticketLinks`
   dropped any entry it could not use without a word - and the two mistakes worth catching are exactly the
   two the settings editor cannot: a `pattern` that is a string but not a regular expression, and a `url`
