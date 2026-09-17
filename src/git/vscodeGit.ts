@@ -62,7 +62,7 @@ async function api(): Promise<GitApi | null> {
  * one fewer trigger rather than an error, so the subscription simply never happened and the
  * working-tree row sat there stale with nothing to say it should not have.
  */
-function canonical(path: string): string {
+export function canonical(path: string): string {
   try {
     return realpathSync.native(path).replace(/\\/g, '/').toLowerCase();
   } catch {
@@ -174,8 +174,12 @@ export function watchWorkingTree(root: string, onChange: () => void): { dispose(
  * which nothing here watched. A commit changes no text, so a line that had just been committed went
  * on being blamed as it was until somebody edited the file. The git extension's state changes for
  * every file saved as well; comparing HEAD's commit keeps this to the changes that move an answer.
+ *
+ * `onChange` is told which repository moved, canonically spelled, or null where this version of the
+ * API will not say. A listener holding answers for more than one repository can then throw away only
+ * the ones that stopped being true - a commit here is not news about a repository over there.
  */
-export function watchRepositoryChanges(onChange: () => void): { dispose(): void } {
+export function watchRepositoryChanges(onChange: (root: string | null) => void): { dispose(): void } {
   return pending(async (add) => {
     const git = await api();
 
@@ -188,6 +192,7 @@ export function watchRepositoryChanges(onChange: () => void): { dispose(): void 
     const watch = (repository: Repository): void => {
       try {
         let head = repository.state.HEAD?.commit;
+        const root = canonical(repository.rootUri.fsPath);
 
         add(
           repository.state.onDidChange(() => {
@@ -196,7 +201,7 @@ export function watchRepositoryChanges(onChange: () => void): { dispose(): void 
 
               if (now !== head) {
                 head = now;
-                onChange();
+                onChange(root);
               }
             } catch {
               // One fewer trigger.

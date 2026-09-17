@@ -5187,6 +5187,78 @@ if (!(await until(blamedAgain))) {
   if (off.length !== 0) {
     problems.push(`with weft.codeLens off a file still had ${off.length} of them`);
   }
+
+  /*
+   * What it holds, and for how long. Three answers that used to be kept longer than they were true: a
+   * commit anywhere threw away every repository's, a file nobody has open kept its own for the session,
+   * and "this directory is not a repository" was kept even after `git init` made it one.
+   */
+  const asked = (path) => outputLines.filter((line) => line.startsWith('debug') && line.includes(`log -1 --format=%H`) && line.includes(path)).length;
+  const elsewhere = makeTempRepo();
+  const theirs = { uri: uri(`${elsewhere}/f1.txt`), version: 1 };
+
+  await lens.provider.provideCodeLenses(theirs, {});
+
+  const mineBefore = asked('f1.txt');
+  const theirsBefore = asked(elsewhere.replace(/\\/g, '/'));
+
+  // A commit here, which the git extension reports the way it reports every HEAD move.
+  runGit(repoPath, 'commit', '-q', '--allow-empty', '-m', 'a commit the lens has to notice');
+  repositoryState.fire();
+  await quiet(300);
+
+  await lens.provider.provideCodeLenses(document, {});
+  await lens.provider.provideCodeLenses(theirs, {});
+
+  const mineAfter = asked('f1.txt');
+  const theirsAfter = asked(elsewhere.replace(/\\/g, '/'));
+
+  console.log(
+    'lens holds     : this repository asked',
+    mineAfter - mineBefore,
+    'more time(s) after its commit, another repository',
+    theirsAfter - theirsBefore,
+  );
+
+  if (mineAfter === mineBefore) {
+    problems.push('a commit in this repository left the line above its files saying what it said before');
+  }
+
+  if (theirsAfter !== theirsBefore) {
+    problems.push(`a commit in one repository threw away another repository's lines, re-reading ${theirsAfter - theirsBefore}`);
+  }
+
+  // A file that was closed: nothing is held for it, so the next ask is a fresh one.
+  const closedFrom = asked('f1.txt');
+
+  documentClosed.fire(document);
+  await lens.provider.provideCodeLenses(document, {});
+
+  if (asked('f1.txt') === closedFrom) {
+    problems.push('a file that was closed kept its line, so nothing is ever let go of');
+  }
+
+  // And a directory that becomes a repository after it was first asked about.
+  const later = mkdtempSync(join(tmpdir(), 'weft-later-')).replace(/\\/g, '/');
+  const laterFile = `${later}/f1.txt`;
+
+  writeFileSync(laterFile, 'not in a repository yet\n');
+
+  const beforeInit = await lens.provider.provideCodeLenses({ uri: uri(laterFile), version: 1 }, {});
+
+  runGit(later, 'init', '-q', '-b', 'main');
+  runGit(later, 'config', 'user.name', 'Weft Test');
+  runGit(later, 'config', 'user.email', 'test@example.invalid');
+  runGit(later, 'add', '-A');
+  runGit(later, 'commit', '-q', '-m', 'now it is one');
+
+  const afterInit = await lens.provider.provideCodeLenses({ uri: uri(laterFile), version: 1 }, {});
+
+  console.log('after git init :', beforeInit.length, 'lens before,', afterInit.length, 'after');
+
+  if (beforeInit.length !== 0 || afterInit.length !== 1) {
+    problems.push(`a directory that became a repository had ${beforeInit.length} lines before and ${afterInit.length} after`);
+  }
 }
 
 /*

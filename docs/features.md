@@ -61,7 +61,8 @@ landing page that lists two hundred things tells you nothing about any of them.
   opens, and only to an http or https address the extension builds itself
 - A line above a file's first line says who last changed it and how long ago - `Ada Fischer, 3 days
   ago` - and clicking it narrows the graph to that file. One `git log -1` per file, kept until a
-  commit or a checkout could change it; `weft.codeLens` turns it off
+  commit or a checkout in that repository could change it, and let go of when the file is closed;
+  `weft.codeLens` turns it off
 - A commit id printed in the integrated terminal is a link: click it and the graph opens on that
   commit, in the repository the terminal is in. Both ends of a range are links; an id inside a URL is
   left alone, and so is a number

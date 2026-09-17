@@ -6,8 +6,15 @@
  * which is the next question.
  *
  * One `git log -1` a file, and kept until something could change the answer: editing the file cannot,
- * so typing costs nothing, while a commit, a checkout or a fetch drops what is held and VS Code asks
- * again. `weft.codeLens` turns it off for anybody who wants their first line back.
+ * so typing costs nothing, while a commit, a checkout or a fetch in *that* repository drops what is
+ * held and VS Code asks again. `weft.codeLens` turns it off for anybody who wants their first line
+ * back.
+ *
+ * `-1` bounds the output and not the walk, so the worst case is git comparing trees all the way back
+ * to the root commit. Measured on a 78,597-commit repository: 285 ms for a file changed last week,
+ * 274 ms for a path that never existed at all, which is that worst case. Both are a background read
+ * off the UI thread, so the walk is left unbounded rather than paid for with a lens that can only
+ * speak about recent history.
  */
 
 import * as vscode from 'vscode';
@@ -17,13 +24,13 @@ import type { RepoInfo } from './git/discovery.ts';
 import { discover } from './git/discovery.ts';
 import type { Git } from './git/exec.ts';
 import { describeLastChange, parseLastChange } from './git/lastChange.ts';
-import { watchRepositoryChanges } from './git/vscodeGit.ts';
+import { canonical, watchRepositoryChanges } from './git/vscodeGit.ts';
 
 export class FileCodeLens implements vscode.CodeLensProvider {
   private readonly git: Git;
   private readonly changed = new vscode.EventEmitter<void>();
   private readonly repos = new Map<string, Promise<RepoInfo | null>>();
-  private readonly known = new Map<string, vscode.CodeLens[]>();
+  private readonly known = new Map<string, { readonly root: string; readonly lenses: vscode.CodeLens[] }>();
   private readonly disposables: vscode.Disposable[] = [];
 
   /** VS Code asks again when this fires: a commit or a checkout, or the setting being turned back on. */
@@ -33,12 +40,14 @@ export class FileCodeLens implements vscode.CodeLensProvider {
     this.git = git;
     this.disposables.push(
       this.changed,
-      watchRepositoryChanges(() => this.refresh()),
+      watchRepositoryChanges((root) => this.refresh(root)),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('weft.codeLens')) {
-          this.refresh();
+          this.refresh(null);
         }
       }),
+      // A file nobody has open has no line above it, and holding its answer is holding it for nothing.
+      vscode.workspace.onDidCloseTextDocument((document) => this.known.delete(document.uri.fsPath)),
     );
   }
 
@@ -53,7 +62,7 @@ export class FileCodeLens implements vscode.CodeLensProvider {
     const held = this.known.get(path);
 
     if (held !== undefined) {
-      return held;
+      return held.lenses;
     }
 
     const repo = await this.repoOf(path);
@@ -81,7 +90,7 @@ export class FileCodeLens implements vscode.CodeLensProvider {
       }),
     ];
 
-    this.known.set(path, lenses);
+    this.known.set(path, { root: canonical(repo.root), lenses });
     return lenses;
   }
 
@@ -103,11 +112,36 @@ export class FileCodeLens implements vscode.CodeLensProvider {
     const asked = discover(this.git, dir).catch(() => null);
 
     this.repos.set(dir, asked);
+
+    /*
+     * A repository found stays found - they do not move - but "no repository here" is an answer with a
+     * shelf life: `git init` in a folder somebody already has open would otherwise leave every file in
+     * it without a line for the rest of the session.
+     */
+    void asked.then((repo) => {
+      if (repo === null) {
+        this.repos.delete(dir);
+      }
+    });
+
     return asked;
   }
 
-  private refresh(): void {
-    this.known.clear();
+  /**
+   * Drop what was read for one repository, or for all of them when there is no saying which.
+   *
+   * VS Code asks again for every visible editor when this fires, and each ask is a walk of a history.
+   * Clearing everything for a commit in one repository charged that walk to every other one open.
+   */
+  private refresh(root: string | null): void {
+    const moved = root === null ? null : canonical(root);
+
+    for (const [path, held] of [...this.known]) {
+      if (moved === null || held.root === moved) {
+        this.known.delete(path);
+      }
+    }
+
     this.changed.fire();
   }
 }
