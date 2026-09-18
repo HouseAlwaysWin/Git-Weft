@@ -279,8 +279,6 @@ ${BODY_MARKUP}
     kind: repo.isBare ? 'bare' : repo.isLinkedWorktree ? 'linked worktree' : null,
     // weft.ticketLinks is a setting, and a preview has none: no id is a link here.
     ticketPatterns: [],
-    // Unlike the patterns: the box fills itself in from these, and an empty list would show an empty box.
-    testBranches: ['uat', 'sit'],
   })};
   function replay() {
     window.postMessage(INIT, '*');

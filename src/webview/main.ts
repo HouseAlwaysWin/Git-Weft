@@ -354,8 +354,6 @@ function commitEnd(sha: string): CompareMark {
 
 /** The ticket patterns the host sent - see `ticketLinks` - for a badge's name to be read by. */
 let ticketPatterns: readonly string[] = [];
-/** `weft.testBranches`, which is what the "merges from" box fills itself in with. */
-let testBranches: readonly string[] = [];
 /**
  * Every branch this repository has, under the name the box wants.
  *
@@ -1191,7 +1189,6 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       document.body.classList.toggle('author-tint', message.authorColors);
       ticketPatterns = message.ticketPatterns;
       detailsPane.setTicketPatterns(message.ticketPatterns);
-      testBranches = message.testBranches;
       updateMergesFrom();
       break;
 
@@ -1390,8 +1387,14 @@ function updateMergesFrom(): void {
   }
 }
 
-/** The last thing asked for, so the same walk is not asked for twice - see the Return key below. */
-let askedMergesFrom = '';
+/**
+ * The last thing asked for, so the same walk is not asked for twice - see the Return key below.
+ *
+ * It starts as the empty filter rather than as nothing, because that is what the host is drawing: a
+ * switch turned on over an empty box asks for nothing, and asking would be a walk of the whole history
+ * to arrive at the graph that is already on screen.
+ */
+let askedMergesFrom = '[]';
 
 /** What the host is asked to draw: the branches in the box, or nothing at all when the switch is off. */
 function askMergesFrom(): void {
@@ -1496,14 +1499,12 @@ mergesFromEl.addEventListener('click', () => {
   mergesFrom = !mergesFrom;
 
   /*
-   * Turned on with nothing in the box, it fills itself in from `weft.testBranches` - which is what
-   * that setting is for, and saves the ordinary case being typed out every time. The box keeps the
-   * keyboard, because the next thing anybody does with a filter is change it.
+   * Nothing is put in the box. It used to arrive holding `weft.testBranches`, which reads as the filter
+   * having decided what you wanted - and a filter is something you ask for. What the setting is for is
+   * the report and the command that fills it in; what this box has is the completion, which makes a
+   * branch two keystrokes. The box keeps the keyboard, because the next thing anybody does with an
+   * empty filter box is type in it.
    */
-  if (mergesFrom && mergesFromBranchesEl.value.trim() === '') {
-    mergesFromBranchesEl.value = testBranches.join(', ');
-  }
-
   updateMergesFrom();
   saveViewState();
   askMergesFrom();
@@ -1586,7 +1587,7 @@ function clearFilters(): void {
    * Without this, switching the same branches back on asks for something the view thinks it has
    * already asked for, and the graph goes on drawing everything.
    */
-  askedMergesFrom = '';
+  askedMergesFrom = '[]';
   updateFirstParent();
   updateOnlyHere();
   updateMergesFrom();

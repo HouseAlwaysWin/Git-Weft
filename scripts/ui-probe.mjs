@@ -608,11 +608,10 @@ const INVARIANTS = [
       const ok =
         value('box hidden before') === 'true' &&
         value('box hidden after') === 'false' &&
-        // Filled in from what the host sent, which is the preview's own list.
-        value('box holds') === '"uat, sit"' &&
+        // Empty, and nothing asked for: the graph on screen is already the one an empty filter draws.
+        value('box holds') === '""' &&
         (value('switch') ?? '').includes('on') &&
-        // One message per line, which is what `sentSince` writes - not a list of them.
-        JSON.stringify(asked('asked')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat', 'sit'] }) &&
+        value('asked') === '' &&
         // Edited to something else, which is asked for - the same value again is not, and is checked below.
         JSON.stringify(asked('after editing')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat'] }) &&
         // Off is the filter dropped, and the box keeps what it holds for the next time it is turned on.

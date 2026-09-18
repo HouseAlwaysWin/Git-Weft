@@ -730,8 +730,6 @@
         authorColors: true,
         kind: null,
         ticketPatterns: ['ERP-[0-9]+'],
-        // Everything the host sends, or the page is being replayed a message the host never sends.
-        testBranches: ['uat', 'sit'],
       },
       '*',
     );
@@ -766,9 +764,10 @@
     parts.push('=== opening ticket ids sends ===\n' + sentSince(beforeTicket));
 
     /*
-     * The merges-from switch: off it shows no box and asks for nothing, on it fills itself in from the
-     * setting the host sent and asks for those branches, and a box edited asks again. Last of the
-     * filters, because what it asks for is a walk and the demo history is replayed after it.
+     * The merges-from switch: off it shows no box, on it shows an empty one and asks for nothing -
+     * which matters, because asking for the empty filter is a walk of the whole history to arrive at
+     * the graph already on screen. What it draws is asked for when a branch is typed into the box.
+     * Last of the filters, because what it asks for is a walk and the demo history is replayed after it.
      */
     {
       const box = document.querySelector('#merges-from-branches');

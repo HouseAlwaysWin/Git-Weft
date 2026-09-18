@@ -94,7 +94,7 @@ import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
-import { parsePicked, pickedArgs, readTestBranches, refFor, tookTestBranch } from './git/testMerges.ts';
+import { parsePicked, pickedArgs, refFor, tookTestBranch } from './git/testMerges.ts';
 import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
@@ -1476,7 +1476,6 @@ export class WeftPanel {
       authorColors: config.get<boolean>('authorColors', true),
       kind: describe(this.repo),
       ticketPatterns: readTicketLinks(config.get<unknown[]>('ticketLinks', [])).links.map((link) => link.pattern),
-      testBranches: readTestBranches(config.get<unknown[]>('testBranches', [])),
     });
 
     const loader = new HistoryLoader(this.git, this.repo);

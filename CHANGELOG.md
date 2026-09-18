@@ -3,8 +3,8 @@
 ## Unreleased
 
 - **Draw only what came in from another branch.** A **came from** switch in the filter bar, with a box
-  for the branches - your test sites, `uat` and `sit` and the like, filled in from `weft.testBranches`
-  the first time it is switched on and yours to change after that. The graph then draws what arrived
+  for the branches you type - your test sites, `uat` and `sit` and the like, offered as you type them.
+  The graph then draws what arrived
   from them and nothing else: the merges that took one into somebody's feature branch, which is how a
   test site's own commits reach the trunk behind it, and the commits taken across one at a time, which
   leave nothing written down and are found by their change instead - the copy in your history, not the

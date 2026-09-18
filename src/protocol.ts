@@ -106,13 +106,6 @@ export type HostMessage =
        * only: where an id opens is the host's to work out, from the text alone.
        */
       readonly ticketPatterns: readonly string[];
-      /**
-       * `weft.testBranches`, for the "merges from" box to start with.
-       *
-       * The box is the filter and the setting is only what it is filled in with: somebody who wants a
-       * branch this list has never heard of types it, and nothing about the setting stops them.
-       */
-      readonly testBranches: readonly string[];
     }
   | {
       readonly type: 'page';

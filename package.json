@@ -863,7 +863,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Branches a test site sits on, such as `uat` or `staging`. **Git Weft: Choose Test Branches…** fills this in from the branches this repository has, which is easier than typing them. **Git Weft: Find Merges From Test Branches** then lists every merge that took one of them into a branch that is not one of them - which is how a test site's own commits reach the trunk behind somebody's feature - and says which of those merges are already in the branch you are on. A name matches whole, ignoring case, with any remote in front of it: `uat` is also `origin/uat`, and is not `uat_deploy`. Merges are found by what git wrote when they were made, so one that was squashed or rebased leaves nothing to find."
+          "markdownDescription": "Branches a test site sits on, such as `uat` or `staging`. **Git Weft: Choose Test Branches…** fills this in from the branches this repository has, which is easier than typing them. **Git Weft: Find Merges From Test Branches** then lists every merge that took one of them into a branch that is not one of them - which is how a test site's own commits reach the trunk behind somebody's feature - and says which of those merges are already in the branch you are on. A name matches whole, ignoring case, with any remote in front of it: `uat` is also `origin/uat`, and is not `uat_deploy`. The graph's own **came from** switch takes its branches from its box rather than from here, so the two can ask about different things. Merges are found by what git wrote when they were made, so one that was squashed or rebased leaves nothing to find."
         },
         "weft.remoteHosts": {
           "type": "object",

@@ -54,7 +54,7 @@ export const BODY_MARKUP = `<header id="header">
         <input id="merges-from-branches" type="text" spellcheck="false" autocomplete="off"
           placeholder="uat, sit" aria-label="Branches whose merges to draw"
           aria-autocomplete="list" aria-controls="merges-from-names"
-          title="Which branches, separated by commas. Filled in from weft.testBranches, and yours to change - a name matches whole, with any remote in front of it. Typing offers the branches this repository has.">
+          title="Which branches, separated by commas. Typing offers the branches this repository has; a name matches whole, with any remote in front of it, so uat is also origin/uat and is not uat_deploy.">
         <div id="merges-from-names" hidden></div>
       </span>
       <select id="commit-order" title="How git orders the walk. All three keep a parent below its children, which the lanes depend on, and all three cost the same - the difference is which shape the history reads best in. Topological keeps a branch&#39;s commits together instead of interleaving them by date.">
