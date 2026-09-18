@@ -11,7 +11,7 @@
  *   node scripts/text-check.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const TEXT = /\.(ts|mjs|js|json|md|css|html|yml|yaml|txt)$/;
 const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
@@ -21,6 +21,15 @@ const files = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
 const problems = [];
 
 for (const file of files) {
+  /*
+   * Tracked and not on disk: a file the change being checked deletes, which git still lists because the
+   * deletion is not staged yet. There are no bytes to read and nothing to say about them - and reading
+   * it anyway is how this check failed every run of a change that renamed a file.
+   */
+  if (!existsSync(file)) {
+    continue;
+  }
+
   const bytes = readFileSync(file);
 
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
