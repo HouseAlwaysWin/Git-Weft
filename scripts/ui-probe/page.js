@@ -130,6 +130,13 @@
         return `${el.className.includes('merge') ? 'merged' : 'copied'}: ${style.color} on ${style.backgroundColor} at ${style.fontWeight}`;
       });
 
+      /*
+       * From a row that has one: the working-tree row draws a `*` where a sha would be, in the grey
+       * every other cell on that row is, and it is the first row on the page.
+       */
+      const shaCell = document.querySelector('#rows .row:not(.uncommitted) .sha');
+
+      painted.push(`commit id: ${shaCell === null ? '(no row)' : getComputedStyle(shaCell).color}`);
       parts.push('=== how the badges are painted ===\n' + (painted.join('\n') || '(none)'));
 
       const cut = (el) => el.scrollWidth > el.clientWidth + 1;

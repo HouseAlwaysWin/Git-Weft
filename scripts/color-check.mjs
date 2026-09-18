@@ -28,6 +28,15 @@ const GRAPHICS_FLOOR = 3;
  */
 const MIN_SEPARATION = 0.04;
 
+/**
+ * And how far apart two hues have to be when their lightness is not the same.
+ *
+ * Distance in OKLab counts lightness, so a dim orange and a bright orange come out far apart while
+ * being one colour to anybody reading the row. Thirty degrees is about where a hue stops being
+ * describable by the same word.
+ */
+const MIN_HUE_APART = 30;
+
 /* ---------------------------------------------------------------- colour maths */
 
 const srgbFromLinear = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055);
@@ -229,6 +238,42 @@ const problems = [];
 
     if (apart < MIN_SEPARATION) {
       problems.push(`${theme.name}: the two came-from badges are ${apart.toFixed(3)} apart, which reads as one colour`);
+    }
+
+    /*
+     * And the commit id, which is on the same row and means something else entirely. It is drawn at the
+     * author tint's lightness rather than the badges', so its floor is the same as a name's - and what
+     * it has to keep from them is distance, because it was the same orange as one of them.
+     */
+    const sha = render(
+      number(cssVar(css, 'weft-author-l', theme.name === 'light' ? 'body.vscode-light' : undefined)),
+      number(cssVar(css, 'weft-author-c', theme.name === 'light' ? 'body.vscode-light' : undefined)),
+      number(cssVar(css, 'weft-sha-h')),
+    );
+    const shaRatio = contrast(sha.linear, bg);
+
+    /*
+     * By hue, not by distance in OKLab. The id is drawn at the author tint's lightness and the badges at
+     * their own, so the distance between them counts that difference and comes out comfortable while the
+     * two are the same colour in every way a reader cares about - measured: an id given the copy badge's
+     * exact hue was 0.1 away and would have passed.
+     */
+    const apartInHue = Math.min(
+      ...badges.map((badge) => {
+        const gap = Math.abs(((badge.hue - number(cssVar(css, 'weft-sha-h'))) % 360) + 360) % 360;
+
+        return Math.min(gap, 360 - gap);
+      }),
+    );
+
+    console.log(`  commit id        ${cssVar(css, 'weft-sha-h').padStart(3)}deg  ${hex(sha.linear)}  ${shaRatio.toFixed(2)}:1, ${apartInHue}deg from the nearest badge`);
+
+    if (shaRatio < FLOOR) {
+      problems.push(`${theme.name}: the commit id is ${shaRatio.toFixed(2)}:1, under the ${FLOOR}:1 floor`);
+    }
+
+    if (apartInHue < MIN_HUE_APART) {
+      problems.push(`${theme.name}: the commit id is ${apartInHue}deg from a came-from badge, which reads as that colour`);
     }
   }
 }

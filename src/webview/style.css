@@ -50,6 +50,18 @@
   --weft-came-copy-h: 62;
 
   /*
+   * The commit id, tinted so it reads as an identifier rather than as words - which it was already, in
+   * the theme's `charts` orange. That measured 5.60:1 and was readable; what it was not was distinct.
+   * The came-from badge for a copied commit is orange too, and two things in one row meaning different
+   * things in the same colour is the kind of thing a reader stops trusting.
+   *
+   * At the author tint's lightness, which is the one this stylesheet has already measured for every hue
+   * on both themes, and a hue well away from either badge. `color-check.mjs` holds it to both: the floor
+   * it has to clear, and the distance it has to keep.
+   */
+  --weft-sha-h: 195;
+
+  /*
    * The columns, declared once. The header row and every commit row lay themselves out with this
    * same template, which is what keeps a label sitting over its own column - alignment by
    * construction rather than by two sets of widths that have to be kept in step by hand.
@@ -465,7 +477,7 @@ body.vscode-high-contrast.author-tint .row .author {
 
 .sha {
   font-family: var(--vscode-editor-font-family);
-  color: var(--vscode-charts-orange, #d18616);
+  color: oklch(var(--weft-author-l) var(--weft-author-c) var(--weft-sha-h));
 }
 
 /*

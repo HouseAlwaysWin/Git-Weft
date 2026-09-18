@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The commit id is no longer the same colour as a badge that means something else.** It was the
+  theme's chart orange, which is readable and was also, as of the badges above, the colour of "this
+  commit was copied from a test site". Two things in one row meaning different things in one colour is
+  the sort of thing a reader stops trusting. It has a hue of its own now, measured like the rest.
+
 - **The badge that says why a row is there is filled rather than outlined, in colours picked for it.**
   It borrowed the theme's chart colours, and on a dark theme that measured 3.96:1 against the row it sits
   on - under the 4.5:1 floor for text that size, which is what "hard to read" is once it is written down.

@@ -574,7 +574,7 @@ const INVARIANTS = [
     },
   ],
   [
-    'the two came-from badges are filled, and filled differently',
+    'the two came-from badges are filled and different, and the commit id is neither of them',
     (found) => {
       const lines = (found['=== how the badges are painted ==='] ?? '').trim().split('\n');
       const said = (name) => lines.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2) ?? '';
@@ -582,7 +582,7 @@ const INVARIANTS = [
       const copied = said('copied');
       const filled = (line) => !line.includes('rgba(0, 0, 0, 0)') && !line.includes('transparent');
       const ok =
-        lines.length === 2 &&
+        lines.length === 3 &&
         // Painted at all, painted differently, and heavier than the chips beside them.
         filled(merged) &&
         filled(copied) &&
@@ -595,7 +595,9 @@ const INVARIANTS = [
          * and between them there is nowhere for a badge to be a colour nobody measured.
          */
         merged.startsWith('oklch(0.8 0.13 300) on') &&
-        copied.startsWith('oklch(0.8 0.13 62) on');
+        copied.startsWith('oklch(0.8 0.13 62) on') &&
+        // And the id beside them, which is a different thing and has to look like one.
+        said('commit id') === 'oklch(0.7 0.105 195)';
 
       return ok ? null : lines.join(' / ');
     },
