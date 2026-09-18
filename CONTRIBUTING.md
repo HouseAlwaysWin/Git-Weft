@@ -3,7 +3,7 @@
 ```bash
 npm install
 npm run build      # or: npm run watch
-npm test           # build, unit tests, then a full end-to-end run against a throwaway repo
+npm test           # every check there is, in groups that run at the same time as each other
 npm run typecheck
 npm run color-check  # contrast and separation of the author tints, in both themes
 npm run column-check # the column controls against the stylesheet that has to read them
