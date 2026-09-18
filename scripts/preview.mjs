@@ -51,13 +51,25 @@ await loader.load(
     if (page.commits.length > 0 || page.done) {
       messages.push({
         type: 'page',
-        rows: page.commits.map((c) => ({
+        rows: page.commits.map((c, at) => ({
           sha: c.sha,
           subject: c.subject,
           author: c.author,
           date: c.authorDate,
           refs: c.refs,
           isHead: c.isHead,
+          /*
+           * What the came-from switch puts on a row, on two of the first page's, so the badges are
+           * something that can be looked at here and held to a shape by the probe. The switch itself is
+           * the host's, and a preview has no host to turn it on.
+           */
+          ...(messages.length > 0 || at > 4
+            ? {}
+            : at === 2
+              ? { cameFrom: { branch: 'uat', how: 'merge' } }
+              : at === 4
+                ? { cameFrom: { branch: 'uat', how: 'copy' } }
+                : {}),
         })),
         delta: page.delta,
       });

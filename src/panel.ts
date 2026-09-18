@@ -746,8 +746,8 @@ export class WeftPanel {
    * each - 0.9 seconds on that repository - and a graph with forty branches ticked would otherwise stop
    * to do arithmetic about all of them.
    */
-  private async pickedFrom(drawn: readonly string[] | null): Promise<ReadonlySet<string>> {
-    const found = new Set<string>();
+  private async pickedFrom(drawn: readonly string[] | null): Promise<ReadonlyMap<string, string>> {
+    const found = new Map<string, string>();
 
     if (this.mergesFrom.length === 0) {
       return found;
@@ -755,21 +755,22 @@ export class WeftPanel {
 
     const refNames = this.filters.listRefs().map((ref) => ref.refName);
     const sides = drawn === null || drawn.length === 0 ? await this.wholeRepositorySides(refNames) : drawn;
-    const pairs: [string, string][] = [];
+    const pairs: [string, string, string][] = [];
 
     for (const name of this.mergesFrom) {
       for (const ref of refsFor(name, refNames)) {
         for (const side of sides) {
-          pairs.push([side, ref]);
+          pairs.push([side, ref, name]);
         }
       }
     }
 
-    for (const [side, ref] of pairs.slice(0, PICK_READS)) {
+    for (const [side, ref, name] of pairs.slice(0, PICK_READS)) {
       const walked = await this.git.runRead(this.repo.root, pickedArgs(side, ref)).catch(() => '');
 
       for (const sha of parsePicked(walked)) {
-        found.add(sha);
+        // The name from the box rather than the ref it was resolved to: `uat` is what was asked about.
+        found.set(sha, name);
       }
     }
 
@@ -1591,6 +1592,20 @@ export class WeftPanel {
 
           const rows: Row[] = page.commits.map((c) => {
             const stash = stashes.get(c.sha);
+            const merged = this.mergesFrom.length === 0 ? null : tookTestBranch(c.subject, this.mergesFrom);
+            const copied = picked.get(c.sha);
+
+            /*
+             * Why this row is here, for the filter that is drawing it. A merge first: a commit can be
+             * both - a merge of the test site whose change also matches something over there - and what
+             * it did is the merge.
+             */
+            const cameFrom =
+              merged !== null
+                ? { branch: merged.branch, how: 'merge' as const }
+                : copied === undefined
+                  ? null
+                  : { branch: copied, how: 'copy' as const };
 
             return {
               sha: c.sha,
@@ -1600,6 +1615,7 @@ export class WeftPanel {
               refs: c.refs,
               isHead: c.isHead,
               ...(stash === undefined ? {} : { stash }),
+              ...(cameFrom === null ? {} : { cameFrom }),
             };
           });
 

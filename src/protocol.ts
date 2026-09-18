@@ -39,6 +39,16 @@ export interface Row {
   /** `stash@{0}` when this row is a stash rather than a commit. */
   readonly stash?: string;
   /**
+   * Why the came-from filter kept this row, when it is on: which branch the commit arrived from, and
+   * which of the two ways it arrived.
+   *
+   * A filter that draws two kinds of thing has to say which is which, or it is a list of commits with
+   * no way to tell what any of them is doing there. `merge` is a merge that took that branch into
+   * something else, read from what git wrote; `copy` is a commit whose change is the same as one over
+   * there, which is all a cherry-pick leaves behind.
+   */
+  readonly cameFrom?: { readonly branch: string; readonly how: 'merge' | 'copy' };
+  /**
    * True for the one row that is not a commit at all: the working tree.
    *
    * The view builds it rather than the host sending it, because it is not part of the history and

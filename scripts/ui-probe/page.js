@@ -102,6 +102,18 @@
 
     await settle(1200);
 
+    /*
+     * The badges the came-from filter puts on a row: which branch it arrived from, and which of the two
+     * ways. First, because everything below this either replays the history or empties it.
+     */
+    {
+      const badges = [...document.querySelectorAll('#rows .ref.came-from')].map(
+        (el) => el.className + ' | ' + el.textContent + ' | ' + el.title.slice(0, 40),
+      );
+
+      parts.push('=== came-from badges ===\n' + (badges.join('\n') || '(none)'));
+    }
+
     // The branch dropdown, and the ref rows inside it.
     await openMenu();
     take('branch menu', document.querySelector('#branch-menu'));

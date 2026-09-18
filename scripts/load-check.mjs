@@ -6441,6 +6441,32 @@ if (!(await until(blamedAgain))) {
     console.log('  as a filter  :', only.join(' | ') || '(nothing drawn)');
 
     /*
+     * And each of them says why it is there. One switch draws two kinds of thing, and a row that does
+     * not say which it is leaves the reader counting merge messages by eye.
+     */
+    const reasons = (() => {
+      const types = posted.map((m) => m.type);
+      const doneAt = types.lastIndexOf('done');
+      const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
+
+      return posted
+        .slice(resetAt, doneAt)
+        .filter((m) => m.type === 'page')
+        .flatMap((m) => m.rows.map((row) => `${row.subject.slice(0, 24)} -> ${JSON.stringify(row.cameFrom)}`));
+    })();
+
+    console.log('  said why     :', reasons.join(' | '));
+
+    if (
+      !reasons.some((said) => said.startsWith('a change somebody took') && said.includes(`"how":"copy"`)) ||
+      !reasons.some((said) => said.startsWith("Merge branch 'uat-site'") && said.includes(`"how":"merge"`)) ||
+      reasons.some((said) => said.includes('undefined')) ||
+      !reasons.every((said) => said.includes(`"branch":"${site}"`))
+    ) {
+      problems.push(`the rows did not say why they were drawn: ${JSON.stringify(reasons)}`);
+    }
+
+    /*
      * Both merges, the commit that came across as a copy, and neither of the two that look like merges
      * from the site - the pull on the test branch and the feature that went to it the ordinary way round
      * are in this walk as well, and took the site nowhere.

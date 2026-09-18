@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Each row the switch keeps says why it is there.** One switch draws two kinds of thing - a merge that
+  took a branch into another one, and a commit whose change came across by hand - and a list of commits
+  with no way to tell them apart is not much better than reading the merge messages yourself. Each row
+  now carries a badge saying which branch it arrived from and which of the two ways, in two colours, with
+  the long version on hover.
+
 - **The copies are looked for from the branches on screen.** A change that came across one commit at a
   time is a commit whose change is the same as one over there, so finding it means comparing two
   histories - and which two was, at first, whatever you had checked out. Standing on a feature branch

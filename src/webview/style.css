@@ -473,6 +473,20 @@ body.vscode-high-contrast.author-tint .row .author {
   border-color: var(--vscode-descriptionForeground);
 }
 
+/*
+ * Why a row is on screen, rather than what is on it: a different question from a ref's name, drawn in
+ * different colours so the two kinds the came-from switch draws are one glance apart.
+ */
+.ref.came-from.merge {
+  color: var(--vscode-charts-purple, #b180d7);
+  border-color: var(--vscode-charts-purple, #b180d7);
+}
+
+.ref.came-from.copy {
+  color: var(--vscode-charts-orange, #d18616);
+  border-color: var(--vscode-charts-orange, #d18616);
+}
+
 .ref.tag {
   color: var(--vscode-charts-yellow, #cca700);
   border-color: var(--vscode-charts-yellow, #cca700);

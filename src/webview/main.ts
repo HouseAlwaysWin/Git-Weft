@@ -671,6 +671,21 @@ function renderRows(indent: number, first: number, last: number): void {
       description.append(badge);
     }
 
+    /*
+     * Why the came-from filter kept this row. Two kinds of thing are drawn by one switch, and a row that
+     * does not say which it is leaves the reader counting merge messages by eye - which is what they
+     * were doing before the switch existed.
+     */
+    if (row.cameFrom !== undefined) {
+      const merged = row.cameFrom.how === 'merge';
+      const badge = span(`ref came-from ${row.cameFrom.how}`, `${merged ? 'merged' : 'copied'} ${row.cameFrom.branch}`);
+
+      badge.title = merged
+        ? `A merge that took ${row.cameFrom.branch} into another branch - git wrote that in the message.`
+        : `The same change as a commit on ${row.cameFrom.branch}, taken across rather than merged: the two have different ids and the same patch.`;
+      description.append(badge);
+    }
+
     for (const ref of row.refs) {
       const badge = document.createElement('span');
       badge.className = `ref ${ref.kind}`;

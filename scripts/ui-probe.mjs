@@ -574,6 +574,19 @@ const INVARIANTS = [
     },
   ],
   [
+    'a row the came-from filter kept says which branch it came from, and how',
+    (found) => {
+      const badges = (found['=== came-from badges ==='] ?? '').trim().split('\n');
+      const ok =
+        badges.length === 2 &&
+        // The class carries which of the two it is, and the text says it in words beside the branch.
+        badges[0] === 'ref came-from merge | merged uat | A merge that took uat into another branc' &&
+        badges[1] === 'ref came-from copy | copied uat | The same change as a commit on uat, take';
+
+      return ok ? null : badges.join(' / ');
+    },
+  ],
+  [
     'the merges-from box completes the name being typed, from the branches there are',
     (found) => {
       const lines = (found['=== merges from ==='] ?? '').trim().split('\n');
