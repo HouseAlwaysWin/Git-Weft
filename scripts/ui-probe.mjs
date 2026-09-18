@@ -574,6 +574,26 @@ const INVARIANTS = [
     },
   ],
   [
+    'the two came-from badges are filled, and filled differently',
+    (found) => {
+      const lines = (found['=== how the badges are painted ==='] ?? '').trim().split('\n');
+      const said = (name) => lines.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2) ?? '';
+      const merged = said('merged');
+      const copied = said('copied');
+      const filled = (line) => !line.includes('rgba(0, 0, 0, 0)') && !line.includes('transparent');
+      const ok =
+        lines.length === 2 &&
+        // Painted at all, painted differently, and heavier than the chips beside them.
+        filled(merged) &&
+        filled(copied) &&
+        merged !== copied &&
+        merged.endsWith('at 600') &&
+        copied.endsWith('at 600');
+
+      return ok ? null : lines.join(' / ');
+    },
+  ],
+  [
     'a badge is drawn whole, and the subject is what gives way',
     (found) => {
       const lines = (found['=== what was cut short ==='] ?? '').trim().split('\n');

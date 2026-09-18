@@ -119,6 +119,19 @@
        * that gave way, or a column somebody dragged narrow. Every badge on screen, not only these two,
        * because a ref's name is a name as much as this is.
        */
+      /*
+       * What the browser makes of the colours, rather than what the stylesheet says: a rule that never
+       * applies - a selector that stopped matching, a variable the theme does not define - leaves the
+       * badge painted like every other chip on the row, which is what it was drawn filled to avoid.
+       */
+      const painted = [...document.querySelectorAll('#rows .ref.came-from')].map((el) => {
+        const style = getComputedStyle(el);
+
+        return `${el.className.includes('merge') ? 'merged' : 'copied'}: ${style.color} on ${style.backgroundColor} at ${style.fontWeight}`;
+      });
+
+      parts.push('=== how the badges are painted ===\n' + (painted.join('\n') || '(none)'));
+
       const cut = (el) => el.scrollWidth > el.clientWidth + 1;
       const badgesCut = [...document.querySelectorAll('#rows .ref')].filter(cut).map((el) => el.textContent);
       const subjects = [...document.querySelectorAll('#rows .subject')];

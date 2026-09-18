@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The badge that says why a row is there is filled rather than outlined.** Every other badge on a row
+  is a name - of a branch, of a tag - drawn as an outlined chip, and a reason drawn the same way has to
+  be picked out of a line of things that look like it. At the size these are, that read as grey.
+
 - **A badge is shown whole, and the subject is what gives way.** Branch names in some repositories are
   long, and a badge cut at twenty characters is a different name or no name at all - `merged …` is
   neither of the two things that badge can say. Badges keep their width now, and the subject gives way

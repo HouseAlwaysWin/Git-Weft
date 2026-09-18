@@ -485,17 +485,32 @@ body.vscode-high-contrast.author-tint .row .author {
 }
 
 /*
- * Why a row is on screen, rather than what is on it: a different question from a ref's name, drawn in
- * different colours so the two kinds the came-from switch draws are one glance apart.
+ * Why a row is on screen, rather than what is on it.
+ *
+ * Filled rather than outlined, which is how every other badge on a row is drawn: those are names - of a
+ * branch, of a tag - and this is the reason the row is in front of you, which is a different kind of
+ * thing and should not have to be picked out of a line of chips that look like it. Outlined, at the
+ * 0.82em the rest of them are, it read as grey on a dark theme.
+ *
+ * The fill is the same colour as the text, mixed down: a tint rather than a block, so the foreground
+ * keeps the contrast the theme gave it instead of being read against a colour this stylesheet chose.
+ * And the two kinds differ in more than hue - `merged` and `copied` are different words, which is what
+ * anybody reading with colour vision trouble has to go on.
  */
+.ref.came-from {
+  font-weight: 600;
+}
+
 .ref.came-from.merge {
   color: var(--vscode-charts-purple, #b180d7);
   border-color: var(--vscode-charts-purple, #b180d7);
+  background: color-mix(in srgb, var(--vscode-charts-purple, #b180d7) 22%, transparent);
 }
 
 .ref.came-from.copy {
   color: var(--vscode-charts-orange, #d18616);
   border-color: var(--vscode-charts-orange, #d18616);
+  background: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 22%, transparent);
 }
 
 .ref.tag {
