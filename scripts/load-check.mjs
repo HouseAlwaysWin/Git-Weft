@@ -6235,6 +6235,68 @@ if (!(await until(blamedAgain))) {
   }
 
   /*
+   * A merge picked from the report while the graph is drawing one branch, which is the ordinary state
+   * of a graph: the commit is on somebody else's branch, so the walk cannot produce it, and the answer
+   * used to be a sentence saying a filter was in the way. The ticks are widened once instead.
+   */
+  {
+    /*
+     * A second offending merge, on a branch nothing merges anywhere: the one above has arrived in main
+     * by now, so a graph drawing main draws it and there would be nothing here to be behind.
+     */
+    runGit(repoPath, 'checkout', '-q', '-b', 'Dev_Other', 'main');
+    writeFileSync(join(repoPath, 'the-other-feature.txt'), 'the other feature\n');
+    runGit(repoPath, 'add', '-A');
+    runGit(repoPath, 'commit', '-q', '-m', 'the other feature');
+    runGit(repoPath, 'merge', '-q', '--no-ff', site, '-m', `Merge branch '${site}' into Dev_Other`);
+
+    const hidden = runGit(repoPath, 'rev-parse', 'HEAD').trim();
+
+    runGit(repoPath, 'checkout', '-q', 'main');
+    await quiet();
+
+    const narrowFrom = posted.filter((m) => m.type === 'done').length;
+
+    await commands.get('weft.showCurrentRefOnly')();
+    await settle(narrowFrom, SETTLING);
+
+    const askedFrom = posted.length;
+
+    pickAnswers.push(`$(git-merge) Dev_Other ← ${site}`);
+    settings.set('weft.testBranches', [site]);
+    configurationChanged.fire(['weft.testBranches']);
+    await commands.get('weft.findTestMerges')();
+
+    const widened = await until(
+      () => posted.slice(askedFrom).some((m) => m.type === 'reloading' && m.reason.includes('every branch')),
+      15_000,
+    );
+    const said = posted
+      .slice(askedFrom)
+      .filter((m) => m.type === 'error')
+      .map((m) => m.message);
+
+    console.log('  behind a tick:', widened ? 'widened to find it' : 'NEVER WIDENED', '| said', JSON.stringify(said));
+
+    if (!widened) {
+      problems.push('a commit asked for from behind the ticks was left behind them');
+    }
+
+    if (said.length > 0) {
+      problems.push(`asking for a commit behind the ticks said ${JSON.stringify(said)} rather than showing it`);
+    }
+
+    /*
+     * And it is actually drawn at the end of it, which is the whole point of widening - asked of the
+     * pages rather than of the reveal message, which the host posts before any of this and which is
+     * therefore there whether the widening happened or not.
+     */
+    if (!(await until(() => posted.slice(askedFrom).some((m) => m.type === 'page' && m.rows.some((row) => row.sha === hidden))))) {
+      problems.push('after widening, the commit was still not drawn');
+    }
+  }
+
+  /*
    * And the setting filled in by picking, which is the point: the names come from the branches there
    * are, so one with a letter missing is not something a person can produce here.
    */

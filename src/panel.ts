@@ -357,6 +357,8 @@ export class WeftPanel {
 
   /** A commit somebody asked to be shown, until the walk produces it or runs out. */
   private pendingReveal: string | null = null;
+  /** Whether this reveal has already widened the ticks once - see `widenForReveal`. */
+  private widened = false;
   /** Not a filter: ordering hides nothing, so `clearFilters` leaves it alone the way it leaves sort. */
   private order: CommitOrder = 'date';
   private readonly filters: FilterSource;
@@ -719,7 +721,65 @@ export class WeftPanel {
   revealCommit(sha: string): void {
     this.panel.reveal(this.panel.viewColumn);
     this.pendingReveal = sha;
+    this.widened = false;
     this.post({ type: 'reveal', sha });
+
+    /*
+     * Nothing is walking, and the walk that is on screen did not draw it.
+     *
+     * Both halves matter. A reveal is answered by the view if the commit is there and by the end of the
+     * walk if one is running - and when neither is true, which is a graph sitting still, nothing
+     * answered it at all: the click did nothing, said nothing, and left the reader looking at the same
+     * screen. That is the ordinary case for anything naming a commit from outside the graph.
+     */
+    if (this.loading === null && !this.drew(sha)) {
+      this.widenForReveal();
+    }
+  }
+
+  /** Whether the walk on screen drew this commit, which is only ever known while the ticks narrow one. */
+  private drew(sha: string): boolean {
+    for (const drawn of this.walked) {
+      if (drawn.startsWith(sha)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Show every branch, to find a commit that was asked for and is not on screen.
+   *
+   * Asking for a commit is asking to see it, so if what is hiding it is the ticks - a graph drawing one
+   * branch, and a commit on somebody else's - the ticks are widened and the walk is done again, rather
+   * than answering a click with a sentence about why it did nothing. A sha in a terminal, a line's
+   * blame, a merge picked out of the test-branch report: none of them are about a branch the reader
+   * happens to have ticked.
+   *
+   * Once, and only when the ticks are narrowing something. A date or an author filter can hide a commit
+   * just as well and widening the ticks would not help, so that still gets the sentence - and a second
+   * widening would be a loop, because the first one already showed everything there is.
+   *
+   * The walk that follows is the sidebar's: every reveal points it at this repository first, so the tick
+   * changed here is one this graph is drawing, and the reload arrives through the filter change the way
+   * it does when somebody clicks Show All themselves.
+   */
+  private widenForReveal(): boolean {
+    /*
+     * `refs` answering null is the graph drawing everything, and anything else is a set of ticks that
+     * can hide a commit - including the default one, which is the branch you are on. `refsNarrowed` is
+     * the wrong question here for exactly that reason: it asks whether the ticks differ from the
+     * default, and a graph freshly opened on `main` is drawing one branch out of four hundred.
+     */
+    if (this.pendingReveal === null || this.widened || this.filters.refs(this.repo.root) === null) {
+      return false;
+    }
+
+    this.widened = true;
+    this.post({ type: 'reloading', reason: `showing every branch to find ${this.pendingReveal.slice(0, 8)}` });
+    this.filters.setRefsPreset('all');
+    return true;
   }
 
   /**
@@ -1508,18 +1568,17 @@ export class WeftPanel {
           },
         });
 
-        /*
-         * The walk finished and never produced it. Said out loud, because the reader clicked
-         * something and the graph did not move: the commit is real - it came off a blame - and
-         * what is hiding it is a filter of their own.
-         */
-        if (this.pendingReveal !== null) {
+        // The walk finished and never produced it - see `widenForReveal`, which is the first thing to try.
+        if (this.pendingReveal !== null && !this.widenForReveal()) {
           this.post({
             type: 'error',
-            message: `${this.pendingReveal.slice(0, 8)} is not in this graph. A branch, a date or an author filter is keeping it out.`,
+            message: this.widened
+              ? `${this.pendingReveal.slice(0, 8)} is not in this graph, with every branch shown. A date or an author filter is keeping it out.`
+              : `${this.pendingReveal.slice(0, 8)} is not in this graph. A date or an author filter is keeping it out.`,
           });
 
           this.pendingReveal = null;
+          this.widened = false;
         }
       }
     } catch (err) {

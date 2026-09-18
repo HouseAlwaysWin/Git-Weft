@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Asking to see a commit now shows it, rather than saying why it is hidden.** A graph draws the
+  branches you have ticked, so a sha from a terminal, a commit off a line's blame, or a merge picked out
+  of the test-branch report - none of which are about what you happened to tick - would often land on a
+  commit the walk never drew, and all the graph could do was say that a filter was keeping it out. It
+  widens to every branch once and looks again. A date or an author filter can hide a commit too, and
+  widening the ticks does not help with those, so those still get the sentence.
+
 - **The test branches are chosen from a list rather than typed.** `weft.testBranches` is a list of
   strings, and the Settings editor offers a text box for each - so a name with a letter missing looks
   exactly like a name that is right, and the report it feeds says only that it found nothing. **Git Weft:
