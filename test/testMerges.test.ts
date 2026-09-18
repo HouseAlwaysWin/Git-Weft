@@ -11,7 +11,10 @@ import {
   findTestMerges,
   mergedBranch,
   parseMerges,
+  parsePicked,
+  pickedArgs,
   readTestBranches,
+  refFor,
   splitBranchNames,
   tookTestBranch,
 } from '../src/git/testMerges.ts';
@@ -121,4 +124,43 @@ test('a box of branch names is read as a list', () => {
   assert.deepEqual(splitBranchNames('  uat '), ['uat']);
   assert.deepEqual(splitBranchNames('uat,,'), ['uat']);
   assert.deepEqual(splitBranchNames('  '), []);
+});
+
+test('a cherry-marked walk names the commits with a copy on the other side', () => {
+  const NUL = '\x00';
+
+  assert.deepEqual(pickedArgs('HEAD', 'refs/remotes/origin/uat'), [
+    'log',
+    '--left-only',
+    '--cherry-mark',
+    '--format=%m%x00%H',
+    'HEAD...refs/remotes/origin/uat',
+  ]);
+
+  /*
+   * `=` is a commit with a copy on the other side. The walk is asked for one side, so what comes back is
+   * what this history holds - the copy, not the commit it was copied from, which are two shas.
+   */
+  assert.deepEqual(
+    parsePicked([`=${NUL}aaa1`, `<${NUL}bbb2`, `>${NUL}ccc3`, `=${NUL}ddd4`, ''].join('\n')),
+    ['aaa1', 'ddd4'],
+  );
+  assert.deepEqual(parsePicked(''), []);
+});
+
+test('a name in the box means a branch, local first and a remote after it', () => {
+  const refs = [
+    'refs/heads/main',
+    'refs/heads/uat',
+    'refs/remotes/origin/uat',
+    'refs/remotes/origin/sit',
+    'refs/tags/uat',
+  ];
+
+  assert.equal(refFor('uat', refs), 'refs/heads/uat', 'the local one, where there is one');
+  assert.equal(refFor('sit', refs), 'refs/remotes/origin/sit', 'and the remote where there is not');
+  assert.equal(refFor('nothing', refs), null);
+
+  // A tag of the same name is not a branch to have taken anything from.
+  assert.equal(refFor('uat', ['refs/tags/uat']), null);
 });

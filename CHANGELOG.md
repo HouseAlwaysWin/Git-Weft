@@ -2,13 +2,15 @@
 
 ## Unreleased
 
-- **Draw only the merges that took a branch into another one.** A **merges from** switch in the filter
-  bar, with a box for the branches - your test sites, `uat` and `sit` and the like, filled in from
-  `weft.testBranches` the first time it is switched on and yours to change after that. The graph then
-  draws those merges and nothing else, which is how a test site's own commits reach the trunk behind
-  somebody's feature. It stacks with everything else in the bar rather than replacing any of it: a
-  person, a month and this switch are one question with three parts, and the answer is one graph. Found
-  by what git wrote when the merge was made, so one that was squashed or rebased leaves nothing to find.
+- **Draw only what came in from another branch.** A **came from** switch in the filter bar, with a box
+  for the branches - your test sites, `uat` and `sit` and the like, filled in from `weft.testBranches`
+  the first time it is switched on and yours to change after that. The graph then draws what arrived
+  from them and nothing else: the merges that took one into somebody's feature branch, which is how a
+  test site's own commits reach the trunk behind it, and the commits taken across one at a time, which
+  leave nothing written down and are found by their change instead - the copy in your history, not the
+  commit it was copied from. A squash leaves neither behind. It stacks with everything else in the bar
+  rather than replacing any of it: a person, a month and this switch are one question with three parts,
+  and the answer is one graph.
 
 - **The branch box completes what you type**, from the branches the repository has - the same names
   **Choose Test Branches…** offers, read off the ref list the graph already has, so it costs nothing and

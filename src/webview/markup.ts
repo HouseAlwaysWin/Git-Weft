@@ -49,7 +49,7 @@ export const BODY_MARKUP = `<header id="header">
       <button class="toggle" id="only-here" type="button"
         title="Only what the ticked branches have and no other ref does. Ticking one branch narrows where git starts, not what it reaches - a branch cut off a trunk with three hundred others merged into it still reaches all of them. This is the other question: what is on this branch and nowhere else. With every branch ticked there is nothing left to exclude, so it does nothing.">only here</button>
       <button class="toggle" id="merges-from" type="button"
-        title="Draw only the merges that took a branch into something else - a test site merged into somebody&#39;s feature branch, which is how that site&#39;s own commits reach the trunk behind it. Reads what git wrote when the merge was made, so a squash or a rebase leaves nothing to find. Stacks with everything else here: a person and a month and this switch answer one question between them.">merges from</button>
+        title="Draw only what came into this history from these branches, however it came: the merges that took one of them into somebody&#39;s feature branch, and the commits taken across one at a time, which are found by their change rather than by anything written down. A squash leaves neither behind. Stacks with everything else here: a person and a month and this switch answer one question between them.">came from</button>
       <span id="merges-from-box" hidden>
         <input id="merges-from-branches" type="text" spellcheck="false" autocomplete="off"
           placeholder="uat, sit" aria-label="Branches whose merges to draw"

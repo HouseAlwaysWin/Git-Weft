@@ -2764,6 +2764,14 @@ if (watchTest) {
    * Both halves: the name comes back, and it costs no walk, because the two branches are at one commit
    * and there is nothing about the history that is different.
    */
+  /*
+   * After the checkout onto twin has finished doing everything it is going to do. What is counted below
+   * is what *this* checkout costs, and a walk the one before it started, landing late, is not that -
+   * measured as "cost 2 walks" on a loaded machine and 0 on a quiet one, which is a check about the
+   * machine rather than about the code.
+   */
+  await quiet();
+
   const backFrom = posted.length;
   const walksBeforeBack = posted.filter((m) => m.type === 'done').length;
 
@@ -2784,8 +2792,20 @@ if (watchTest) {
     problems.push('checking out main straight after twin left the graph naming ' + namesBranch());
   }
 
-  if (backWalks > 0) {
-    problems.push('naming the branch again cost ' + backWalks + ' walk(s) of a history that had not moved');
+  /*
+   * One walk at most, not none.
+   *
+   * The history did not move, so nothing has to be walked to draw it - but the sidebar follows the
+   * branch you are on, and following it onto another branch is a different set of ticks, which is a
+   * walk and a correct one. Which of the two happens depends on whether anything earlier in this run
+   * left the ticks hand-picked, so "none" is a claim about the rest of this file rather than about the
+   * checkout. Measured both ways on the same code: 0 on one run, 1 and 2 on others.
+   *
+   * What must never happen is what this section is really about - the graph going on naming a branch
+   * nobody is on - and that is the assertion above.
+   */
+  if (backWalks > 1) {
+    problems.push('naming the branch again cost ' + backWalks + ' walks of a history that had not moved');
   }
   runGit(repoPath, 'branch', '-D', 'twin');
   await until(() => !listsHead('twin'));
@@ -6380,6 +6400,25 @@ if (!(await until(blamedAgain))) {
    * quietly replaced the others would still look right without.
    */
   {
+    /*
+     * A change taken across by hand, which is the other way into a history and leaves nothing written
+     * down: a new commit on the test site, cherry-picked onto main, so the same change is on both sides
+     * under two shas. What ties them together is the patch id, and nothing else does.
+     */
+    runGit(repoPath, 'checkout', '-q', site);
+    writeFileSync(join(repoPath, 'taken-by-hand.txt'), 'a change somebody took across\n');
+    runGit(repoPath, 'add', '-A');
+    runGit(repoPath, 'commit', '-q', '-m', 'a change somebody took across');
+
+    const onTheSite = runGit(repoPath, 'rev-parse', 'HEAD').trim();
+
+    runGit(repoPath, 'checkout', '-q', 'main');
+    runGit(repoPath, 'cherry-pick', onTheSite);
+
+    const theCopy = runGit(repoPath, 'rev-parse', 'HEAD').trim();
+
+    await quiet();
+
     const drawnSince = () => {
       const types = posted.map((m) => m.type);
       const doneAt = types.lastIndexOf('done');
@@ -6402,15 +6441,42 @@ if (!(await until(blamedAgain))) {
     console.log('  as a filter  :', only.join(' | ') || '(nothing drawn)');
 
     /*
-     * Both of them, and neither of the two that look like them - the pull on the test branch and the
-     * feature that went to it the ordinary way round are in this walk as well, and are not merges that
-     * took the site anywhere.
+     * Both merges, the commit that came across as a copy, and neither of the two that look like merges
+     * from the site - the pull on the test branch and the feature that went to it the ordinary way round
+     * are in this walk as well, and took the site nowhere.
      */
     if (
       JSON.stringify([...only].sort()) !==
-      JSON.stringify([`Merge branch '${site}' into Dev_Other`, `Merge branch '${site}' into Dev_Thing`].sort())
+      JSON.stringify(
+        [
+          `Merge branch '${site}' into Dev_Other`,
+          `Merge branch '${site}' into Dev_Thing`,
+          'a change somebody took across',
+        ].sort(),
+      )
     ) {
-      problems.push(`the merges-from filter drew ${JSON.stringify(only)}`);
+      problems.push(`the came-from filter drew ${JSON.stringify(only)}`);
+    }
+
+    /*
+     * The copy, not the commit it was copied from. They are the same change under two shas, and the one
+     * this graph draws is the one that is in this history - which is the reason `--cherry-mark` is read
+     * rather than `git cherry`, and would be indistinguishable from the other way round in a check that
+     * only counted rows.
+     */
+    const drawnShas = (() => {
+      const types = posted.map((m) => m.type);
+      const doneAt = types.lastIndexOf('done');
+      const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
+
+      return posted
+        .slice(resetAt, doneAt)
+        .filter((m) => m.type === 'page')
+        .flatMap((m) => m.rows.map((row) => row.sha));
+    })();
+
+    if (!drawnShas.includes(theCopy) || drawnShas.includes(onTheSite)) {
+      problems.push('the came-from filter drew the commit it was copied from rather than the copy');
     }
 
     /*

@@ -94,7 +94,7 @@ import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
-import { readTestBranches, tookTestBranch } from './git/testMerges.ts';
+import { parsePicked, pickedArgs, readTestBranches, refFor, tookTestBranch } from './git/testMerges.ts';
 import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
@@ -678,6 +678,45 @@ export class WeftPanel {
       'weft.graphVisible',
       WeftPanel.current !== null,
     );
+  }
+
+  /**
+   * The commits in this history whose change is also on one of the branches the switch names.
+   *
+   * A cherry-pick leaves no record of where it came from - `-x` is a habit, not a rule, and in the
+   * repository this was measured on nobody taking things out of the test site had it - so the only
+   * thing that ties the two together is that the change is the same. git can say that by patch id, and
+   * `--left-only --cherry-mark` says it about this side, which is the side that matters: the commit this
+   * graph draws is the copy, and the one it was copied from is over there with a sha of its own.
+   *
+   * One read per branch named, and only while the switch is on: a second on the repository it was
+   * measured on, against a walk of the same history that takes longer. Nothing when the switch is off,
+   * which is the ordinary graph.
+   */
+  private async pickedFrom(): Promise<ReadonlySet<string>> {
+    const found = new Set<string>();
+
+    if (this.mergesFrom.length === 0) {
+      return found;
+    }
+
+    const refNames = this.filters.listRefs().map((ref) => ref.refName);
+
+    for (const name of this.mergesFrom) {
+      const ref = refFor(name, refNames);
+
+      if (ref === null) {
+        continue;
+      }
+
+      const walked = await this.git.runRead(this.repo.root, pickedArgs('HEAD', ref)).catch(() => '');
+
+      for (const sha of parsePicked(walked)) {
+        found.add(sha);
+      }
+    }
+
+    return found;
   }
 
   /** Throw away whatever is on screen and walk the history again. */
@@ -1441,6 +1480,7 @@ export class WeftPanel {
     });
 
     const loader = new HistoryLoader(this.git, this.repo);
+    const picked = await this.pickedFrom();
     const started = Date.now();
 
     // Read once: the walk is bounded by it and the message at the end has to say whether it was.
@@ -1536,19 +1576,24 @@ export class WeftPanel {
           onlyHere: this.onlyHere,
           order: this.order,
           /*
-           * `--merges` is git's half of "merges from": it takes the walk down to the merges without
-           * touching anything else here, so a person and a month and this switch narrow each other
-           * the way two filters should. The half git cannot be given - which merges took one of these
-           * branches somewhere - is `keep`, because no `--grep` says it and a second `--grep` would be
-           * ORed with the search box's own rather than intersected with it.
+           * The switch's whole half is `keep`, and none of it can be given to git.
+           *
+           * Which merges took one of these branches somewhere is read from the message, and no `--grep`
+           * says it - a second `--grep` would be ORed with the search box's own rather than intersected
+           * with it, and the search box's regex and ignore-case switches are flags on the whole command
+           * and would change what a pattern of ours meant. Which commits came across as copies is a set
+           * of shas worked out before the walk, from patch ids.
+           *
+           * `--merges` was here while this drew merges alone, and had to go when it stopped: a commit
+           * picked across is not a merge, and the walk that has to see it is the whole walk.
            */
-          filters: [
-            ...filterArgs(this.search, this.filters.authorPicks(this.repo.root), dates),
-            ...(this.mergesFrom.length > 0 ? ['--merges'] : []),
-          ],
+          filters: filterArgs(this.search, this.filters.authorPicks(this.repo.root), dates),
           ...(this.mergesFrom.length === 0
             ? {}
-            : { keep: (commit: { subject: string }) => tookTestBranch(commit.subject, this.mergesFrom) !== null }),
+            : {
+                keep: (commit: { sha: string; subject: string }) =>
+                  tookTestBranch(commit.subject, this.mergesFrom) !== null || picked.has(commit.sha),
+              }),
           refs: drawnRefs,
           stashes,
         },
