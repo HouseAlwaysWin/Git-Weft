@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **The copies are looked for from the branches on screen.** A change that came across one commit at a
+  time is a commit whose change is the same as one over there, so finding it means comparing two
+  histories - and which two was, at first, whatever you had checked out. Standing on a feature branch
+  while the graph drew the trunk, that found nothing at all and said so silently, which reads exactly
+  like a repository where nobody has ever done it. The branches the graph draws are compared now,
+  against every ref the name has: a test site's local branch and the remote's copy of it can be days
+  apart, and each finds changes the other does not. With every branch drawn there is no one side to
+  compare from, so the branch you are on and the one each remote calls its default are used.
+
 - **Draw only what came in from another branch.** A **came from** switch in the filter bar, with a box
   for the branches you type - your test sites, `uat` and `sit` and the like, offered as you type them.
   The graph then draws what arrived

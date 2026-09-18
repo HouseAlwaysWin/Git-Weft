@@ -15,6 +15,7 @@ import {
   pickedArgs,
   readTestBranches,
   refsFor,
+  remotesIn,
   splitBranchNames,
   tookTestBranch,
 } from '../src/git/testMerges.ts';
@@ -174,4 +175,19 @@ test('a name in the box means every branch of that name, local first', () => {
 
   // A tag of the same name is not a branch to have taken anything from.
   assert.deepEqual(refsFor('uat', ['refs/tags/uat']), []);
+});
+
+test('the remotes are read off the refs, once each and in the order they appear', () => {
+  assert.deepEqual(
+    remotesIn([
+      'refs/heads/main',
+      'refs/remotes/origin/main',
+      'refs/remotes/origin/uat',
+      'refs/remotes/mirror/main',
+      'refs/tags/v1.0',
+    ]),
+    ['origin', 'mirror'],
+  );
+
+  assert.deepEqual(remotesIn(['refs/heads/main']), [], 'a repository with no remote has none');
 });

@@ -185,6 +185,33 @@ export function parsePicked(output: string): string[] {
 }
 
 /**
+ * The remotes this repository has, out of the refs there are, in the order they first appear.
+ *
+ * For the one case where nothing else says which side to compare against - see `pickedFrom`. A remote
+ * names its own default branch in `refs/remotes/<remote>/HEAD`, and that is the closest thing a git
+ * repository has to an answer for "the branch this work goes to".
+ */
+export function remotesIn(refNames: readonly string[]): string[] {
+  const found: string[] = [];
+
+  for (const ref of refNames) {
+    if (!ref.startsWith('refs/remotes/')) {
+      continue;
+    }
+
+    const rest = ref.slice('refs/remotes/'.length);
+    const at = rest.indexOf('/');
+    const remote = at < 0 ? rest : rest.slice(0, at);
+
+    if (remote.length > 0 && !found.includes(remote)) {
+      found.push(remote);
+    }
+  }
+
+  return found;
+}
+
+/**
  * The refs a name in the box means, out of the refs there are: the local branch and every remote's copy
  * of it, local first.
  *

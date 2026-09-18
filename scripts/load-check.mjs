@@ -6509,6 +6509,30 @@ if (!(await until(blamedAgain))) {
     }
 
     /*
+     * And the same again with every branch drawn, which is the state a graph is in after Show All and
+     * the one this was reported from. There is no single side to compare against then, so what is used
+     * is the branch you are on - which here has never seen the copy - and what the remote calls its
+     * default branch, which is `main` and has. A remote made by hand: the fixture has no server, and
+     * what this needs from one is the two refs, not the fetching.
+     */
+    runGit(repoPath, 'update-ref', 'refs/remotes/origin/main', 'main');
+    runGit(repoPath, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+
+    const everywhereFrom = posted.filter((m) => m.type === 'done').length;
+
+    await commands.get('weft.showAllRefs')();
+    await until(() => posted.filter((m) => m.type === 'done').length > everywhereFrom, 20_000);
+    await quiet();
+
+    const everywhere = drawnSince();
+
+    console.log('  all branches :', everywhere.join(' | ') || '(nothing drawn)');
+
+    if (!everywhere.includes('a change somebody took across')) {
+      problems.push(`with every branch drawn the filter drew ${JSON.stringify(everywhere)}`);
+    }
+
+    /*
      * Back as it was for what follows: standing on main, every branch drawn - and in that order, because
      * the sidebar follows the branch you are on and a checkout after Show All narrows it straight back.
      */

@@ -94,7 +94,7 @@ import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
-import { parsePicked, pickedArgs, refsFor, tookTestBranch } from './git/testMerges.ts';
+import { parsePicked, pickedArgs, refsFor, remotesIn, tookTestBranch } from './git/testMerges.ts';
 import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
@@ -691,6 +691,38 @@ export class WeftPanel {
   }
 
   /**
+   * What to compare against when the graph is drawing every branch there is.
+   *
+   * There is no one side then, and `A...B` wants one: git marks the copies either side of a symmetric
+   * difference, and "everything" is not a side - `--all` with `--left-only` was measured to print
+   * nothing at all, which is the honest answer to a question that has no left in it.
+   *
+   * So the branch you are on, and what each remote calls its own default branch, which is the closest
+   * thing git records to "where this work goes". That is the case this was found in: a graph drawing
+   * everything, somebody standing on their own feature branch, and the copies sitting in the trunk -
+   * where `HEAD` alone found nothing, the default branch found four against the remote test site and
+   * thirteen against the local one.
+   *
+   * A copy that is on neither is not found, and that is the shape of this: with every branch drawn there
+   * is no one history to be a copy *in*, so the two that can be named are named.
+   */
+  private async wholeRepositorySides(refNames: readonly string[]): Promise<string[]> {
+    const sides = ['HEAD'];
+
+    for (const remote of remotesIn(refNames).slice(0, 2)) {
+      const head = await this.git
+        .runRead(this.repo.root, ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`])
+        .catch(() => '');
+
+      if (head.trim().length > 0) {
+        sides.push(head.trim());
+      }
+    }
+
+    return sides;
+  }
+
+  /**
    * The commits in what this graph draws whose change is also on one of the branches the switch names.
    *
    * A cherry-pick leaves no record of where it came from - `-x` is a habit, not a rule, and in the
@@ -722,7 +754,7 @@ export class WeftPanel {
     }
 
     const refNames = this.filters.listRefs().map((ref) => ref.refName);
-    const sides = drawn === null || drawn.length === 0 ? ['HEAD'] : drawn;
+    const sides = drawn === null || drawn.length === 0 ? await this.wholeRepositorySides(refNames) : drawn;
     const pairs: [string, string][] = [];
 
     for (const name of this.mergesFrom) {
