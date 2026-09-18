@@ -35,6 +35,21 @@
   --weft-author-c: 0.105;
 
   /*
+   * The came-from badges, in the same terms and for the same reason: a hue each, one lightness, so the
+   * two read at one volume and the difference between them is the hue rather than one of them shouting.
+   *
+   * Brighter than a name, deliberately. These were the theme's own `charts` colours and measured 3.96:1
+   * against the row they sit on - under WCAG's 4.5 floor for text this size, which is what "hard to
+   * read" is when it is written down. These are 5.3. `scripts/color-check.mjs` measures them against the
+   * background *with the badge's own tint composited over it*, which is the colour they are really read
+   * on.
+   */
+  --weft-came-l: 80%;
+  --weft-came-c: 0.13;
+  --weft-came-merge-h: 300;
+  --weft-came-copy-h: 62;
+
+  /*
    * The columns, declared once. The header row and every commit row lay themselves out with this
    * same template, which is what keeps a label sitting over its own column - alignment by
    * construction rather than by two sets of widths that have to be kept in step by hand.
@@ -51,6 +66,8 @@
 body.vscode-light {
   --weft-author-l: 55%;
   --weft-author-c: 0.095;
+  --weft-came-l: 48%;
+  --weft-came-c: 0.12;
 }
 
 html,
@@ -498,19 +515,18 @@ body.vscode-high-contrast.author-tint .row .author {
  * anybody reading with colour vision trouble has to go on.
  */
 .ref.came-from {
+  color: var(--weft-came);
+  border-color: var(--weft-came);
+  background: color-mix(in srgb, var(--weft-came) 22%, transparent);
   font-weight: 600;
 }
 
 .ref.came-from.merge {
-  color: var(--vscode-charts-purple, #b180d7);
-  border-color: var(--vscode-charts-purple, #b180d7);
-  background: color-mix(in srgb, var(--vscode-charts-purple, #b180d7) 22%, transparent);
+  --weft-came: oklch(var(--weft-came-l) var(--weft-came-c) var(--weft-came-merge-h));
 }
 
 .ref.came-from.copy {
-  color: var(--vscode-charts-orange, #d18616);
-  border-color: var(--vscode-charts-orange, #d18616);
-  background: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 22%, transparent);
+  --weft-came: oklch(var(--weft-came-l) var(--weft-came-c) var(--weft-came-copy-h));
 }
 
 .ref.tag {

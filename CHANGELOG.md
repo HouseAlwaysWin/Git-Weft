@@ -2,7 +2,12 @@
 
 ## Unreleased
 
-- **The badge that says why a row is there is filled rather than outlined.** Every other badge on a row
+- **The badge that says why a row is there is filled rather than outlined, in colours picked for it.**
+  It borrowed the theme's chart colours, and on a dark theme that measured 3.96:1 against the row it sits
+  on - under the 4.5:1 floor for text that size, which is what "hard to read" is once it is written down.
+  It has two hues of its own now, one lightness between them, at 5.3:1; `color-check` measures them
+  against the background with the badge's own tint composited over it, which is what the text is really
+  read on. Every other badge on a row
   is a name - of a branch, of a tag - drawn as an outlined chip, and a reason drawn the same way has to
   be picked out of a line of things that look like it. At the size these are, that read as grey.
 

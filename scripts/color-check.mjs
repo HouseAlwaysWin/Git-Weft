@@ -113,6 +113,15 @@ function fromHex(text) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => linearFromSrgb(c / 255));
 }
 
+/**
+ * A translucent colour over a background, the way a browser composites one: in sRGB rather than in
+ * light. The badges are a tint of their own colour over the row, so the colour their text is read
+ * against is neither the row nor the badge - it is this.
+ */
+function over(fg, bg, alpha) {
+  return fg.map((c, at) => linearFromSrgb(srgbFromLinear(clamp01(c)) * alpha + srgbFromLinear(clamp01(bg[at])) * (1 - alpha)));
+}
+
 function distance(a, b) {
   const x = linearToOklab(a);
   const y = linearToOklab(b);
@@ -170,6 +179,59 @@ const themes = [
 ];
 
 const problems = [];
+
+/*
+ * The came-from badges, which are text and therefore held to the same floor as everything else here.
+ *
+ * They were the theme's `charts` colours until this was measured: 3.96:1 on a dark theme, which is what
+ * "the colour is not clear" was. Hues far enough apart matters as much as the floor - two badges that
+ * read as one colour say nothing that the words on them do not.
+ */
+{
+  const tint = 0.22;
+  const badges = [
+    { name: 'came-from merge', hue: number(cssVar(css, 'weft-came-merge-h')) },
+    { name: 'came-from copy', hue: number(cssVar(css, 'weft-came-copy-h')) },
+  ];
+
+  for (const theme of [
+    { name: 'dark', background: '#1f1f1f', L: number(cssVar(css, 'weft-came-l')), C: number(cssVar(css, 'weft-came-c')) },
+    {
+      name: 'light',
+      background: '#ffffff',
+      L: number(cssVar(css, 'weft-came-l', 'body.vscode-light')),
+      C: number(cssVar(css, 'weft-came-c', 'body.vscode-light')),
+    },
+  ]) {
+    const bg = fromHex(theme.background);
+    const painted = [];
+
+    console.log(`\ncame-from badges, ${theme.name}  L=${(theme.L * 100).toFixed(0)}% C=${theme.C}  on ${theme.background}`);
+
+    for (const badge of badges) {
+      const { linear, chroma, clipped } = render(theme.L, theme.C, badge.hue);
+      const ratio = contrast(linear, over(linear, bg, tint));
+
+      painted.push(linear);
+      console.log(
+        `  ${badge.name.padEnd(16)} ${String(badge.hue).padStart(3)}deg  ${hex(linear)}  ${ratio.toFixed(2)}:1` +
+          (clipped ? `  (chroma clipped to ${chroma.toFixed(3)})` : ''),
+      );
+
+      if (ratio < FLOOR) {
+        problems.push(`${theme.name}: ${badge.name} is ${ratio.toFixed(2)}:1 on its own tint, under the ${FLOOR}:1 floor`);
+      }
+    }
+
+    const apart = distance(painted[0], painted[1]);
+
+    console.log(`  apart ${apart.toFixed(3)} in OKLab`);
+
+    if (apart < MIN_SEPARATION) {
+      problems.push(`${theme.name}: the two came-from badges are ${apart.toFixed(3)} apart, which reads as one colour`);
+    }
+  }
+}
 
 for (const theme of themes) {
   const bg = fromHex(theme.background);

@@ -588,7 +588,14 @@ const INVARIANTS = [
         filled(copied) &&
         merged !== copied &&
         merged.endsWith('at 600') &&
-        copied.endsWith('at 600');
+        copied.endsWith('at 600') &&
+        /*
+         * And painted from the two colours `color-check.mjs` measures, rather than from whatever else
+         * was to hand. That check reads the variables; this one reads what the browser did with them,
+         * and between them there is nowhere for a badge to be a colour nobody measured.
+         */
+        merged.startsWith('oklch(0.8 0.13 300) on') &&
+        copied.startsWith('oklch(0.8 0.13 62) on');
 
       return ok ? null : lines.join(' / ');
     },
