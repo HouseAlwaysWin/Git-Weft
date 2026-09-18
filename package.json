@@ -547,11 +547,6 @@
           "command": "weft.showStatistics",
           "when": "activeWebviewPanelId == weft.graph",
           "group": "navigation@4"
-        },
-        {
-          "command": "weft.findTestMerges",
-          "when": "activeWebviewPanelId == weft.graph && weft.hasTestBranches",
-          "group": "navigation@5"
         }
       ],
       "view/item/context": [

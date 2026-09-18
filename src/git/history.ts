@@ -38,6 +38,19 @@ export interface HistoryOptions {
   /** Extra `git log` arguments - this is where search and filter push work down into git. */
   readonly filters?: readonly string[];
   /**
+   * Which of the commits git produced to keep, for a filter git cannot be given.
+   *
+   * The graph's "merges from" is one: it reads a merge's message and asks whether that merge took a
+   * test branch into something that is not one, which no `--grep` says - and a `--grep` alongside the
+   * search box's own would be ORed with it by git unless every other pattern were made to match too.
+   * Measured rather than assumed: two `--grep`s over one repository gave 4,218 commits where the
+   * intersection is 12.
+   *
+   * Applied before the layout rather than after it. Lanes are drawn from the commits that are kept, so
+   * a row dropped afterwards leaves an arc pointing at nothing.
+   */
+  readonly keep?: (commit: Commit) => boolean;
+  /**
    * Refs to walk. Omit, or pass null, to walk everything via `--all` - cheaper than spelling out
    * hundreds of refs on a command line when none of them are filtered out anyway.
    */
@@ -173,6 +186,13 @@ export class HistoryLoader {
               : commit,
           );
 
+    /** Stash parents folded away, and then whatever the caller does not want laid out. */
+    const take = (commits: Commit[]): Commit[] => {
+      const folded = foldStashParents(commits);
+
+      return options.keep === undefined ? folded : folded.filter(options.keep);
+    };
+
     const interner = new Interner();
     let buffer = '';
     let batch: Commit[] = [];
@@ -200,7 +220,7 @@ export class HistoryLoader {
 
         for (const part of parts) {
           if (part.length > 0) {
-            batch.push(...foldStashParents(parseLog(part, interner)));
+            batch.push(...take(parseLog(part, interner)));
           }
         }
 
@@ -213,7 +233,7 @@ export class HistoryLoader {
 
     // Whatever git wrote after the final separator is the last record.
     if (buffer.length > 0) {
-      batch.push(...foldStashParents(parseLog(buffer, interner)));
+      batch.push(...take(parseLog(buffer, interner)));
     }
 
     flush();

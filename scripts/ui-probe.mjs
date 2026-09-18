@@ -574,6 +574,34 @@ const INVARIANTS = [
     },
   ],
   [
+    'the merges-from switch shows its box, fills it in, and asks for those branches',
+    (found) => {
+      const lines = (found['=== merges from ==='] ?? '').trim().split('\n');
+      const value = (name) => lines.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2);
+      const asked = (name) => {
+        try {
+          return JSON.parse(value(name) ?? 'null');
+        } catch {
+          return null;
+        }
+      };
+      const ok =
+        value('box hidden before') === 'true' &&
+        value('box hidden after') === 'false' &&
+        // Filled in from what the host sent, which is the preview's own list.
+        value('box holds') === '"uat, sit"' &&
+        (value('switch') ?? '').includes('on') &&
+        // One message per line, which is what `sentSince` writes - not a list of them.
+        JSON.stringify(asked('asked')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat', 'sit'] }) &&
+        JSON.stringify(asked('after editing')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat', 'sit'] }) &&
+        // Off is the filter dropped, and the box keeps what it holds for the next time it is turned on.
+        JSON.stringify(asked('off again')) === JSON.stringify({ type: 'mergesFrom', branches: [] }) &&
+        value('box kept') === '"uat, sit"';
+
+      return ok ? null : lines.join(' / ');
+    },
+  ],
+  [
     'a corrected weft.ticketLinks marks the commit that is already on screen',
     (found) => {
       const body = found['=== ticket links after the setting changed ==='] ?? '';

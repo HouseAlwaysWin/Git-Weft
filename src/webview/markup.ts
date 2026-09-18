@@ -48,6 +48,11 @@ export const BODY_MARKUP = `<header id="header">
         title="Walk only the first parent of every merge: the mainline, without the commits that were merged into it.">first parent</button>
       <button class="toggle" id="only-here" type="button"
         title="Only what the ticked branches have and no other ref does. Ticking one branch narrows where git starts, not what it reaches - a branch cut off a trunk with three hundred others merged into it still reaches all of them. This is the other question: what is on this branch and nowhere else. With every branch ticked there is nothing left to exclude, so it does nothing.">only here</button>
+      <button class="toggle" id="merges-from" type="button"
+        title="Draw only the merges that took a branch into something else - a test site merged into somebody&#39;s feature branch, which is how that site&#39;s own commits reach the trunk behind it. Reads what git wrote when the merge was made, so a squash or a rebase leaves nothing to find. Stacks with everything else here: a person and a month and this switch answer one question between them.">merges from</button>
+      <input id="merges-from-branches" type="text" hidden spellcheck="false"
+        placeholder="uat, sit" aria-label="Branches whose merges to draw"
+        title="Which branches, separated by commas. Filled in from weft.testBranches, and yours to change - a name matches whole, with any remote in front of it.">
       <select id="commit-order" title="How git orders the walk. All three keep a parent below its children, which the lanes depend on, and all three cost the same - the difference is which shape the history reads best in. Topological keeps a branch&#39;s commits together instead of interleaving them by date.">
         <option value="date">commit date</option>
         <option value="author-date">author date</option>

@@ -147,6 +147,38 @@ function named(branch: string, names: readonly string[]): string | null {
   return names.find((name) => read === name.toLowerCase() || read.endsWith(`/${name.toLowerCase()}`)) ?? null;
 }
 
+/** The names typed into one box - `uat, sit` - as a list. */
+export function splitBranchNames(text: string): string[] {
+  return text
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+}
+
+/**
+ * Which of these branches a merge took somewhere that is not one of them, and where it took it.
+ *
+ * The one rule, asked by both things that want it: the report, of every merge in the repository, and
+ * the graph's own filter, of every merge its walk produces. Null for everything else, which includes
+ * the two that look like it and are not - a pull on the test branch itself (`Merge branch 'uat' of
+ * http://host/group/repo into uat`, of which there were two thousand in the repository this was
+ * measured on, against a hundred of the thing being looked for), and a feature going the ordinary way
+ * round, into the test site.
+ */
+export function tookTestBranch(
+  subject: string,
+  names: readonly string[],
+): { readonly branch: string; readonly into: string | null } | null {
+  const said = mergedBranch(subject);
+  const branch = said === null ? null : named(said.branch, names);
+
+  if (said === null || branch === null) {
+    return null;
+  }
+
+  return said.into !== null && named(said.into, names) !== null ? null : { branch, into: said.into };
+}
+
 /** The merges that took one of these branches into something that is not one of them, newest first. */
 export function findTestMerges(
   merges: readonly MergeLine[],
@@ -156,23 +188,11 @@ export function findTestMerges(
   const found: TestMerge[] = [];
 
   for (const merge of merges) {
-    const said = mergedBranch(merge.subject);
-    const branch = said === null ? null : named(said.branch, names);
+    const took = tookTestBranch(merge.subject, names);
 
-    if (said === null || branch === null) {
-      continue;
+    if (took !== null) {
+      found.push({ ...merge, ...took, landed: reached.has(merge.sha) });
     }
-
-    /*
-     * A pull on the test branch itself, which is not somebody taking it anywhere: `Merge branch 'uat'
-     * of http://host/group/repo into uat`. There were two thousand of these in the repository this was
-     * measured on, against a hundred of the thing being looked for.
-     */
-    if (said.into !== null && named(said.into, names) !== null) {
-      continue;
-    }
-
-    found.push({ ...merge, branch, into: said.into, landed: reached.has(merge.sha) });
   }
 
   return found;

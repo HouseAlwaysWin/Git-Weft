@@ -94,6 +94,7 @@ import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
+import { readTestBranches, tookTestBranch } from './git/testMerges.ts';
 import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
@@ -357,6 +358,8 @@ export class WeftPanel {
 
   /** A commit somebody asked to be shown, until the walk produces it or runs out. */
   private pendingReveal: string | null = null;
+  /** Branches whose merges are all the graph is drawing, or empty for the ordinary graph. */
+  private mergesFrom: readonly string[] = [];
   /** Whether this reveal has already widened the ticks once - see `widenForReveal`. */
   private widened = false;
   /** Not a filter: ordering hides nothing, so `clearFilters` leaves it alone the way it leaves sort. */
@@ -828,6 +831,10 @@ export class WeftPanel {
         this.onlyHere = message.on;
         await this.reload();
         break;
+      case 'mergesFrom':
+        this.mergesFrom = message.branches;
+        await this.reload();
+        break;
       case 'order':
         this.order = message.order;
         await this.reload();
@@ -1152,6 +1159,7 @@ export class WeftPanel {
       this.dates !== null ||
       this.firstParent ||
       this.onlyHere ||
+      this.mergesFrom.length > 0 ||
       this.filters.refsNarrowed(this.repo.root) ||
       this.filters.authorPicks(this.repo.root).length > 0
     );
@@ -1168,6 +1176,7 @@ export class WeftPanel {
     this.dates = null;
     this.firstParent = false;
     this.onlyHere = false;
+    this.mergesFrom = [];
     this.filters.clear();
 
     // Put the boxes back before the walk rather than after it, so nothing on screen is claiming a
@@ -1428,6 +1437,7 @@ export class WeftPanel {
       authorColors: config.get<boolean>('authorColors', true),
       kind: describe(this.repo),
       ticketPatterns: readTicketLinks(config.get<unknown[]>('ticketLinks', [])).links.map((link) => link.pattern),
+      testBranches: readTestBranches(config.get<unknown[]>('testBranches', [])),
     });
 
     const loader = new HistoryLoader(this.git, this.repo);
@@ -1525,7 +1535,20 @@ export class WeftPanel {
           firstParentOnly: this.firstParent,
           onlyHere: this.onlyHere,
           order: this.order,
-          filters: filterArgs(this.search, this.filters.authorPicks(this.repo.root), dates),
+          /*
+           * `--merges` is git's half of "merges from": it takes the walk down to the merges without
+           * touching anything else here, so a person and a month and this switch narrow each other
+           * the way two filters should. The half git cannot be given - which merges took one of these
+           * branches somewhere - is `keep`, because no `--grep` says it and a second `--grep` would be
+           * ORed with the search box's own rather than intersected with it.
+           */
+          filters: [
+            ...filterArgs(this.search, this.filters.authorPicks(this.repo.root), dates),
+            ...(this.mergesFrom.length > 0 ? ['--merges'] : []),
+          ],
+          ...(this.mergesFrom.length === 0
+            ? {}
+            : { keep: (commit: { subject: string }) => tookTestBranch(commit.subject, this.mergesFrom) !== null }),
           refs: drawnRefs,
           stashes,
         },

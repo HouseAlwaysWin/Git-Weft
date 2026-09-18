@@ -702,6 +702,22 @@ body.vscode-high-contrast.author-tint .row .author {
   opacity: 0.7;
 }
 
+#merges-from-branches {
+  width: 9em;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, inherit);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, #454545));
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: inherit;
+  font-size: 0.9em;
+  outline: none;
+}
+
+#merges-from-branches:focus {
+  border-color: var(--vscode-focusBorder, #0078d4);
+}
+
 #date-custom input {
   background: var(--vscode-input-background, transparent);
   color: var(--vscode-input-foreground, inherit);

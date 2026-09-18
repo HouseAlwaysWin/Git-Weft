@@ -106,6 +106,13 @@ export type HostMessage =
        * only: where an id opens is the host's to work out, from the text alone.
        */
       readonly ticketPatterns: readonly string[];
+      /**
+       * `weft.testBranches`, for the "merges from" box to start with.
+       *
+       * The box is the filter and the setting is only what it is filled in with: somebody who wants a
+       * branch this list has never heard of types it, and nothing about the setting stops them.
+       */
+      readonly testBranches: readonly string[];
     }
   | {
       readonly type: 'page';
@@ -246,6 +253,13 @@ export type WebviewMessage =
   | { readonly type: 'clearFilters' }
   /** Walk only what the ticked refs have and every other ref does not. */
   | { readonly type: 'onlyHere'; readonly on: boolean }
+  /**
+   * Draw only the merges that took one of these branches into something that is not one of them.
+   *
+   * An empty list is the filter off, which is also what the box holds while somebody is still typing
+   * into it - a filter for no branches would be a walk of the whole history with every row thrown away.
+   */
+  | { readonly type: 'mergesFrom'; readonly branches: readonly string[] }
   | { readonly type: 'search'; readonly search: Search | null }
   /** Narrow the walk to a stretch of time. Separate from the search: the two combine. */
   | { readonly type: 'dates'; readonly range: DateRange | null }

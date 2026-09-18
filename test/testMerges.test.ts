@@ -12,6 +12,8 @@ import {
   mergedBranch,
   parseMerges,
   readTestBranches,
+  splitBranchNames,
+  tookTestBranch,
 } from '../src/git/testMerges.ts';
 
 const NUL = '\x00';
@@ -94,4 +96,29 @@ test('the branches offered are the ones there are, under the name the setting wa
    */
   assert.deepEqual(offered, ['main', 'release/v1.3', 'sit', 'uat']);
   assert.deepEqual(branchChoices(''), []);
+});
+
+test('one merge at a time, which is what the graph asks of every merge it walks', () => {
+  const names = ['uat', 'sit'];
+
+  assert.deepEqual(tookTestBranch("Merge branch 'uat' into Dev_Thing", names), { branch: 'uat', into: 'Dev_Thing' });
+  assert.deepEqual(tookTestBranch("Merge remote-tracking branch 'origin/sit' into Dev_Thing", names), {
+    branch: 'sit',
+    into: 'Dev_Thing',
+  });
+
+  // The two that look like it: a pull on the test branch, and a feature going the ordinary way round.
+  assert.equal(tookTestBranch("Merge branch 'uat' of http://host/group/repo into uat", names), null);
+  assert.equal(tookTestBranch("Merge branch 'Dev_Thing' into uat", names), null);
+  assert.equal(tookTestBranch('Fix the total for ERP-10147', names), null);
+
+  // And nothing is a test branch when nothing is named, which is the switch being off.
+  assert.equal(tookTestBranch("Merge branch 'uat' into Dev_Thing", []), null);
+});
+
+test('a box of branch names is read as a list', () => {
+  assert.deepEqual(splitBranchNames('uat, sit'), ['uat', 'sit']);
+  assert.deepEqual(splitBranchNames('  uat '), ['uat']);
+  assert.deepEqual(splitBranchNames('uat,,'), ['uat']);
+  assert.deepEqual(splitBranchNames('  '), []);
 });

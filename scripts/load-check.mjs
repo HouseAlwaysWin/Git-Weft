@@ -6333,6 +6333,88 @@ if (!(await until(blamedAgain))) {
     problems.push(`a branch name nothing matches was not said: ${JSON.stringify(titled)}`);
   }
 
+  /*
+   * And the same merges as a filter on the graph itself, which is the other half of this: the report
+   * answers "which of these are there", the filter answers "show me them here, alongside whatever else
+   * I am narrowing by". The stacking is the half worth checking, because it is the half a filter that
+   * quietly replaced the others would still look right without.
+   */
+  {
+    const drawnSince = () => {
+      const types = posted.map((m) => m.type);
+      const doneAt = types.lastIndexOf('done');
+      const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
+
+      return posted
+        .slice(resetAt, doneAt)
+        .filter((m) => m.type === 'page')
+        .flatMap((m) => m.rows.map((row) => row.subject));
+    };
+
+    const walksBefore = posted.filter((m) => m.type === 'done').length;
+
+    messageHandler({ type: 'mergesFrom', branches: [site] });
+    await until(() => posted.filter((m) => m.type === 'done').length > walksBefore);
+    await quiet();
+
+    const only = drawnSince();
+
+    console.log('  as a filter  :', only.join(' | ') || '(nothing drawn)');
+
+    /*
+     * Both of them, and neither of the two that look like them - the pull on the test branch and the
+     * feature that went to it the ordinary way round are in this walk as well, and are not merges that
+     * took the site anywhere.
+     */
+    if (
+      JSON.stringify([...only].sort()) !==
+      JSON.stringify([`Merge branch '${site}' into Dev_Other`, `Merge branch '${site}' into Dev_Thing`].sort())
+    ) {
+      problems.push(`the merges-from filter drew ${JSON.stringify(only)}`);
+    }
+
+    /*
+     * Stacked with another filter rather than replacing it, which is the whole reason this is a filter
+     * and not a list: a search for one of the two branches leaves one of the two merges.
+     */
+    const stackedFrom = posted.filter((m) => m.type === 'done').length;
+
+    messageHandler({
+      type: 'search',
+      search: {
+        query: 'Dev_Other',
+        mode: 'message',
+        regex: false,
+        caseSensitive: false,
+        allTerms: false,
+        invert: false,
+        follow: false,
+      },
+    });
+    await until(() => posted.filter((m) => m.type === 'done').length > stackedFrom);
+    await quiet();
+
+    const stacked = drawnSince();
+
+    console.log('  stacked      :', stacked.join(' | ') || '(nothing drawn)');
+
+    if (JSON.stringify(stacked) !== JSON.stringify([`Merge branch '${site}' into Dev_Other`])) {
+      problems.push(`merges-from and a search together drew ${JSON.stringify(stacked)}`);
+    }
+
+    // And off again is the graph as it was, which is the other thing a filter has to be able to do.
+    const offFrom = posted.filter((m) => m.type === 'done').length;
+
+    messageHandler({ type: 'search', search: null });
+    messageHandler({ type: 'mergesFrom', branches: [] });
+    await until(() => posted.filter((m) => m.type === 'done').length > offFrom && drawnSince().length > 1);
+    await quiet();
+
+    if (drawnSince().length <= 1) {
+      problems.push('turning the merges-from filter off left the graph narrowed');
+    }
+  }
+
   settings.delete('weft.testBranches');
   configurationChanged.fire(['weft.testBranches']);
 }

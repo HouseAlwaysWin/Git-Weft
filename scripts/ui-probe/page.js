@@ -730,6 +730,8 @@
         authorColors: true,
         kind: null,
         ticketPatterns: ['ERP-[0-9]+'],
+        // Everything the host sends, or the page is being replayed a message the host never sends.
+        testBranches: ['uat', 'sit'],
       },
       '*',
     );
@@ -762,6 +764,38 @@
 
     await settle(200);
     parts.push('=== opening ticket ids sends ===\n' + sentSince(beforeTicket));
+
+    /*
+     * The merges-from switch: off it shows no box and asks for nothing, on it fills itself in from the
+     * setting the host sent and asks for those branches, and a box edited asks again. Last of the
+     * filters, because what it asks for is a walk and the demo history is replayed after it.
+     */
+    {
+      const box = document.querySelector('#merges-from-branches');
+      const said = ['box hidden before: ' + box.hidden];
+      let before = sent().length;
+
+      click(document.querySelector('#merges-from'));
+      await settle(250);
+      said.push('box hidden after: ' + box.hidden);
+      said.push('box holds: ' + JSON.stringify(box.value));
+      said.push('switch: ' + JSON.stringify(document.querySelector('#merges-from').className));
+      said.push('asked: ' + sentSince(before));
+
+      before = sent().length;
+      box.value = 'uat, sit';
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      await settle(250);
+      said.push('after editing: ' + sentSince(before));
+
+      before = sent().length;
+      click(document.querySelector('#merges-from'));
+      await settle(250);
+      said.push('off again: ' + sentSince(before));
+      said.push('box kept: ' + JSON.stringify(box.value));
+
+      parts.push('=== merges from ===\n' + said.join('\n'));
+    }
 
     /*
      * And `weft.ticketLinks` corrected while the graph is open, which sends the patterns by themselves.

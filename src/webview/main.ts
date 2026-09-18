@@ -33,6 +33,7 @@ import type { SearchMode, SearchToggle } from '../git/search.ts';
 import { looksLikeCommitId } from '../git/search.ts';
 import { describeAge } from '../git/blame.ts';
 import { findTickets } from '../git/ticketLinks.ts';
+import { splitBranchNames } from '../git/testMerges.ts';
 import type { Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
 import { authorHue } from './authorColor.ts';
@@ -135,6 +136,8 @@ const compareMarkEl = document.getElementById('compare-mark') as HTMLButtonEleme
 const refPresets = document.getElementById('ref-presets') as HTMLElement;
 const firstParentEl = document.getElementById('first-parent') as HTMLButtonElement;
 const onlyHereEl = document.getElementById('only-here') as HTMLButtonElement;
+const mergesFromEl = document.getElementById('merges-from') as HTMLButtonElement;
+const mergesFromBranchesEl = document.getElementById('merges-from-branches') as HTMLInputElement;
 const commitOrderEl = document.getElementById('commit-order') as HTMLSelectElement;
 const viewport = document.getElementById('viewport') as HTMLElement;
 const spacer = document.getElementById('spacer') as HTMLElement;
@@ -157,6 +160,9 @@ interface ViewState {
   readonly dateUntil?: string;
   readonly firstParent?: boolean;
   readonly onlyHere?: boolean;
+  readonly mergesFrom?: boolean;
+  /** What the box holds, kept whether or not the switch is on: turning it back on means the same filter. */
+  readonly mergesFromBranches?: string;
   readonly order?: CommitOrder;
   /** Which groups of the branch menu are rolled up. Worth keeping: a repository with two hundred
       remote branches is one you collapse once and want to stay collapsed. */
@@ -186,6 +192,8 @@ function saveViewState(): void {
     ...filterBar.saved(),
     firstParent,
     onlyHere,
+    mergesFrom,
+    mergesFromBranches: mergesFromBranchesEl.value,
     order: commitOrder,
     branchGroupsClosed: branches.collapsedGroups(),
     branchFoldersOpen: branches.openFolders(),
@@ -207,6 +215,8 @@ function restoreViewState(): void {
   columns.restore(state ?? {});
   firstParent = state?.firstParent ?? false;
   onlyHere = state?.onlyHere ?? false;
+  mergesFrom = state?.mergesFrom ?? false;
+  mergesFromBranchesEl.value = state?.mergesFromBranches ?? '';
   commitOrder = state?.order ?? 'date';
   commitOrderEl.value = commitOrder;
   filterBar.restore(state ?? {});
@@ -286,6 +296,7 @@ let firstParent = false;
  * three hundred others merged into it still reaches every one of them.
  */
 let onlyHere = false;
+let mergesFrom = false;
 
 /*
  * How git is asked to order the walk.
@@ -341,6 +352,8 @@ function commitEnd(sha: string): CompareMark {
 
 /** The ticket patterns the host sent - see `ticketLinks` - for a badge's name to be read by. */
 let ticketPatterns: readonly string[] = [];
+/** `weft.testBranches`, which is what the "merges from" box fills itself in with. */
+let testBranches: readonly string[] = [];
 /** The lane colours, re-read every frame from the stylesheet - see `measureFrame`. */
 const palette: string[] = [];
 let pending = false;
@@ -1166,6 +1179,8 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       document.body.classList.toggle('author-tint', message.authorColors);
       ticketPatterns = message.ticketPatterns;
       detailsPane.setTicketPatterns(message.ticketPatterns);
+      testBranches = message.testBranches;
+      updateMergesFrom();
       break;
 
     case 'ticketPatterns':
@@ -1352,6 +1367,20 @@ function updateOnlyHere(): void {
   onlyHereEl.classList.toggle('on', onlyHere);
 }
 
+/** The switch, and the box that only means anything while the switch is on. */
+function updateMergesFrom(): void {
+  mergesFromEl.classList.toggle('on', mergesFrom);
+  mergesFromBranchesEl.hidden = !mergesFrom;
+}
+
+/** What the host is asked to draw: the branches in the box, or nothing at all when the switch is off. */
+function askMergesFrom(): void {
+  vscode.postMessage({
+    type: 'mergesFrom',
+    branches: mergesFrom ? splitBranchNames(mergesFromBranchesEl.value) : [],
+  });
+}
+
 commitOrderEl.addEventListener('change', () => {
   commitOrder = commitOrderEl.value as CommitOrder;
   saveViewState();
@@ -1372,6 +1401,39 @@ onlyHereEl.addEventListener('click', () => {
   vscode.postMessage({ type: 'onlyHere', on: onlyHere });
 });
 
+mergesFromEl.addEventListener('click', () => {
+  mergesFrom = !mergesFrom;
+
+  /*
+   * Turned on with nothing in the box, it fills itself in from `weft.testBranches` - which is what
+   * that setting is for, and saves the ordinary case being typed out every time. The box keeps the
+   * keyboard, because the next thing anybody does with a filter is change it.
+   */
+  if (mergesFrom && mergesFromBranchesEl.value.trim() === '') {
+    mergesFromBranchesEl.value = testBranches.join(', ');
+  }
+
+  updateMergesFrom();
+  saveViewState();
+  askMergesFrom();
+
+  if (mergesFrom) {
+    mergesFromBranchesEl.focus();
+  }
+});
+
+/*
+ * On `change` rather than on every keystroke: each one of these is a walk of the history, and a name
+ * half typed matches nothing - so the graph would empty itself between `u` and `uat`.
+ */
+mergesFromBranchesEl.addEventListener('change', () => {
+  saveViewState();
+
+  if (mergesFrom) {
+    askMergesFrom();
+  }
+});
+
 /**
  * Put every filter in this view back to "no filter", without asking for anything.
  *
@@ -1382,8 +1444,11 @@ function clearFilters(): void {
   filterBar.clear();
   firstParent = false;
   onlyHere = false;
+  // The box keeps what it holds: this is a filter being dropped, not a setting being forgotten.
+  mergesFrom = false;
   updateFirstParent();
   updateOnlyHere();
+  updateMergesFrom();
   saveViewState();
 }
 
