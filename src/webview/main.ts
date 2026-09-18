@@ -33,7 +33,7 @@ import type { SearchMode, SearchToggle } from '../git/search.ts';
 import { looksLikeCommitId } from '../git/search.ts';
 import { describeAge } from '../git/blame.ts';
 import { findTickets } from '../git/ticketLinks.ts';
-import { splitBranchNames } from '../git/testMerges.ts';
+import { branchChoices, splitBranchNames } from '../git/testMerges.ts';
 import type { Target } from '../actions/registry.ts';
 import type { HostMessage, Row, WebviewMessage } from '../protocol.ts';
 import { authorHue } from './authorColor.ts';
@@ -137,7 +137,9 @@ const refPresets = document.getElementById('ref-presets') as HTMLElement;
 const firstParentEl = document.getElementById('first-parent') as HTMLButtonElement;
 const onlyHereEl = document.getElementById('only-here') as HTMLButtonElement;
 const mergesFromEl = document.getElementById('merges-from') as HTMLButtonElement;
+const mergesFromBoxEl = document.getElementById('merges-from-box') as HTMLElement;
 const mergesFromBranchesEl = document.getElementById('merges-from-branches') as HTMLInputElement;
+const mergesFromNamesEl = document.getElementById('merges-from-names') as HTMLElement;
 const commitOrderEl = document.getElementById('commit-order') as HTMLSelectElement;
 const viewport = document.getElementById('viewport') as HTMLElement;
 const spacer = document.getElementById('spacer') as HTMLElement;
@@ -354,6 +356,16 @@ function commitEnd(sha: string): CompareMark {
 let ticketPatterns: readonly string[] = [];
 /** `weft.testBranches`, which is what the "merges from" box fills itself in with. */
 let testBranches: readonly string[] = [];
+/**
+ * Every branch this repository has, under the name the box wants.
+ *
+ * Read off the ref list the header's menu is drawn from, which the host sends anyway - so completing a
+ * name costs nothing and asks nobody. `branchChoices` is the same reader the **Choose Test Branches**
+ * command uses, so the names offered here and there cannot come to mean different things.
+ */
+let branchNames: readonly string[] = [];
+/** Which name Return would take, among the ones on offer. */
+let namePick = 0;
 /** The lane colours, re-read every frame from the stylesheet - see `measureFrame`. */
 const palette: string[] = [];
 let pending = false;
@@ -1297,6 +1309,7 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
 
     case 'refs':
       branches.setRefs(message.refs, message.branch, message.presets, message.folders);
+      branchNames = branchChoices(message.refs.map((ref) => ref.refName).join('\n'));
 
       break;
 
@@ -1370,15 +1383,93 @@ function updateOnlyHere(): void {
 /** The switch, and the box that only means anything while the switch is on. */
 function updateMergesFrom(): void {
   mergesFromEl.classList.toggle('on', mergesFrom);
-  mergesFromBranchesEl.hidden = !mergesFrom;
+  mergesFromBoxEl.hidden = !mergesFrom;
+
+  if (!mergesFrom) {
+    closeMergesFromNames();
+  }
 }
+
+/** The last thing asked for, so the same walk is not asked for twice - see the Return key below. */
+let askedMergesFrom = '';
 
 /** What the host is asked to draw: the branches in the box, or nothing at all when the switch is off. */
 function askMergesFrom(): void {
-  vscode.postMessage({
-    type: 'mergesFrom',
-    branches: mergesFrom ? splitBranchNames(mergesFromBranchesEl.value) : [],
-  });
+  const branches = mergesFrom ? splitBranchNames(mergesFromBranchesEl.value) : [];
+  const asking = JSON.stringify(branches);
+
+  // A walk each, so the same one twice is a walk of the whole history for nothing.
+  if (asking === askedMergesFrom) {
+    return;
+  }
+
+  askedMergesFrom = asking;
+  vscode.postMessage({ type: 'mergesFrom', branches });
+}
+
+/**
+ * The part of the box Return would complete: what follows the last comma.
+ *
+ * The box holds a list, so completing what is typed means completing the name being typed rather than
+ * the whole of it - `uat, si` offers `sit`, where a match against everything in the box offers nothing.
+ */
+function typedName(): string {
+  return (mergesFromBranchesEl.value.split(',').at(-1) ?? '').trim();
+}
+
+function closeMergesFromNames(): void {
+  mergesFromNamesEl.hidden = true;
+}
+
+/** Put a name where the one being typed was, leaving the rest of the list alone. */
+function completeName(name: string): void {
+  const parts = mergesFromBranchesEl.value.split(',');
+
+  parts[parts.length - 1] = parts.length > 1 ? ` ${name}` : name;
+  mergesFromBranchesEl.value = parts.join(',');
+  closeMergesFromNames();
+  saveViewState();
+  askMergesFrom();
+  mergesFromBranchesEl.focus();
+}
+
+/**
+ * The branches this repository has, narrowed to what is being typed.
+ *
+ * Nothing on an empty box, which is the difference between offering help and standing in the way: an
+ * unfiltered list of four hundred branches over the graph is not an answer to anything. What is already
+ * in the box is left out too - it is in the box.
+ */
+function showMergesFromNames(): void {
+  const typed = typedName().toLowerCase();
+  const already = splitBranchNames(mergesFromBranchesEl.value).slice(0, -1).map((name) => name.toLowerCase());
+  const matches =
+    typed.length === 0
+      ? []
+      : branchNames
+          .filter((name) => name.toLowerCase().includes(typed) && !already.includes(name.toLowerCase()))
+          .slice(0, 8);
+
+  mergesFromNamesEl.replaceChildren(
+    ...matches.map((name, at) => {
+      const row = document.createElement('button');
+
+      row.type = 'button';
+      row.className = at === namePick ? 'merges-from-name picked' : 'merges-from-name';
+      row.textContent = name;
+
+      // On mousedown rather than click: the box loses focus first, and a list closed on blur is a list
+      // that was never clicked.
+      row.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        completeName(name);
+      });
+
+      return row;
+    }),
+  );
+
+  mergesFromNamesEl.hidden = matches.length === 0;
 }
 
 commitOrderEl.addEventListener('change', () => {
@@ -1434,6 +1525,50 @@ mergesFromBranchesEl.addEventListener('change', () => {
   }
 });
 
+// Typing offers names; it does not ask for a walk, which is what `change` above is for.
+mergesFromBranchesEl.addEventListener('input', () => {
+  namePick = 0;
+  showMergesFromNames();
+});
+
+mergesFromBranchesEl.addEventListener('blur', closeMergesFromNames);
+
+/*
+ * The keys a list under a text box has to answer. Return with a name picked completes it rather than
+ * applying what is typed - the half-typed name is exactly what somebody pressing Return there means to
+ * replace - and Escape puts the list away without touching the box.
+ */
+mergesFromBranchesEl.addEventListener('keydown', (event) => {
+  const offered = Array.from(mergesFromNamesEl.querySelectorAll<HTMLButtonElement>('.merges-from-name'));
+
+  if (mergesFromNamesEl.hidden || offered.length === 0) {
+    return;
+  }
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    namePick = (namePick + (event.key === 'ArrowDown' ? 1 : offered.length - 1)) % offered.length;
+    showMergesFromNames();
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    const picked = offered[namePick]?.textContent ?? '';
+
+    if (picked.length > 0) {
+      completeName(picked);
+      event.preventDefault();
+    }
+
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    closeMergesFromNames();
+    event.preventDefault();
+  }
+});
+
 /**
  * Put every filter in this view back to "no filter", without asking for anything.
  *
@@ -1446,6 +1581,12 @@ function clearFilters(): void {
   onlyHere = false;
   // The box keeps what it holds: this is a filter being dropped, not a setting being forgotten.
   mergesFrom = false;
+  /*
+   * And the host has dropped it too, so what was last asked for is no longer what it is drawing.
+   * Without this, switching the same branches back on asks for something the view thinks it has
+   * already asked for, and the graph goes on drawing everything.
+   */
+  askedMergesFrom = '';
   updateFirstParent();
   updateOnlyHere();
   updateMergesFrom();

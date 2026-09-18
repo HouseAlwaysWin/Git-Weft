@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Draw only the merges that took a branch into another one.** A **merges from** switch in the filter
+  bar, with a box for the branches - your test sites, `uat` and `sit` and the like, filled in from
+  `weft.testBranches` the first time it is switched on and yours to change after that. The graph then
+  draws those merges and nothing else, which is how a test site's own commits reach the trunk behind
+  somebody's feature. It stacks with everything else in the bar rather than replacing any of it: a
+  person, a month and this switch are one question with three parts, and the answer is one graph. Found
+  by what git wrote when the merge was made, so one that was squashed or rebased leaves nothing to find.
+
+- **The branch box completes what you type**, from the branches the repository has - the same names
+  **Choose Test Branches…** offers, read off the ref list the graph already has, so it costs nothing and
+  asks nobody. It completes the name being typed rather than the whole box, since the box holds a list.
+
 - **Asking to see a commit now shows it, rather than saying why it is hidden.** A graph draws the
   branches you have ticked, so a sha from a terminal, a commit off a line's blame, or a merge picked out
   of the test-branch report - none of which are about what you happened to tick - would often land on a

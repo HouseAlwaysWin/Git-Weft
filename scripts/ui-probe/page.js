@@ -772,21 +772,87 @@
      */
     {
       const box = document.querySelector('#merges-from-branches');
-      const said = ['box hidden before: ' + box.hidden];
+      const names = () =>
+        [...document.querySelectorAll('#merges-from-names .merges-from-name')].map((row) => row.textContent);
+      const said = ['box hidden before: ' + document.querySelector('#merges-from-box').hidden];
       let before = sent().length;
 
       click(document.querySelector('#merges-from'));
       await settle(250);
-      said.push('box hidden after: ' + box.hidden);
+      said.push('box hidden after: ' + document.querySelector('#merges-from-box').hidden);
       said.push('box holds: ' + JSON.stringify(box.value));
       said.push('switch: ' + JSON.stringify(document.querySelector('#merges-from').className));
       said.push('asked: ' + sentSince(before));
 
       before = sent().length;
-      box.value = 'uat, sit';
+      box.value = 'uat';
       box.dispatchEvent(new Event('change', { bubbles: true }));
       await settle(250);
       said.push('after editing: ' + sentSince(before));
+
+      /*
+       * Completing a name that is being typed, against a ref list posted in - the steps above leave a
+       * stand-in list of their own, and a completion checked against whatever they happened to leave is
+       * a completion checked against nothing in particular.
+       *
+       * A `t` matches `feat/columnar-store`; `uat` is a branch too and is already in the box; `main` has
+       * no `t` in it; and `latest` is a tag, which is not a branch to filter merges from.
+       */
+      window.postMessage(
+        {
+          type: 'refs',
+          branch: 'main',
+          refs: [
+            { label: 'main', refName: 'refs/heads/main', kind: 'local', visible: true, updated: 0 },
+            { label: 'feat/columnar-store', refName: 'refs/heads/feat/columnar-store', kind: 'local', visible: true, updated: 0 },
+            { label: 'origin/uat', refName: 'refs/remotes/origin/uat', kind: 'remote', visible: true, updated: 0 },
+            { label: 'latest', refName: 'refs/tags/latest', kind: 'tag', visible: true, updated: 0 },
+          ],
+        },
+        '*',
+      );
+      await settle(200);
+
+      box.value = 'uat, t';
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle(200);
+      said.push('offered for "uat, t": ' + JSON.stringify(names()));
+
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      await settle(150);
+      said.push('after an arrow: ' + JSON.stringify(names()));
+
+      before = sent().length;
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await settle(250);
+      said.push('completed to: ' + JSON.stringify(box.value));
+      said.push('and asked: ' + sentSince(before));
+      said.push('list after: hidden=' + document.querySelector('#merges-from-names').hidden);
+
+      // An empty box offers nothing: four hundred branches over the graph is not an answer to anything.
+      box.value = '';
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle(150);
+      said.push('offered for nothing: ' + JSON.stringify(names()));
+
+      box.value = 'uat, sit';
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      await settle(200);
+
+      /*
+       * The same branches again after the host has dropped every filter, and before the switch is
+       * turned off - turning it off asks for nothing, which would leave the page ready to ask for these
+       * again whether or not it had been told to forget. The page asks for the same thing twice for
+       * nothing, each one being a walk; but "the same" holds only while the host is still drawing it,
+       * and `filtersCleared` is the host saying it is not.
+       */
+      window.postMessage({ type: 'filtersCleared' }, '*');
+      await settle(200);
+
+      before = sent().length;
+      click(document.querySelector('#merges-from'));
+      await settle(250);
+      said.push('after clearing: ' + sentSince(before));
 
       before = sent().length;
       click(document.querySelector('#merges-from'));

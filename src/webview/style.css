@@ -702,6 +702,59 @@ body.vscode-high-contrast.author-tint .row .author {
   opacity: 0.7;
 }
 
+#merges-from-box {
+  position: relative;
+  display: inline-flex;
+}
+
+#merges-from-box[hidden] {
+  display: none;
+}
+
+/* The same shape as the branch menu's own quick-switch list, which is the same job in another place. */
+#merges-from-names {
+  position: absolute;
+  z-index: 21;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 16em;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 4px 0;
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: 4px;
+  background: var(--vscode-editorWidget-background, var(--weft-bg));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+}
+
+#merges-from-names[hidden] {
+  display: none;
+}
+
+.merges-from-name {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 3px 10px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.merges-from-name:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* Where Return would go, drawn the way a list selection is, because that is what it is. */
+.merges-from-name.picked {
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
 #merges-from-branches {
   width: 9em;
   background: var(--vscode-input-background, transparent);

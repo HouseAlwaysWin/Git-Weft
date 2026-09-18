@@ -574,6 +574,26 @@ const INVARIANTS = [
     },
   ],
   [
+    'the merges-from box completes the name being typed, from the branches there are',
+    (found) => {
+      const lines = (found['=== merges from ==='] ?? '').trim().split('\n');
+      const value = (name) => lines.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2);
+      const offered = JSON.parse(value('offered for "uat, t"') ?? 'null');
+      const ok =
+        // Both branches with a `t` in them, and not `main`, which is the other one there is.
+        JSON.stringify(offered) === JSON.stringify(['feat/columnar-store']) &&
+        // The arrow moves the pick without changing what is offered.
+        JSON.stringify(JSON.parse(value('after an arrow') ?? 'null')) === JSON.stringify(offered) &&
+        // Return completes the name being typed and leaves the rest of the list alone.
+        value('completed to') === '"uat, feat/columnar-store"' &&
+        (value('and asked') ?? '').includes('"branches":["uat","feat/columnar-store"]') &&
+        value('list after') === 'hidden=true' &&
+        value('offered for nothing') === '[]';
+
+      return ok ? null : lines.join(' / ');
+    },
+  ],
+  [
     'the merges-from switch shows its box, fills it in, and asks for those branches',
     (found) => {
       const lines = (found['=== merges from ==='] ?? '').trim().split('\n');
@@ -593,10 +613,13 @@ const INVARIANTS = [
         (value('switch') ?? '').includes('on') &&
         // One message per line, which is what `sentSince` writes - not a list of them.
         JSON.stringify(asked('asked')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat', 'sit'] }) &&
-        JSON.stringify(asked('after editing')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat', 'sit'] }) &&
+        // Edited to something else, which is asked for - the same value again is not, and is checked below.
+        JSON.stringify(asked('after editing')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat'] }) &&
         // Off is the filter dropped, and the box keeps what it holds for the next time it is turned on.
         JSON.stringify(asked('off again')) === JSON.stringify({ type: 'mergesFrom', branches: [] }) &&
-        value('box kept') === '"uat, sit"';
+        value('box kept') === '"uat, sit"' &&
+        // Asked for again after the host dropped its filters, though the page had asked for it before.
+        JSON.stringify(asked('after clearing')) === JSON.stringify({ type: 'mergesFrom', branches: ['uat', 'sit'] });
 
       return ok ? null : lines.join(' / ');
     },
