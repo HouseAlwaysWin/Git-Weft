@@ -6480,6 +6480,48 @@ if (!(await until(blamedAgain))) {
     }
 
     /*
+     * And the same filter while standing somewhere else, which is how the fault was found: the copy is
+     * in `main`, the graph is drawing `main`, and HEAD is on a branch that has never seen it. Asked
+     * about HEAD rather than about what is drawn, this answered "nothing came from there" - which looks
+     * exactly like a repository where nobody had done it, and is the quietest way for a filter to lie.
+     */
+    const refsProvider = treeProviders.get('weft.refs');
+    const mainNode = refsProvider
+      .getChildren()
+      .flatMap((group) => refsProvider.getChildren(group))
+      .find((node) => node.label === 'main');
+
+    runGit(repoPath, 'checkout', '-q', 'Dev_Other');
+    await quiet();
+
+    const elsewhereFrom = posted.filter((m) => m.type === 'done').length;
+
+    await commands.get('weft.showOnlyRef')(mainNode);
+    await until(() => posted.filter((m) => m.type === 'done').length > elsewhereFrom, 20_000);
+    await quiet();
+
+    const elsewhere = drawnSince();
+
+    console.log('  from elsewhere:', elsewhere.join(' | ') || '(nothing drawn)');
+
+    if (!elsewhere.includes('a change somebody took across')) {
+      problems.push(`with HEAD on another branch the filter drew ${JSON.stringify(elsewhere)}`);
+    }
+
+    /*
+     * Back as it was for what follows: standing on main, every branch drawn - and in that order, because
+     * the sidebar follows the branch you are on and a checkout after Show All narrows it straight back.
+     */
+    runGit(repoPath, 'checkout', '-q', 'main');
+    await quiet();
+
+    const backAgainFrom = posted.filter((m) => m.type === 'done').length;
+
+    await commands.get('weft.showAllRefs')();
+    await until(() => posted.filter((m) => m.type === 'done').length > backAgainFrom, 20_000);
+    await quiet();
+
+    /*
      * Stacked with another filter rather than replacing it, which is the whole reason this is a filter
      * and not a list: a search for one of the two branches leaves one of the two merges.
      */

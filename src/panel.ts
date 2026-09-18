@@ -94,7 +94,7 @@ import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
-import { parsePicked, pickedArgs, refFor, tookTestBranch } from './git/testMerges.ts';
+import { parsePicked, pickedArgs, refsFor, tookTestBranch } from './git/testMerges.ts';
 import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
@@ -161,6 +161,16 @@ const REMEDY_LABELS: Record<Remedy, string> = {
 };
 
 export const VIEW_TYPE = 'weft.graph';
+
+/**
+ * How many patch-id comparisons one walk will wait for - see `pickedFrom`.
+ *
+ * Each is a read of two histories, measured at 0.9 seconds on a repository of 64,204 commits, and the
+ * number of them is the drawn refs times the refs each named branch has. Six is two test sites against
+ * their local and remote copies with a graph drawing one branch, or one test site with three branches
+ * ticked; past that the switch would cost more than the walk it narrows.
+ */
+const PICK_READS = 6;
 
 function describe(repo: RepoInfo): string | null {
   if (repo.isBare) {
@@ -681,19 +691,30 @@ export class WeftPanel {
   }
 
   /**
-   * The commits in this history whose change is also on one of the branches the switch names.
+   * The commits in what this graph draws whose change is also on one of the branches the switch names.
    *
    * A cherry-pick leaves no record of where it came from - `-x` is a habit, not a rule, and in the
    * repository this was measured on nobody taking things out of the test site had it - so the only
    * thing that ties the two together is that the change is the same. git can say that by patch id, and
-   * `--left-only --cherry-mark` says it about this side, which is the side that matters: the commit this
-   * graph draws is the copy, and the one it was copied from is over there with a sha of its own.
+   * `--left-only --cherry-mark` says it about one side, which is the side that matters here: the commit
+   * this graph draws is the copy, and the one it was copied from is over there with a sha of its own.
    *
-   * One read per branch named, and only while the switch is on: a second on the repository it was
-   * measured on, against a walk of the same history that takes longer. Nothing when the switch is off,
-   * which is the ordinary graph.
+   * **Which two sides** is the whole of it, and getting it wrong is silent - an empty set draws an empty
+   * filter, which looks exactly like a repository where nobody has done this. It was `HEAD` against one
+   * ref per name, and both halves of that were wrong:
+   *
+   * - The left side is what the graph draws, not what you have checked out. Standing on a feature branch
+   *   while the graph draws the trunk, `HEAD` against the test site found nothing, because the copies
+   *   are in the trunk and the feature branch has never seen them.
+   * - The right side is every ref the name has. Measured on that repository: twelve against the local
+   *   `uat`, which was 251 commits behind, and none against `origin/uat`, where the recent copies are.
+   *
+   * So: every drawn ref against every copy of every name, and the graph drawing everything is asked
+   * about `HEAD`, which is the one case with nothing else to ask about. Capped, because this is a read
+   * each - 0.9 seconds on that repository - and a graph with forty branches ticked would otherwise stop
+   * to do arithmetic about all of them.
    */
-  private async pickedFrom(): Promise<ReadonlySet<string>> {
+  private async pickedFrom(drawn: readonly string[] | null): Promise<ReadonlySet<string>> {
     const found = new Set<string>();
 
     if (this.mergesFrom.length === 0) {
@@ -701,15 +722,19 @@ export class WeftPanel {
     }
 
     const refNames = this.filters.listRefs().map((ref) => ref.refName);
+    const sides = drawn === null || drawn.length === 0 ? ['HEAD'] : drawn;
+    const pairs: [string, string][] = [];
 
     for (const name of this.mergesFrom) {
-      const ref = refFor(name, refNames);
-
-      if (ref === null) {
-        continue;
+      for (const ref of refsFor(name, refNames)) {
+        for (const side of sides) {
+          pairs.push([side, ref]);
+        }
       }
+    }
 
-      const walked = await this.git.runRead(this.repo.root, pickedArgs('HEAD', ref)).catch(() => '');
+    for (const [side, ref] of pairs.slice(0, PICK_READS)) {
+      const walked = await this.git.runRead(this.repo.root, pickedArgs(side, ref)).catch(() => '');
 
       for (const sha of parsePicked(walked)) {
         found.add(sha);
@@ -1479,7 +1504,6 @@ export class WeftPanel {
     });
 
     const loader = new HistoryLoader(this.git, this.repo);
-    const picked = await this.pickedFrom();
     const started = Date.now();
 
     // Read once: the walk is bounded by it and the message at the end has to say whether it was.
@@ -1520,6 +1544,9 @@ export class WeftPanel {
 
     const drawnRefs = this.filters.refs(this.repo.root);
     this.drawnRefs = drawnRefs;
+
+    // After the refs are known, because which of them are drawn is one of the two sides it compares.
+    const picked = await this.pickedFrom(drawnRefs);
 
     try {
       await loader.load(

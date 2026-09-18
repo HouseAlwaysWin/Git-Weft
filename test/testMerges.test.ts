@@ -14,7 +14,7 @@ import {
   parsePicked,
   pickedArgs,
   readTestBranches,
-  refFor,
+  refsFor,
   splitBranchNames,
   tookTestBranch,
 } from '../src/git/testMerges.ts';
@@ -148,19 +148,30 @@ test('a cherry-marked walk names the commits with a copy on the other side', () 
   assert.deepEqual(parsePicked(''), []);
 });
 
-test('a name in the box means a branch, local first and a remote after it', () => {
+test('a name in the box means every branch of that name, local first', () => {
   const refs = [
     'refs/heads/main',
     'refs/heads/uat',
     'refs/remotes/origin/uat',
+    'refs/remotes/mirror/uat',
     'refs/remotes/origin/sit',
     'refs/tags/uat',
   ];
 
-  assert.equal(refFor('uat', refs), 'refs/heads/uat', 'the local one, where there is one');
-  assert.equal(refFor('sit', refs), 'refs/remotes/origin/sit', 'and the remote where there is not');
-  assert.equal(refFor('nothing', refs), null);
+  /*
+   * Both, and in that order. A test site is deployed from a server, so the remote's copy is what says
+   * what is on it - and the local copy is a snapshot from whenever somebody last fetched. On the
+   * repository this was measured against, those two disagreed by 251 commits and each found changes the
+   * other did not.
+   */
+  assert.deepEqual(refsFor('uat', refs), [
+    'refs/heads/uat',
+    'refs/remotes/origin/uat',
+    'refs/remotes/mirror/uat',
+  ]);
+  assert.deepEqual(refsFor('sit', refs), ['refs/remotes/origin/sit'], 'a remote one with no local copy');
+  assert.deepEqual(refsFor('nothing', refs), []);
 
   // A tag of the same name is not a branch to have taken anything from.
-  assert.equal(refFor('uat', ['refs/tags/uat']), null);
+  assert.deepEqual(refsFor('uat', ['refs/tags/uat']), []);
 });

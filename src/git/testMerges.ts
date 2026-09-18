@@ -185,29 +185,33 @@ export function parsePicked(output: string): string[] {
 }
 
 /**
- * The ref a name in the box means, out of the refs there are.
+ * The refs a name in the box means, out of the refs there are: the local branch and every remote's copy
+ * of it, local first.
  *
- * `uat` is `refs/heads/uat` where there is one and `refs/remotes/origin/uat` where there is not - the
- * same rule a merge message is read by, and needed here because git itself resolves neither from `uat`
- * alone: a name with no local branch behind it is not a revision, and the walk would fail rather than
- * quietly answer about something else.
+ * All of them, and this is the reason. A test site is deployed from a server, so the branch that says
+ * what is on it is the remote's - and the local copy is a snapshot of that from whenever somebody last
+ * fetched. Measured on a repository where those two had drifted: the same comparison found twelve
+ * changes against the local copy, which was 251 commits behind, and none at all against the remote,
+ * because the copies are recent and the local branch has not seen them. Neither answer is the wrong
+ * one; taking one of the two and calling it "uat" is.
+ *
+ * Needed at all because git resolves neither from `uat` alone: a name with no local branch behind it is
+ * not a revision, and a walk asked for one fails rather than quietly answering about something else.
  */
-export function refFor(name: string, refNames: readonly string[]): string | null {
+export function refsFor(name: string, refNames: readonly string[]): string[] {
   const wanted = name.toLowerCase();
-  const local = refNames.find((ref) => ref.toLowerCase() === `refs/heads/${wanted}`);
+  const found = refNames.filter((ref) => ref.toLowerCase() === `refs/heads/${wanted}`);
 
-  if (local !== undefined) {
-    return local;
+  for (const ref of refNames) {
+    const remote = ref.toLowerCase().startsWith('refs/remotes/') ? ref.slice('refs/remotes/'.length) : null;
+    const at = remote === null ? -1 : remote.indexOf('/');
+
+    if (at >= 0 && remote !== null && remote.slice(at + 1).toLowerCase() === wanted) {
+      found.push(ref);
+    }
   }
 
-  return (
-    refNames.find((ref) => {
-      const remote = ref.toLowerCase().startsWith('refs/remotes/') ? ref.slice('refs/remotes/'.length) : null;
-      const at = remote === null ? -1 : remote.indexOf('/');
-
-      return at >= 0 && remote !== null && remote.slice(at + 1).toLowerCase() === wanted;
-    }) ?? null
-  );
+  return found;
 }
 
 /** The names typed into one box - `uat, sit` - as a list. */
