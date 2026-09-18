@@ -321,6 +321,12 @@
         "title": "Show Statistics",
         "category": "Git Weft",
         "icon": "$(graph)"
+      },
+      {
+        "command": "weft.findTestMerges",
+        "title": "Find Merges From Test Branches",
+        "category": "Git Weft",
+        "icon": "$(git-merge)"
       }
     ],
     "menus": {
@@ -445,6 +451,10 @@
         {
           "command": "weft.showStatistics",
           "when": "weft.hasRepository"
+        },
+        {
+          "command": "weft.findTestMerges",
+          "when": "weft.hasRepository"
         }
       ],
       "editor/context": [
@@ -528,6 +538,11 @@
           "command": "weft.showStatistics",
           "when": "activeWebviewPanelId == weft.graph",
           "group": "navigation@4"
+        },
+        {
+          "command": "weft.findTestMerges",
+          "when": "activeWebviewPanelId == weft.graph && weft.hasTestBranches",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
@@ -837,6 +852,14 @@
           },
           "default": [],
           "markdownDescription": "Ticket ids that become links in commit messages and on branch badges, for example `{ \"pattern\": \"ERP-[0-9]+\", \"url\": \"https://tracker.example/browse/$0\" }`. An id opens only when it matches a pattern whole, and only an `http` or `https` address is opened."
+        },
+        "weft.testBranches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Branches a test site sits on, such as `uat` or `staging`. **Git Weft: Find Merges From Test Branches** then lists every merge that took one of them into a branch that is not one of them - which is how a test site's own commits reach the trunk behind somebody's feature - and says which of those merges are already in the branch you are on. A name matches whole, with any remote in front of it: `uat` is also `origin/uat`, and is not `uat_deploy`. Merges are found by what git wrote when they were made, so one that was squashed or rebased leaves nothing to find."
         },
         "weft.remoteHosts": {
           "type": "object",

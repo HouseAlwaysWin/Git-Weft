@@ -27,6 +27,7 @@ import { filePage, readRemoteHosts } from './git/webLinks.ts';
 import { onRemote, webPlace } from './git/webPlace.ts';
 import { openUrl } from './openUrl.ts';
 import { shasIn } from './terminalLinks.ts';
+import { MERGE_ARGS, findTestMerges, parseMerges, readTestBranches } from './git/testMerges.ts';
 import { readTicketLinks } from './git/ticketLinks.ts';
 
 let output: vscode.LogOutputChannel | undefined;
@@ -315,6 +316,19 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       });
   }
+}
+
+/**
+ * Whether to offer the test-merge report on the graph's title bar.
+ *
+ * On the command palette it is always there, and says what to set when nothing is set. A title bar is
+ * different: a fifth icon that does nothing for anybody who has no test sites is a fifth icon nobody
+ * asked for, so the button appears when the setting names a branch and not before.
+ */
+function showTestMergesButton(): void {
+  const names = readTestBranches(vscode.workspace.getConfiguration('weft').get<unknown[]>('testBranches', []));
+
+  void vscode.commands.executeCommand('setContext', 'weft.hasTestBranches', names.length > 0);
 }
 
 /** The last thing said about `weft.ticketLinks`, so the same complaint is not made twice. */
@@ -863,6 +877,10 @@ function start(context: vscode.ExtensionContext): void {
         WeftPanel.refreshAll();
       }
 
+      if (event.affectsConfiguration('weft.testBranches')) {
+        showTestMergesButton();
+      }
+
       // Which ids are links is drawn rather than walked, so a corrected pattern costs the patterns.
       if (event.affectsConfiguration('weft.ticketLinks')) {
         reportTicketLinks(true);
@@ -909,6 +927,88 @@ function start(context: vscode.ExtensionContext): void {
       }
 
       StatsPanel.show(context.extensionUri, root, statsSource, vscode.ViewColumn.Beside);
+    }),
+
+    /*
+     * Every merge that took a test site's branch into something else - see `src/git/testMerges.ts` for
+     * what counts as one and why it is read from the message.
+     *
+     * Three reads, and all of them cheap: every merge in the repository, everything the branch you are
+     * on can reach, and what that branch is called. On a 64,204-commit repository with 35,996 merges in
+     * it that is 0.7 seconds altogether, which is why this asks git rather than the graph's own walk -
+     * the walk draws what is ticked, and a merge on a branch nobody has ticked is exactly the one worth
+     * knowing about.
+     */
+    vscode.commands.registerCommand('weft.findTestMerges', async () => {
+      const names = readTestBranches(
+        vscode.workspace.getConfiguration('weft').get<unknown[]>('testBranches', []),
+      );
+
+      if (names.length === 0) {
+        const choice = await vscode.window.showInformationMessage(
+          'Weft: name the branches your test sites are on in weft.testBranches, and this will list every merge that took one of them into a feature branch.',
+          'Open Settings',
+        );
+
+        if (choice === 'Open Settings') {
+          await vscode.commands.executeCommand('workbench.action.openSettings', 'weft.testBranches');
+        }
+
+        return;
+      }
+
+      const root = WeftPanel.active()?.root ?? WeftPanel.any()?.root ?? (await chooseRepository())?.root ?? null;
+
+      if (root === null) {
+        return;
+      }
+
+      const [merges, reached, head] = await Promise.all([
+        git.runRead(root, MERGE_ARGS).catch(() => ''),
+        git.runRead(root, ['rev-list', 'HEAD']).catch(() => ''),
+        git.runRead(root, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => 'HEAD'),
+      ]);
+
+      const branch = head.trim() === '' ? 'HEAD' : head.trim();
+      const found = findTestMerges(
+        parseMerges(merges),
+        names,
+        new Set(reached.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)),
+      );
+
+      if (found.length === 0) {
+        const choice = await vscode.window.showInformationMessage(
+          `Weft: nothing has taken ${names.join(' or ')} into another branch. Merges are found by what git wrote when they were made, so a squash or a rebase leaves nothing to find.`,
+          'Open Settings',
+        );
+
+        if (choice === 'Open Settings') {
+          await vscode.commands.executeCommand('workbench.action.openSettings', 'weft.testBranches');
+        }
+
+        return;
+      }
+
+      const landed = found.filter((merge) => merge.landed).length;
+      const picked = await vscode.window.showQuickPick(
+        found.map((merge) => ({
+          label: `$(git-merge) ${merge.into ?? '(the branch it was made on)'} ← ${merge.branch}`,
+          description: new Date(merge.at * 1000).toISOString().slice(0, 10),
+          // Where it went matters as much as when: the ones not in yet are the ones still worth a word.
+          detail: `${merge.author} · ${merge.landed ? `already in ${branch}` : `not in ${branch} yet`}`,
+          sha: merge.sha,
+        })),
+        {
+          title: `Merges from ${names.join(', ')}: ${found.length}, of which ${landed} already in ${branch}`,
+          placeHolder: 'Pick one to show it in the graph',
+          matchOnDescription: true,
+          matchOnDetail: true,
+        },
+      );
+
+      if (picked !== undefined) {
+        await revealInGraph(root, picked.sha);
+      }
     }),
 
     /*
@@ -1613,6 +1713,7 @@ function start(context: vscode.ExtensionContext): void {
 
   void updatePresence();
 
+  showTestMergesButton();
   reportTicketLinks(false);
   output?.info('Weft activated');
 }

@@ -6125,6 +6125,97 @@ if (!(await until(blamedAgain))) {
   }
 }
 
+/*
+ * Merges that took a test site's branch somewhere else, and the report of them.
+ *
+ * Last in the file, because it makes branches and merges of its own and nothing after it should have to
+ * know about them. Three merges are made: the one being looked for, the pull on the test branch that
+ * outnumbers it in a real repository, and the ordinary way round - a feature going to the test site.
+ */
+{
+  const site = 'uat-site';
+
+  runGit(repoPath, 'checkout', '-q', '-b', site);
+  writeFileSync(join(repoPath, 'only-on-the-site.txt'), 'a change only the test site has\n');
+  runGit(repoPath, 'add', '-A');
+  runGit(repoPath, 'commit', '-q', '-m', 'a change only the test site has');
+
+  runGit(repoPath, 'checkout', '-q', 'main');
+  runGit(repoPath, 'checkout', '-q', '-b', 'Dev_Thing');
+  writeFileSync(join(repoPath, 'the-feature.txt'), 'the feature\n');
+  runGit(repoPath, 'add', '-A');
+  runGit(repoPath, 'commit', '-q', '-m', 'the feature');
+
+  // The one being looked for, spelled the way git spells it.
+  runGit(repoPath, 'merge', '-q', '--no-ff', site, '-m', `Merge branch '${site}' into Dev_Thing`);
+
+  const taken = runGit(repoPath, 'rev-parse', 'HEAD').trim();
+
+  // And the two that must not be reported: a pull on the test branch, and a feature going to it.
+  runGit(repoPath, 'checkout', '-q', site);
+  runGit(repoPath, 'merge', '-q', '--no-ff', 'main', '-m', `Merge branch '${site}' of http://host/group/repo into ${site}`);
+  runGit(repoPath, 'merge', '-q', '--no-ff', 'Dev_Thing', '-m', `Merge branch 'Dev_Thing' into ${site}`);
+
+  // On main, where the merge above has not arrived: what the report says about that is half of it.
+  runGit(repoPath, 'checkout', '-q', 'main');
+  await quiet();
+
+  settings.set('weft.testBranches', [site]);
+  configurationChanged.fire(['weft.testBranches']);
+
+  const picksBefore = picks.length;
+  const revealFrom = posted.length;
+
+  pickAnswers.push(`$(git-merge) Dev_Thing ← ${site}`);
+  await commands.get('weft.findTestMerges')();
+
+  const offered = picks.at(-1);
+  const labels = offered?.labels ?? [];
+
+  console.log('\ntest merges    :', labels.join(' | ') || '(nothing offered)');
+  console.log('  title        :', offered?.title ?? '(none)');
+
+  if (picks.length === picksBefore) {
+    problems.push('the test-merge report offered nothing at all');
+  } else if (labels.length !== 1 || !labels[0].includes('Dev_Thing') || !labels[0].includes(site)) {
+    problems.push(`the test-merge report offered ${JSON.stringify(labels)}`);
+  }
+
+  // Not in main yet, which is the half that says a merge is still worth arguing about.
+  if (!(offered?.title ?? '').includes('0 already in main')) {
+    problems.push(`the test-merge report's title said ${JSON.stringify(offered?.title ?? '')}`);
+  }
+
+  if (!(await until(() => posted.slice(revealFrom).some((m) => m.type === 'reveal' && m.sha === taken)))) {
+    problems.push('picking a merge from the report never showed it in the graph');
+  }
+
+  // And once it has arrived, the report says so rather than listing it the same way.
+  runGit(repoPath, 'merge', '-q', '--no-ff', 'Dev_Thing', '-m', "Merge branch 'Dev_Thing' into main");
+  await quiet();
+
+  await commands.get('weft.findTestMerges')();
+
+  const after = picks.at(-1);
+
+  console.log('  once in main :', after?.title ?? '(none)');
+
+  if (!(after?.title ?? '').includes('1 already in main')) {
+    problems.push(`after the merge arrived the report said ${JSON.stringify(after?.title ?? '')}`);
+  }
+
+  // A setting nobody has filled in says what to fill in, rather than an empty list.
+  const offersBefore = offers.length;
+
+  settings.delete('weft.testBranches');
+  configurationChanged.fire(['weft.testBranches']);
+  await commands.get('weft.findTestMerges')();
+
+  if (offers.length === offersBefore || !(offers.at(-1)?.message ?? '').includes('weft.testBranches')) {
+    problems.push('with nothing set, the report said nothing about what to set');
+  }
+}
+
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');
 
 if (problems.length > 0) {

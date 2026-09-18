@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Find the merges that took a test site's branch into somebody's feature branch.** Name the branches
+  your test sites are on in `weft.testBranches` - `uat`, `sit`, `staging` - and **Git Weft: Find Merges
+  From Test Branches**, on the command palette and on the graph's title bar, lists every merge that took
+  one of them into a branch that is not one of them, newest first, saying for each whether it has already
+  reached the branch you are on. Picking one shows it in the graph. This is how a test site's own commits
+  arrive in the trunk behind a feature nobody reviewed them with, and until now the only way to find them
+  was to know they were there.
+
 - **The header no longer names a branch nobody is on.** The watcher reads the repository when it wakes,
   and the header is named by the redraw that follows - so a checkout landing between the two was drawn
   while what the watcher measures against still held the repository from before it. Making a branch,
