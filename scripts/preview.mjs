@@ -53,7 +53,14 @@ await loader.load(
         type: 'page',
         rows: page.commits.map((c, at) => ({
           sha: c.sha,
-          subject: c.subject,
+          /*
+           * One subject long enough to be cut short, on the row that also carries the longest badge: a
+           * page where nothing gives way proves nothing about what gives way first.
+           */
+          subject:
+            messages.length === 0 && at === 4
+              ? `${c.subject} - and a tail on this one long enough that the row has to give something up somewhere`
+              : c.subject,
           author: c.author,
           date: c.authorDate,
           refs: c.refs,
@@ -68,7 +75,8 @@ await loader.load(
             : at === 2
               ? { cameFrom: { branch: 'uat', how: 'merge' } }
               : at === 4
-                ? { cameFrom: { branch: 'uat', how: 'copy' } }
+                ? // Long on purpose: a badge that fits proves nothing about one that does not.
+                  { cameFrom: { branch: 'uat_deploy_2026_holding_branch', how: 'copy' } }
                 : {}),
         })),
         delta: page.delta,

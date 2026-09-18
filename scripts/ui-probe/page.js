@@ -112,6 +112,25 @@
       );
 
       parts.push('=== came-from badges ===\n' + (badges.join('\n') || '(none)'));
+
+      /*
+       * And whether anything on a row was cut short. A browser says so by holding more than it shows:
+       * `scrollWidth` past `clientWidth` is an ellipsis, whatever put it there - a max-width, a flex
+       * that gave way, or a column somebody dragged narrow. Every badge on screen, not only these two,
+       * because a ref's name is a name as much as this is.
+       */
+      const cut = (el) => el.scrollWidth > el.clientWidth + 1;
+      const badgesCut = [...document.querySelectorAll('#rows .ref')].filter(cut).map((el) => el.textContent);
+      const subjects = [...document.querySelectorAll('#rows .subject')];
+
+      parts.push(
+        '=== what was cut short ===\nbadges cut: ' +
+          JSON.stringify(badgesCut) +
+          '\nsubjects cut: ' +
+          subjects.filter(cut).length +
+          ' of ' +
+          subjects.length,
+      );
     }
 
     // The branch dropdown, and the ref rows inside it.

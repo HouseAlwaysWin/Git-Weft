@@ -574,6 +574,23 @@ const INVARIANTS = [
     },
   ],
   [
+    'a badge is drawn whole, and the subject is what gives way',
+    (found) => {
+      const lines = (found['=== what was cut short ==='] ?? '').trim().split('\n');
+      const value = (name) => lines.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2);
+      const subjects = /^(\d+) of (\d+)$/.exec(value('subjects cut') ?? '');
+      const ok =
+        // Not one of them, including the long one the preview tags a row with on purpose.
+        value('badges cut') === '[]' &&
+        subjects !== null &&
+        Number(subjects[2]) > 0 &&
+        // And something did give way, or the page is too wide for any of this to mean anything.
+        Number(subjects[1]) > 0;
+
+      return ok ? null : lines.join(' / ');
+    },
+  ],
+  [
     'a row the came-from filter kept says which branch it came from, and how',
     (found) => {
       const badges = (found['=== came-from badges ==='] ?? '').trim().split('\n');
@@ -581,7 +598,8 @@ const INVARIANTS = [
         badges.length === 2 &&
         // The class carries which of the two it is, and the text says it in words beside the branch.
         badges[0] === 'ref came-from merge | merged uat | A merge that took uat into another branc' &&
-        badges[1] === 'ref came-from copy | copied uat | The same change as a commit on uat, take';
+        badges[1] ===
+          'ref came-from copy | copied uat_deploy_2026_holding_branch | The same change as a commit on uat_deplo';
 
       return ok ? null : badges.join(' / ');
     },

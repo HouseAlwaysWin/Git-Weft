@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A badge is shown whole, and the subject is what gives way.** Branch names in some repositories are
+  long, and a badge cut at twenty characters is a different name or no name at all - `merged …` is
+  neither of the two things that badge can say. Badges keep their width now, and the subject gives way
+  instead, which is a sentence and survives losing its end.
+
 - **Each row the switch keeps says why it is there.** One switch draws two kinds of thing - a merge that
   took a branch into another one, and a commit whose change came across by hand - and a list of commits
   with no way to tell them apart is not much better than reading the merge messages yourself. Each row
