@@ -61,17 +61,57 @@ function makeTempRepo() {
   return dir;
 }
 
+/**
+ * Something else on the machine had the file open for a moment.
+ *
+ * `unable to access '.git/config': Permission denied` and the lock files beside it are Windows, not git:
+ * an indexer or a virus scanner opens a file the moment it is written, and anything trying to open it
+ * in that instant is told no. It killed two driver runs inside steps that were not about git at all -
+ * a fixture being built, a branch being made - and each one cost the twenty minutes the run had spent.
+ *
+ * So the harness's own git calls wait and try again. Only for this: a git that failed because the
+ * repository is in the state being tested has to fail, and every message below names the machine rather
+ * than the repository.
+ */
+const BUSY = /Permission denied|Device or resource busy|cannot lock ref|another git process|index\.lock/i;
+
+/** A wait without an event loop, because everything below is called from places that are not async. */
+function waitABit(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function git(dir, args, env) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return execFileSync('git', args, {
+        cwd: dir,
+        encoding: 'utf8',
+        ...(env === undefined ? {} : { env }),
+      });
+    } catch (err) {
+      const said = `${err.stderr ?? ''}${err.stdout ?? ''}`;
+
+      if (attempt >= 4 || !BUSY.test(said)) {
+        throw err;
+      }
+
+      // Longer each time: whatever has the file is doing something that takes as long as it takes.
+      waitABit(100 * (attempt + 1));
+      retriedGit += 1;
+    }
+  }
+}
+
+/** How many of those there were, said at the end: a harness that retries silently is one that hides a trend. */
+let retriedGit = 0;
+
 function runGit(dir, ...args) {
-  return execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  return git(dir, args);
 }
 
 /** The same, with a committer date. A fixture built in one second cannot be sorted by time. */
 function runGitAt(dir, when, ...args) {
-  return execFileSync('git', args, {
-    cwd: dir,
-    encoding: 'utf8',
-    env: { ...process.env, GIT_COMMITTER_DATE: when, GIT_AUTHOR_DATE: when },
-  });
+  return git(dir, args, { ...process.env, GIT_COMMITTER_DATE: when, GIT_AUTHOR_DATE: when });
 }
 
 function commitInto(dir, n) {
@@ -6420,6 +6460,10 @@ if (!(await until(blamedAgain))) {
 }
 
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');
+
+if (retriedGit > 0) {
+  console.log('git retries    :', retriedGit, '(the machine held a file; see runGit)');
+}
 
 if (problems.length > 0) {
   console.error('\nFAILED:');
