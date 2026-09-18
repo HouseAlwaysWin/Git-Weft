@@ -328,6 +328,8 @@ const vscodeStub = {
     from: (parts) => ({ ...parts, fsPath: parts.path, toString: () => `${parts.scheme}:${parts.path}?${parts.query ?? ''}` }),
   },
   ViewColumn: { Active: -1, One: 1 },
+  // Where a setting is written, for the commands that fill one in on the user's behalf.
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   commands: {
     registerCommand: (id, fn) => {
       if (commands.has(id)) {
@@ -608,6 +610,23 @@ const vscodeStub = {
       get: (key, fallback) => {
         const full = section === undefined ? key : `${section}.${key}`;
         return settings.has(full) ? settings.get(full) : fallback;
+      },
+      /*
+       * Writing one, which the stub could not do at all - so anything that filled a setting in for the
+       * user was unreachable here. The real one writes the file and tells everybody watching, and the
+       * telling is the half that matters: a command that writes a setting and leaves the window holding
+       * the old one is indistinguishable from a command that did nothing.
+       */
+      update: async (key, value) => {
+        const full = section === undefined ? key : `${section}.${key}`;
+
+        if (value === undefined) {
+          settings.delete(full);
+        } else {
+          settings.set(full, value);
+        }
+
+        configurationChanged.fire([full]);
       },
     }),
     onDidChangeWorkspaceFolders: () => ({ dispose() {} }),
@@ -6214,6 +6233,46 @@ if (!(await until(blamedAgain))) {
   if (offers.length === offersBefore || !(offers.at(-1)?.message ?? '').includes('weft.testBranches')) {
     problems.push('with nothing set, the report said nothing about what to set');
   }
+
+  /*
+   * And the setting filled in by picking, which is the point: the names come from the branches there
+   * are, so one with a letter missing is not something a person can produce here.
+   */
+  pickAnswers.push([site]);
+  await commands.get('weft.chooseTestBranches')();
+
+  const choices = picks.at(-1)?.labels ?? [];
+
+  console.log('  offered      :', choices.slice(0, 6).join(', '), choices.length > 6 ? `(+${choices.length - 6})` : '');
+
+  if (!choices.includes(site) || !choices.includes('main')) {
+    problems.push(`choosing a test branch offered ${JSON.stringify(choices)}`);
+  }
+
+  if (choices.some((label) => label.startsWith('origin/') || label === 'HEAD')) {
+    problems.push(`choosing a test branch offered a ref rather than a branch: ${JSON.stringify(choices)}`);
+  }
+
+  if (JSON.stringify(settings.get('weft.testBranches')) !== JSON.stringify([site])) {
+    problems.push(`choosing a test branch wrote ${JSON.stringify(settings.get('weft.testBranches'))}`);
+  }
+
+  // A name no branch has is said in the title rather than looking like a repository with nothing wrong.
+  settings.set('weft.testBranches', [site, 'uat-typo']);
+  configurationChanged.fire(['weft.testBranches']);
+  await commands.get('weft.findTestMerges')();
+
+  const titled = picks.at(-1)?.title ?? '';
+
+  console.log('  with a typo  :', titled);
+
+  // The words, not the name: the setting's names are in the title either way, so looking for one proves nothing.
+  if (!titled.includes('no branch here is called uat-typo')) {
+    problems.push(`a branch name nothing matches was not said: ${JSON.stringify(titled)}`);
+  }
+
+  settings.delete('weft.testBranches');
+  configurationChanged.fire(['weft.testBranches']);
 }
 
 console.log('\ngit log        :', outputLines.filter((l) => l.startsWith('debug')).length, 'commands');

@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  branchChoices,
   findTestMerges,
   mergedBranch,
   parseMerges,
@@ -72,4 +73,25 @@ test('the setting holds branch names, and nothing else', () => {
   ]);
   assert.deepEqual(readTestBranches('uat'), []);
   assert.deepEqual(readTestBranches(undefined), []);
+});
+
+test('the branches offered are the ones there are, under the name the setting wants', () => {
+  const offered = branchChoices(
+    [
+      'refs/heads/main',
+      'refs/heads/uat',
+      'refs/remotes/origin/HEAD',
+      'refs/remotes/origin/uat',
+      'refs/remotes/origin/sit',
+      'refs/remotes/upstream/release/v1.3',
+      '',
+    ].join('\n'),
+  );
+
+  /*
+   * `origin/uat` is offered as `uat` - the name that matches both - and only once, though two refs have
+   * it. A branch with a slash in its name keeps the slash; only the remote is taken off the front.
+   */
+  assert.deepEqual(offered, ['main', 'release/v1.3', 'sit', 'uat']);
+  assert.deepEqual(branchChoices(''), []);
 });

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **The test branches are chosen from a list rather than typed.** `weft.testBranches` is a list of
+  strings, and the Settings editor offers a text box for each - so a name with a letter missing looks
+  exactly like a name that is right, and the report it feeds says only that it found nothing. **Git Weft:
+  Choose Test Branches…** ticks them off the branches this repository actually has, and the report now
+  says in its title when a name matches no branch here.
+
 - **Find the merges that took a test site's branch into somebody's feature branch.** Name the branches
   your test sites are on in `weft.testBranches` - `uat`, `sit`, `staging` - and **Git Weft: Find Merges
   From Test Branches**, on the command palette and on the graph's title bar, lists every merge that took

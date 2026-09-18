@@ -58,6 +58,44 @@ export function readTestBranches(value: unknown): string[] {
  */
 export const MERGE_ARGS: readonly string[] = ['log', '--all', '--merges', '--format=%H%x00%an%x00%at%x00%s'];
 
+/** Every branch, local and remote, for `branchChoices` to read. */
+export const BRANCH_ARGS: readonly string[] = ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'];
+
+/**
+ * The names to offer for `weft.testBranches`, from what `BRANCH_ARGS` asked for.
+ *
+ * Under the name the setting wants rather than the name the ref has: a remote's copy of `uat` is
+ * offered as `uat`, which is what matches both of them, so picking from this list cannot produce a
+ * setting that means something narrower than it looks. `origin/HEAD` is a pointer at whatever the
+ * remote's default branch is, not a branch, and is left out.
+ */
+export function branchChoices(output: string): string[] {
+  const names = new Set<string>();
+
+  for (const line of output.split('\n')) {
+    const ref = line.trim();
+
+    if (ref.startsWith('refs/heads/')) {
+      names.add(ref.slice('refs/heads/'.length));
+      continue;
+    }
+
+    if (!ref.startsWith('refs/remotes/')) {
+      continue;
+    }
+
+    const rest = ref.slice('refs/remotes/'.length);
+    const at = rest.indexOf('/');
+    const name = at < 0 ? rest : rest.slice(at + 1);
+
+    if (name.length > 0 && name !== 'HEAD') {
+      names.add(name);
+    }
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
 /** Read what `MERGE_ARGS` asked for. A record with anything missing is not a merge this can report. */
 export function parseMerges(output: string): MergeLine[] {
   return output.split('\n').flatMap((line): MergeLine[] => {

@@ -27,7 +27,7 @@ import { filePage, readRemoteHosts } from './git/webLinks.ts';
 import { onRemote, webPlace } from './git/webPlace.ts';
 import { openUrl } from './openUrl.ts';
 import { shasIn } from './terminalLinks.ts';
-import { MERGE_ARGS, findTestMerges, parseMerges, readTestBranches } from './git/testMerges.ts';
+import { BRANCH_ARGS, MERGE_ARGS, branchChoices, findTestMerges, parseMerges, readTestBranches } from './git/testMerges.ts';
 import { readTicketLinks } from './git/ticketLinks.ts';
 
 let output: vscode.LogOutputChannel | undefined;
@@ -939,6 +939,60 @@ function start(context: vscode.ExtensionContext): void {
      * the walk draws what is ticked, and a merge on a branch nobody has ticked is exactly the one worth
      * knowing about.
      */
+    /*
+     * `weft.testBranches`, chosen from the branches the repository has rather than typed.
+     *
+     * The setting is a list of strings, and the Settings editor offers a text box for each: a name with
+     * a letter missing looks exactly like a name that is right, and the report it feeds says nothing
+     * except that it found nothing. So the names come from `for-each-ref`, ticked.
+     *
+     * Written to the workspace, because which branch is a test site is a fact about this repository and
+     * not about this person - and to the user's own settings when there is no workspace to write to.
+     */
+    vscode.commands.registerCommand('weft.chooseTestBranches', async () => {
+      const root = WeftPanel.active()?.root ?? WeftPanel.any()?.root ?? (await chooseRepository())?.root ?? null;
+
+      if (root === null) {
+        return;
+      }
+
+      const config = vscode.workspace.getConfiguration('weft');
+      const already = readTestBranches(config.get<unknown[]>('testBranches', []));
+      const listed = branchChoices(await git.runRead(root, BRANCH_ARGS).catch(() => ''));
+
+      /*
+       * What is already set is offered too, whether or not the branch is still there: a test site
+       * deleted last year is still what the merges in the history were made from, so unticking it has
+       * to be something somebody chose rather than something that happened to them.
+       */
+      const offered = [...new Set([...already, ...listed])];
+      const picked = await vscode.window.showQuickPick(
+        offered.map((name) => ({
+          label: name,
+          picked: already.includes(name),
+          // Only where there is something to say: an optional field set to undefined is not the same thing.
+          ...(listed.includes(name) ? {} : { description: 'no branch by that name here now' }),
+        })),
+        {
+          title: 'Which branches are your test sites?',
+          placeHolder: 'The ones a site is deployed from - uat, sit, staging',
+          canPickMany: true,
+        },
+      );
+
+      if (picked === undefined) {
+        return;
+      }
+
+      await config.update(
+        'testBranches',
+        picked.map((item) => item.label),
+        vscode.workspace.workspaceFolders === undefined
+          ? vscode.ConfigurationTarget.Global
+          : vscode.ConfigurationTarget.Workspace,
+      );
+    }),
+
     vscode.commands.registerCommand('weft.findTestMerges', async () => {
       const names = readTestBranches(
         vscode.workspace.getConfiguration('weft').get<unknown[]>('testBranches', []),
@@ -947,11 +1001,11 @@ function start(context: vscode.ExtensionContext): void {
       if (names.length === 0) {
         const choice = await vscode.window.showInformationMessage(
           'Weft: name the branches your test sites are on in weft.testBranches, and this will list every merge that took one of them into a feature branch.',
-          'Open Settings',
+          'Choose Branches',
         );
 
-        if (choice === 'Open Settings') {
-          await vscode.commands.executeCommand('workbench.action.openSettings', 'weft.testBranches');
+        if (choice === 'Choose Branches') {
+          await vscode.commands.executeCommand('weft.chooseTestBranches');
         }
 
         return;
@@ -963,11 +1017,19 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const [merges, reached, head] = await Promise.all([
+      const [merges, reached, head, branches] = await Promise.all([
         git.runRead(root, MERGE_ARGS).catch(() => ''),
         git.runRead(root, ['rev-list', 'HEAD']).catch(() => ''),
         git.runRead(root, ['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => 'HEAD'),
+        git.runRead(root, BRANCH_ARGS).catch(() => ''),
       ]);
+
+      /*
+       * A name in the setting that no branch here has. Usually a typo, sometimes a site that was taken
+       * down - either way it finds nothing, and "nothing" is what a clean repository looks like too.
+       */
+      const here = branchChoices(branches);
+      const unknown = names.filter((name) => !here.some((branch) => branch.toLowerCase() === name.toLowerCase()));
 
       const branch = head.trim() === '' ? 'HEAD' : head.trim();
       const found = findTestMerges(
@@ -977,13 +1039,14 @@ function start(context: vscode.ExtensionContext): void {
       );
 
       if (found.length === 0) {
-        const choice = await vscode.window.showInformationMessage(
-          `Weft: nothing has taken ${names.join(' or ')} into another branch. Merges are found by what git wrote when they were made, so a squash or a rebase leaves nothing to find.`,
-          'Open Settings',
-        );
+        const said =
+          unknown.length === 0
+            ? `Weft: nothing has taken ${names.join(' or ')} into another branch. Merges are found by what git wrote when they were made, so a squash or a rebase leaves nothing to find.`
+            : `Weft: no branch here is called ${unknown.join(' or ')}, and nothing has taken ${names.join(' or ')} into another branch.`;
+        const choice = await vscode.window.showInformationMessage(said, 'Choose Branches');
 
-        if (choice === 'Open Settings') {
-          await vscode.commands.executeCommand('workbench.action.openSettings', 'weft.testBranches');
+        if (choice === 'Choose Branches') {
+          await vscode.commands.executeCommand('weft.chooseTestBranches');
         }
 
         return;
@@ -999,7 +1062,9 @@ function start(context: vscode.ExtensionContext): void {
           sha: merge.sha,
         })),
         {
-          title: `Merges from ${names.join(', ')}: ${found.length}, of which ${landed} already in ${branch}`,
+          title:
+            `Merges from ${names.join(', ')}: ${found.length}, of which ${landed} already in ${branch}` +
+            (unknown.length === 0 ? '' : ` · no branch here is called ${unknown.join(' or ')}`),
           placeHolder: 'Pick one to show it in the graph',
           matchOnDescription: true,
           matchOnDetail: true,
