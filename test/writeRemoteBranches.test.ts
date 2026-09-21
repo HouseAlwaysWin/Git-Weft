@@ -37,7 +37,7 @@ test('checking out a remote branch whose local branch exists goes to the local b
   assert.equal(sh(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'doomed');
   assert.match(
     sh(dir, 'status', '--short', '--branch'),
-    /## not-the-branch/,
+    /## doomed/,
     'on the branch, not detached at the remote tip',
   );
 });
