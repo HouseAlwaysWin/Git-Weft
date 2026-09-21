@@ -42,6 +42,20 @@ function makeTempRepo() {
     commitInto(dir, n);
   }
 
+  /*
+   * The same person under a second spelling, touching a file the first one never does.
+   *
+   * One person is often several names - `weft_test` and `Weft Test` have the same fingerprint and are
+   * folded into one row - and anything answering a question about that person has to ask about every
+   * spelling. Asking about one is a smaller answer that looks complete, and this file is the only
+   * thing that can tell the two apart.
+   */
+  runGit(dir, 'config', 'user.name', 'weft_test');
+  writeFileSync(join(dir, 'under-the-other-name.txt'), 'the same person, spelled differently\n');
+  runGit(dir, 'add', '-A');
+  runGit(dir, 'commit', '-q', '-m', 'a commit under the other spelling');
+  runGit(dir, 'config', 'user.name', 'Weft Test');
+
   // A second author, so filtering by one of them has something to remove.
   runGit(dir, 'config', 'user.name', 'Someone Else');
   runGit(dir, 'config', 'user.email', 'else@example.invalid');
@@ -2404,6 +2418,46 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
         );
       }
 
+      /*
+       * What that person has worked on, which is the other question the sidebar is asked and could
+       * not answer. It ends at the file history, so the check is the whole path: the list comes back
+       * counted and in order, and picking one asks the graph for that file and no other.
+       */
+      const before = posted.length;
+
+      pickAnswers.push('f1.txt');
+      await commands.get('weft.authorFiles')(authors[0]);
+
+      const offered = picks.at(-1);
+      const asked = posted.slice(before).filter((m) => m.type === 'showHistory').pop();
+
+      console.log('  their files  :', (offered?.labels ?? []).join(', ') || '(nothing offered)');
+      console.log('  title        :', offered?.title ?? '(none)', '| asked for', JSON.stringify(asked?.path ?? null));
+
+      /*
+       * Every file in this fixture, counted rather than listed once: `f1.txt` is committed and then
+       * edited again, so a set would say one where the walk says two - and the order is what makes a
+       * list of four thousand readable.
+       */
+      if ((offered?.labels ?? []).length === 0) {
+        problems.push('the files this author changed came back empty');
+      } else if (!String(offered?.title ?? '').startsWith(`${offered?.labels.length} files`)) {
+        problems.push(`the file list did not say how many there were: ${JSON.stringify(offered?.title ?? null)}`);
+      }
+
+      /*
+       * And the file only their other spelling ever touched. This person is two names folded into one
+       * row, so a list built from one of them is shorter than the truth and says nothing about being
+       * shorter - which is the whole reason the question is asked of the row rather than of a name.
+       */
+      if (!(offered?.labels ?? []).includes('under-the-other-name.txt')) {
+        problems.push(`only one spelling was asked about: ${JSON.stringify(offered?.labels ?? null)}`);
+      }
+
+      if (asked?.path !== 'f1.txt') {
+        problems.push(`picking a file asked the graph for ${JSON.stringify(asked?.path ?? null)}`);
+      }
+
       // Put it back. Leaving a filter on would silently change what every later section is
       // measuring - which is exactly what it did the first time this ran.
       await commands.get('weft.showAllAuthors')();
@@ -2522,6 +2576,12 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
     problems.push('the fixture has too few authors to group');
   } else {
     const [first, second] = people;
+    /*
+     * Counted rather than written down as two. One of these people is already two spellings folded
+     * together, so "expected two" was a fact about the fixture and not about grouping - and it went
+     * red the moment the fixture grew a name, which is a check failing for being right.
+     */
+    const expected = provider.spellingsOf(first).length + provider.spellingsOf(second).length;
 
     provider.addToGroup(provider.spellingsOf(second), first.author.name);
 
@@ -2534,8 +2594,8 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       `${group?.author.name} -> ${members.map((node) => node.identity.name).join(', ')}`,
     );
 
-    if (members.length !== 2) {
-      problems.push(`grouping by hand gave ${members.length} spellings, expected two`);
+    if (members.length !== expected) {
+      problems.push(`grouping by hand gave ${members.length} spellings, expected ${expected}`);
     }
 
     if (members.some((node) => node.kind !== 'member')) {

@@ -27,6 +27,8 @@
 
 import * as vscode from 'vscode';
 
+import type { TouchedFile } from './git/authorFiles.ts';
+import { authorFilesArgs, parseAuthorFiles } from './git/authorFiles.ts';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import type { Author, AuthorIdentity } from './git/authors.ts';
@@ -288,6 +290,23 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     }
 
     return [...names];
+  }
+
+  /**
+   * Every file this person has changed, most-changed first.
+   *
+   * Here rather than in the command, because the two things it needs are here: which repository is on
+   * screen, and every spelling this person is listed under. A group is one person under several
+   * names, and asking about one of them is a different question with a smaller and wrong answer.
+   */
+  async filesTouchedBy(node: AuthorNode, signal: AbortSignal): Promise<TouchedFile[]> {
+    const spellings = this.spellingsOf(node);
+
+    if (this.repo === null || spellings.length === 0) {
+      return [];
+    }
+
+    return parseAuthorFiles(await this.git.runRead(this.repo.root, authorFilesArgs(spellings), { signal }));
   }
 
   /** Which group a right-click was in: a spelling's own row, or the group row itself. */

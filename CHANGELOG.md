@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **"Files They Have Changed…" on a person in the Authors sidebar.** The sidebar knew who, and the
+  graph knew when; what nobody could ask was what one person had worked on. It lists every file they
+  have ever changed, most-changed first with the count beside it, and picking one opens that file's
+  history - so it is the two things Weft already did, joined up. Every spelling of a grouped person is
+  asked about at once. Measured on a 64,252-commit repository: 0.9 seconds and 4,401 files for a
+  prolific contributor.
+
 - **"List Every Branch & Tag" lists every branch and tag.** Two independent things narrow that list -
   the text filter and "only the ticked" - and the command cleared the second alone. With a filter
   typed in it did nothing anybody could see: the list stayed at one of 1,178, and the only sign it had

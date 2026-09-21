@@ -161,6 +161,11 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "weft.authorFiles",
+        "title": "Files They Have Changed…",
+        "category": "Git Weft"
+      },
+      {
         "command": "weft.groupAuthor",
         "title": "Add to Group…",
         "category": "Git Weft"
@@ -619,6 +624,11 @@
           "command": "weft.cleanUpBranches",
           "when": "view == weft.refs && viewItem == weftGroupHeads",
           "group": "cleanup@1"
+        },
+        {
+          "command": "weft.authorFiles",
+          "when": "view == weft.authors && viewItem =~ /^weftAuthor/",
+          "group": "files@1"
         },
         {
           "command": "weft.groupAuthor",
