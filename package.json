@@ -674,7 +674,7 @@
         },
         {
           "command": "weft.listAllRefs",
-          "when": "view == weft.refs && weft.refsTickedOnly",
+          "when": "view == weft.refs && (weft.refsTickedOnly || weft.refsListFiltered)",
           "group": "listing@2"
         },
         {

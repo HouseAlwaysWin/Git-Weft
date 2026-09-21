@@ -949,6 +949,27 @@ console.log('contributed    :', contributed.length, 'commands');
   }
 }
 
+/*
+ * The way out of a narrowing has to be reachable from every narrowing there is.
+ *
+ * Two context keys say the list is narrowed, and "List Every Branch & Tag" is the one command that
+ * undoes both. Its `when` named only one of them, so with a text filter on - the case it was reported
+ * from - the item was not in the menu at all, and the two ways back were retyping the filter empty or
+ * knowing about the command palette. A command nobody can reach is a command that does nothing.
+ */
+{
+  const entry = (manifest.contributes.menus['view/title'] ?? []).find((item) => item.command === 'weft.listAllRefs');
+  const when = String(entry?.when ?? '');
+
+  console.log('list-all when  :', when || '(not in the menu at all)');
+
+  for (const key of ['weft.refsTickedOnly', 'weft.refsListFiltered']) {
+    if (!when.includes(key)) {
+      problems.push(`List Every Branch & Tag cannot be reached when ${key} is the only narrowing: "${when}"`);
+    }
+  }
+}
+
 for (const expected of contributed) {
   if (!commands.has(expected)) {
     problems.push(`contributed but never registered: ${expected}`);
@@ -1536,6 +1557,12 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
     const before = everyRef().length;
     const walkBefore = posted.filter((m) => m.type === 'done').length;
+    /*
+     * From here rather than from part-way down: every listing command below has to leave this alone,
+     * and a check that reads the ticks after the first of them has already missed what that one did.
+     */
+    const ticked = () => everyRef().filter((ref) => refsProvider.getTreeItem(ref).checkboxState === 1).length;
+    const tickedAtStart = ticked();
 
     await commands.get('weft.listTickedRefs')();
 
@@ -1571,6 +1598,38 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
 
     if (back !== before) {
       problems.push(`listing every ref again gave ${back} of the ${before} there were`);
+    }
+
+    /*
+     * And against the other narrowing, which is the one it used to walk straight past.
+     *
+     * The list is narrowed by two independent things, and "List Every Branch & Tag" cleared one. With
+     * a filter typed in it did nothing anybody could see - the list did not move, and the only sign it
+     * had run was its own menu item disappearing - which is exactly how it was reported. The graph is
+     * a different question and has to stay where it was: a listing command that re-ticks refs is a
+     * walk of the whole history nobody asked for.
+     */
+    await typeIntoRefFilter('side');
+
+    const filtered = everyRef().length;
+
+    await commands.get('weft.listAllRefs')();
+
+    const afterFilter = everyRef().length;
+    const tickedAfter = ticked();
+
+    console.log('after a filter :', filtered, '->', afterFilter, 'refs |', tickedAtStart, '->', tickedAfter, 'ticked');
+
+    if (filtered >= before) {
+      problems.push(`the filter narrowed nothing: ${filtered} of ${before}`);
+    }
+
+    if (afterFilter !== before) {
+      problems.push(`listing every ref left the text filter on: ${afterFilter} of ${before} listed`);
+    }
+
+    if (tickedAfter !== tickedAtStart) {
+      problems.push(`a listing command changed the ticks: ${tickedAtStart} -> ${tickedAfter}`);
     }
   }
 }

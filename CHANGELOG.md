@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **"List Every Branch & Tag" lists every branch and tag.** Two independent things narrow that list -
+  the text filter and "only the ticked" - and the command cleared the second alone. With a filter
+  typed in it did nothing anybody could see: the list stayed at one of 1,178, and the only sign it had
+  run was its own menu item disappearing. It clears both now, and it is in the menu whenever either of
+  them is on, so a text filter alone no longer leaves you with retyping it empty as the way back. The
+  graph is untouched, as before: what is drawn is the ticks, and "Show All Branches & Tags" is the
+  command for those.
+
 - **The came-from switch says what it is comparing.** Copies are found between two sides, so the only
   commits it can ever find are the ones the graph has and the named branch does not - which for a
   branch merged back every day is a handful, and for one left alone since May is thousands. Reported

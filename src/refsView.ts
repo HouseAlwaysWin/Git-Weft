@@ -481,6 +481,31 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     this.updateMessage();
   }
 
+  /**
+   * Every ref listed again: both of the narrowings, not one of them.
+   *
+   * Two independent things decide what this list shows - the text filter and "only the ticked" - and
+   * the command that calls this is called "List Every Branch & Tag". It used to clear the second
+   * alone, so with a filter typed in it did nothing anybody could see: the list stayed at one of
+   * 1,178, and the only sign it had run at all was the menu item disappearing afterwards.
+   *
+   * The graph is untouched, as it is by every other listing command here. What is drawn is the ticks,
+   * and the ticks have their own command; a filter that quietly re-ticked 1,176 refs would be a walk
+   * of the whole history that nobody asked for. The message on the view says both halves for exactly
+   * this reason.
+   */
+  listEverything(): void {
+    if (!this.tickedOnly && this.query.length === 0) {
+      return;
+    }
+
+    this.tickedOnly = false;
+    this.query = '';
+    this.publishFiltering();
+    this.changed.fire(undefined);
+    this.updateMessage();
+  }
+
   /** Narrow the listing. An empty string clears it. */
   setQuery(query: string): void {
     this.query = query.trim();
