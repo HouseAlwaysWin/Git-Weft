@@ -23,6 +23,7 @@ import { filterArgs } from './git/search.ts';
 import type { DateRange } from './git/dates.ts';
 import { dateArgs } from './git/dates.ts';
 import type {
+  CameFromWindow,
   CommitOrder,
   CompareEnd,
   HostMessage,
@@ -98,6 +99,7 @@ import {
   PATCH_ID_ARGS,
   parsePatchIds,
   parsePicked,
+  parseWalked,
   patchesArgs,
   pickedArgs,
   pickedByOneAuthor,
@@ -181,6 +183,22 @@ export const VIEW_TYPE = 'weft.graph';
  * ticked; past that the switch would cost more than the walk it narrows.
  */
 const PICK_READS = 6;
+
+/**
+ * What the came-from switch found, and how much of the history it was able to ask about.
+ *
+ * The second half is there because the first half is meaningless without it. Copies are found by
+ * comparing two sides, so the only commits that can be found are the ones this graph has and the named
+ * branch does not - which for a branch that is merged back every day is a handful, and for one left
+ * alone since May is thousands. Reported for every name, so the page can say which it is instead of
+ * leaving the reader to work out why the years before are empty.
+ */
+interface CameFrom {
+  /** The commits to badge, and which named branch each of them came from. */
+  readonly found: ReadonlyMap<string, string>;
+  readonly windows: readonly CameFromWindow[];
+}
+
 
 function describe(repo: RepoInfo): string | null {
   if (repo.isBare) {
@@ -756,12 +774,25 @@ export class WeftPanel {
    * each - 0.9 seconds on that repository - and a graph with forty branches ticked would otherwise stop
    * to do arithmetic about all of them.
    */
-  private async pickedFrom(drawn: readonly string[] | null): Promise<ReadonlyMap<string, string>> {
+  private async pickedFrom(drawn: readonly string[] | null): Promise<CameFrom> {
     const found = new Map<string, string>();
 
     if (this.mergesFrom.length === 0) {
-      return found;
+      return { found, windows: [] };
     }
+
+    /** Per name: every commit that could have been a copy, and every one that was. */
+    const seen = new Map<string, Set<string>>();
+    const copies = new Map<string, Set<string>>();
+    const into = (which: Map<string, Set<string>>, name: string, sha: string): void => {
+      const held = which.get(name);
+
+      if (held === undefined) {
+        which.set(name, new Set([sha]));
+      } else {
+        held.add(sha);
+      }
+    };
 
     const refNames = this.filters.listRefs().map((ref) => ref.refName);
     const sides = drawn === null || drawn.length === 0 ? await this.wholeRepositorySides(refNames) : drawn;
@@ -775,8 +806,22 @@ export class WeftPanel {
       }
     }
 
-    for (const [side, ref, name] of pairs.slice(0, PICK_READS)) {
-      const mine = parsePicked(await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'left')).catch(() => ''));
+    const asked = pairs.slice(0, PICK_READS);
+
+    for (const [side, ref, name] of asked) {
+      /*
+       * The whole side, not only what was marked. The unmarked ones are not copies and are never drawn
+       * as any, but they are what the question was asked of - and a reader who cannot see that number
+       * cannot tell "nobody copied anything" from "there was nothing here to look at", which is what
+       * a branch that is kept merged looks like: four found this week and two empty years above.
+       */
+      const walked = parseWalked(await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'left')).catch(() => ''));
+
+      for (const commit of walked) {
+        into(seen, name, commit.sha);
+      }
+
+      const mine = walked.filter((commit) => commit.sameChange);
 
       if (mine.length === 0) {
         continue;
@@ -802,10 +847,22 @@ export class WeftPanel {
       for (const sha of pickedByOneAuthor(mine, theirs, ids)) {
         // The name from the box rather than the ref it was resolved to: `uat` is what was asked about.
         found.set(sha, name);
+        into(copies, name, sha);
       }
     }
 
-    return found;
+    const compared = new Set(asked.map(([, , name]) => name));
+
+    return {
+      found,
+      windows: this.mergesFrom.map((name) => ({
+        name,
+        refs: refsFor(name, refNames).length,
+        asked: compared.has(name),
+        looked: seen.get(name)?.size ?? 0,
+        copied: copies.get(name)?.size ?? 0,
+      })),
+    };
   }
 
   /** Throw away whatever is on screen and walk the history again. */
@@ -1610,7 +1667,14 @@ export class WeftPanel {
     this.drawnRefs = drawnRefs;
 
     // After the refs are known, because which of them are drawn is one of the two sides it compares.
-    const picked = await this.pickedFrom(drawnRefs);
+    const { found: picked, windows } = await this.pickedFrom(drawnRefs);
+
+    /*
+     * Before the walk rather than with its result: this says what is about to be asked, and on a large
+     * repository the walk takes long enough that a reader would otherwise be looking at a switch with
+     * nothing beside it.
+     */
+    this.post({ type: 'cameFrom', branches: windows });
 
 
 

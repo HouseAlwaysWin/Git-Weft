@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **The came-from switch says what it is comparing.** Copies are found between two sides, so the only
+  commits it can ever find are the ones the graph has and the named branch does not - which for a
+  branch merged back every day is a handful, and for one left alone since May is thousands. Reported
+  for each name beside the box: "7 not in uat, 4 copied". Without the first number a history where
+  nobody has copied anything and a history where there was nothing left to look at read exactly the
+  same, and the years above the last few weeks look suspiciously clean. A name the repository does not
+  have, and a name nothing was compared for, say so rather than reporting a zero. Merges are not
+  bounded this way and never were: they are read from the message, anywhere in the history drawn.
+
 - **A change that is the same on two branches by coincidence is no longer reported as copied from a
   test site.** `copied uat` was read off git's patch id, which says two commits are the same change and
   nothing about anybody having copied one. Measured on a 64,204-commit repository: of seventeen commits

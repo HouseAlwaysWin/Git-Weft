@@ -56,6 +56,8 @@ export const BODY_MARKUP = `<header id="header">
           aria-autocomplete="list" aria-controls="merges-from-names"
           title="Which branches, separated by commas. Typing offers the branches this repository has; a name matches whole, with any remote in front of it, so uat is also origin/uat and is not uat_deploy.">
         <div id="merges-from-names" hidden></div>
+        <span id="merges-from-window" hidden
+          title="What this switch is comparing. Copies are found between two sides, so the only commits it can find are the ones this graph has and that branch does not - a handful for a branch that is merged back every day, thousands for one left alone for months. Merges are not bounded this way: they are read from the message, anywhere in the history drawn."></span>
       </span>
       <select id="commit-order" title="How git orders the walk. All three keep a parent below its children, which the lanes depend on, and all three cost the same - the difference is which shape the history reads best in. Topological keeps a branch&#39;s commits together instead of interleaving them by date.">
         <option value="date">commit date</option>

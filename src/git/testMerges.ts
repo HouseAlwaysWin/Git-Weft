@@ -184,14 +184,32 @@ export interface PickedCommit {
   readonly author: string;
 }
 
-/** The commits that walk marked as having a copy on the other side. */
-export function parsePicked(output: string): PickedCommit[] {
+/** A commit that walk produced on this side, and whether its change is on the other side as well. */
+export interface WalkedCommit extends PickedCommit {
+  readonly sameChange: boolean;
+}
+
+/**
+ * Every commit that walk produced, marked or not.
+ *
+ * The unmarked ones are not copies and are never drawn as any. What they are is the size of the
+ * question: `A...B` can only answer about what A has and B does not, so these are exactly the commits
+ * that could have been copies and were not. That number is worth showing. Without it the filter looks
+ * broken whenever the two branches are close - four found in the last week, nothing in the two years
+ * before, and no way to tell "nobody did this" from "nothing back there was even looked at".
+ */
+export function parseWalked(output: string): WalkedCommit[] {
   return output.split('\n').flatMap((line) => {
     const [mark, sha, author] = line.trim().split('\0');
 
     // `=` is the mark for a commit with a copy on the other side; `<` and `>` are the ones without.
-    return mark === '=' && sha !== undefined && sha.length > 0 ? [{ sha, author: author ?? '' }] : [];
+    return sha === undefined || sha.length === 0 ? [] : [{ sha, author: author ?? '', sameChange: mark === '=' }];
   });
+}
+
+/** The commits that walk marked as having a copy on the other side. */
+export function parsePicked(output: string): PickedCommit[] {
+  return parseWalked(output).filter((commit) => commit.sameChange);
 }
 
 /**

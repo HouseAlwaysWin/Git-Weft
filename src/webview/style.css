@@ -839,6 +839,23 @@ body.vscode-high-contrast.author-tint .row .author {
   border-color: var(--vscode-focusBorder, #0078d4);
 }
 
+/*
+ * What the switch is comparing, beside the box it is about.
+ *
+ * `descriptionForeground` rather than the row colour: this is the filter explaining itself, not a
+ * result, and it sits in a bar of controls that should still read as controls. It never wraps - the
+ * bar is one line - so a long answer is cut rather than pushing the sort and the search off the end.
+ */
+#merges-from-window {
+  margin-left: 6px;
+  color: var(--vscode-descriptionForeground, #9d9d9d);
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 34em;
+}
+
 #date-custom input {
   background: var(--vscode-input-background, transparent);
   color: var(--vscode-input-foreground, inherit);

@@ -14,6 +14,7 @@ import {
   parseMerges,
   parsePatchIds,
   parsePicked,
+  parseWalked,
   patchesArgs,
   pickedArgs,
   pickedByOneAuthor,
@@ -149,16 +150,26 @@ test('a cherry-marked walk names the commits with a copy on the other side, and 
    * `=` is a commit with a copy on the other side. The walk is asked for one side, so what comes back is
    * what that history holds - the copy, not the commit it was copied from, which are two shas.
    */
-  assert.deepEqual(
-    parsePicked(
-      [`=${NUL}aaa1${NUL}Ann`, `<${NUL}bbb2${NUL}Bob`, `>${NUL}ccc3${NUL}Cal`, `=${NUL}ddd4${NUL}Dee`, ''].join('\n'),
-    ),
-    [
-      { sha: 'aaa1', author: 'Ann' },
-      { sha: 'ddd4', author: 'Dee' },
-    ],
+  const walk = [`=${NUL}aaa1${NUL}Ann`, `<${NUL}bbb2${NUL}Bob`, `>${NUL}ccc3${NUL}Cal`, `=${NUL}ddd4${NUL}Dee`, ''].join(
+    '\n',
   );
+
+  assert.deepEqual(parsePicked(walk), [
+    { sha: 'aaa1', author: 'Ann', sameChange: true },
+    { sha: 'ddd4', author: 'Dee', sameChange: true },
+  ]);
   assert.deepEqual(parsePicked(''), []);
+
+  /*
+   * And the unmarked ones, which are not copies and are never drawn as any. They are the size of the
+   * question - the commits this side has that the other does not - and the switch says that number out
+   * loud, because "4 copied" cannot be read without it.
+   */
+  assert.deepEqual(
+    parseWalked(walk).map((commit) => `${commit.sha} ${commit.sameChange}`),
+    ['aaa1 true', 'bbb2 false', 'ccc3 false', 'ddd4 true'],
+  );
+  assert.deepEqual(parseWalked(''), []);
 });
 
 test('the same change by two different hands is not a copy either of them made', () => {

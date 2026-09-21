@@ -233,7 +233,29 @@ export type HostMessage =
    * corrected in the settings did nothing visible until a ref moved or the tab was opened again.
    * Which ids are marked is drawn, not walked, so this is the whole of the change.
    */
-  | { readonly type: 'ticketPatterns'; readonly patterns: readonly string[] };
+  | { readonly type: 'ticketPatterns'; readonly patterns: readonly string[] }
+  /**
+   * What the came-from switch is comparing, and how much of the history that leaves it able to see.
+   *
+   * Copies are found between two sides, so the only commits that can ever be found are the ones this
+   * graph has and the named branch does not. For a branch merged back every day that is a handful; for
+   * one left since May it is thousands. Without the number on screen the two are indistinguishable
+   * from "nobody has done this", which is how a reader ends up believing the years above are clean.
+   */
+  | { readonly type: 'cameFrom'; readonly branches: readonly CameFromWindow[] };
+
+/** One named branch in that message - see `cameFrom`. */
+export interface CameFromWindow {
+  readonly name: string;
+  /** How many refs the name matched: none is a name this repository does not have. */
+  readonly refs: number;
+  /** Whether any comparison for it ran at all; there is a ceiling on how many do. */
+  readonly asked: boolean;
+  /** Commits this graph has that the branch does not: everything that could have been a copy. */
+  readonly looked: number;
+  /** And how many of them were. */
+  readonly copied: number;
+}
 
 export type WebviewMessage =
   /*

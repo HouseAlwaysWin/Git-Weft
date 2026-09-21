@@ -841,6 +841,28 @@
       said.push('after editing: ' + sentSince(before));
 
       /*
+       * And what the host says back about it: how many commits the comparison could even look at, and
+       * how many of those were copies. A switch that reports the second number alone cannot be read -
+       * "nothing found" and "nothing to look at" are the same sentence without the first.
+       */
+      const window_ = document.querySelector('#merges-from-window');
+
+      said.push('window before an answer: hidden=' + window_.hidden);
+      window.postMessage(
+        {
+          type: 'cameFrom',
+          branches: [
+            { name: 'uat', refs: 2, asked: true, looked: 7, copied: 4 },
+            { name: 'gone', refs: 0, asked: false, looked: 0, copied: 0 },
+            { name: 'sit', refs: 1, asked: false, looked: 0, copied: 0 },
+          ],
+        },
+        '*',
+      );
+      await settle(120);
+      said.push('window: ' + JSON.stringify(window_.textContent) + ' hidden=' + window_.hidden);
+
+      /*
        * Completing a name that is being typed, against a ref list posted in - the steps above leave a
        * stand-in list of their own, and a completion checked against whatever they happened to leave is
        * a completion checked against nothing in particular.
@@ -909,6 +931,11 @@
       await settle(250);
       said.push('off again: ' + sentSince(before));
       said.push('box kept: ' + JSON.stringify(box.value));
+      /*
+       * And the line goes with the switch. It is about a comparison that is no longer being made, and
+       * the host will not say otherwise until the next walk - which for a switch turned off is never.
+       */
+      said.push('window after off: ' + JSON.stringify(window_.textContent) + ' hidden=' + window_.hidden);
 
       parts.push('=== merges from ===\n' + said.join('\n'));
     }

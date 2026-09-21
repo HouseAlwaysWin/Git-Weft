@@ -6490,6 +6490,38 @@ if (!(await until(blamedAgain))) {
 
     console.log('  said why     :', reasons.join(' | '));
 
+    /*
+     * And what the filter says it is comparing, which is the other half of the answer. "1 copied" on
+     * its own cannot be read: a branch that is merged back every day leaves a handful of commits that
+     * could even be copies, one left alone for months leaves thousands, and without the first number
+     * those look the same as a history where nobody has done it. So: more looked at than found, and
+     * the name said out loud.
+     */
+    const window_ = posted.filter((m) => m.type === 'cameFrom').pop();
+    const forSite = window_?.branches?.find((b) => b.name === site);
+
+    console.log('  compared     :', JSON.stringify(forSite ?? null));
+
+    /*
+     * Against git's own count, not against "more than it found". The filter draws HEAD here and there
+     * is no remote yet, so what it could have looked at is exactly what HEAD has that the site has not
+     * - and a window counted off the copies instead of off the walk still comes out larger than the
+     * copies, which is what a looser check let through.
+     */
+    const couldHave = Number(runGit(repoPath, 'rev-list', '--count', 'HEAD', `^${site}`).trim());
+
+    if (
+      forSite === undefined ||
+      forSite.refs < 1 ||
+      forSite.asked !== true ||
+      forSite.copied !== 1 ||
+      forSite.looked !== couldHave
+    ) {
+      problems.push(
+        `the filter did not say what it compared: ${JSON.stringify(window_ ?? null)}, and ${couldHave} could have been looked at`,
+      );
+    }
+
     if (
       !reasons.some((said) => said.startsWith('a change somebody took') && said.includes(`"how":"copy"`)) ||
       !reasons.some((said) => said.startsWith("Merge branch 'uat-site'") && said.includes(`"how":"merge"`)) ||

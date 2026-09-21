@@ -28,7 +28,7 @@ import { appendMarked, marking, same } from './highlight.ts';
 import type { GraphDot, GraphLink, Point } from '../graph/model.ts';
 import type { GitRef } from '../git/logParser.ts';
 import { DotKind } from '../graph/model.ts';
-import type { CommitOrder, RefEntry } from '../protocol.ts';
+import type { CameFromWindow, CommitOrder, RefEntry } from '../protocol.ts';
 import type { SearchMode, SearchToggle } from '../git/search.ts';
 import { looksLikeCommitId } from '../git/search.ts';
 import { describeAge } from '../git/blame.ts';
@@ -139,6 +139,7 @@ const onlyHereEl = document.getElementById('only-here') as HTMLButtonElement;
 const mergesFromEl = document.getElementById('merges-from') as HTMLButtonElement;
 const mergesFromBoxEl = document.getElementById('merges-from-box') as HTMLElement;
 const mergesFromBranchesEl = document.getElementById('merges-from-branches') as HTMLInputElement;
+const mergesFromWindowEl = document.getElementById('merges-from-window') as HTMLSpanElement;
 const mergesFromNamesEl = document.getElementById('merges-from-names') as HTMLElement;
 const commitOrderEl = document.getElementById('commit-order') as HTMLSelectElement;
 const viewport = document.getElementById('viewport') as HTMLElement;
@@ -1224,6 +1225,10 @@ window.addEventListener('message', (event: MessageEvent<HostMessage>) => {
       clearFilters();
       break;
 
+    case 'cameFrom':
+      mergesFromWindow(message.branches);
+      break;
+
     case 'page':
       rows.push(...message.rows.map(settle));
 
@@ -1399,7 +1404,36 @@ function updateMergesFrom(): void {
 
   if (!mergesFrom) {
     closeMergesFromNames();
+    // Whatever it last said was about a comparison nobody is making any more.
+    mergesFromWindow([]);
   }
+}
+
+/**
+ * What the switch is comparing, in the smallest number of words that are true.
+ *
+ * "4 copied" on its own is the half of the answer that misleads. Copies can only be found between two
+ * sides, so what is really being said is "of the 7 commits this graph has that uat has not, 4 carry a
+ * change uat has too" - and a branch that is merged back every day leaves 7 where one left since May
+ * leaves 4,685. Without the first number, a graph with nothing to find and a graph with nothing left
+ * to look at read exactly the same.
+ */
+function mergesFromWindow(branches: readonly CameFromWindow[]): void {
+  const said = branches.map((branch) => {
+    if (branch.refs === 0) {
+      return `no branch here is called ${branch.name}`;
+    }
+
+    // The ceiling on how many comparisons one walk will wait for - silence about it would be a zero.
+    if (!branch.asked) {
+      return `${branch.name}: not compared, too many branches drawn`;
+    }
+
+    return `${branch.looked.toLocaleString()} not in ${branch.name}, ${branch.copied.toLocaleString()} copied`;
+  });
+
+  mergesFromWindowEl.textContent = said.join(' · ');
+  mergesFromWindowEl.hidden = said.length === 0;
 }
 
 /**

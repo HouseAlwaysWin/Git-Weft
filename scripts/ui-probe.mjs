@@ -654,6 +654,30 @@ const INVARIANTS = [
     },
   ],
   [
+    'the switch says what it is comparing, and says so for each name separately',
+    (found) => {
+      const lines = (found['=== merges from ==='] ?? '').trim().split('\n');
+      const value = (name) => lines.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2);
+      const said = JSON.parse((value('window') ?? '""').split(' hidden=')[0]);
+      const ok =
+        // Nothing to say until the host has said something: an empty line is not an answer.
+        value('window before an answer') === 'hidden=true' &&
+        !(value('window') ?? '').endsWith('hidden=true') &&
+        /*
+         * The number that could have been copies comes first, because it is the one that makes the
+         * second readable - and a name the repository does not have, and a name nothing was compared
+         * for, say so rather than reporting a zero that reads as "nobody did this".
+         */
+        said.includes('7 not in uat, 4 copied') &&
+        said.includes('no branch here is called gone') &&
+        said.includes('sit: not compared') &&
+        // And it goes when the switch that produced it does.
+        value('window after off') === '"" hidden=true';
+
+      return ok ? null : lines.join(' / ');
+    },
+  ],
+  [
     'the merges-from switch shows its box, fills it in, and asks for those branches',
     (found) => {
       const lines = (found['=== merges from ==='] ?? '').trim().split('\n');
