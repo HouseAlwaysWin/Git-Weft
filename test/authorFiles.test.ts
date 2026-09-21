@@ -34,10 +34,14 @@ test('the walk asks about every spelling at once, and about history rather than 
 });
 
 test('the files are counted, and the one changed most often comes first', () => {
-  const walk = ['a.ts', 'b.ts', '', 'a.ts', '', 'c.ts', 'a.ts', ''].join('\n');
+  /*
+   * The busiest file sorts last by name, on purpose. With `a.ts` as both, alphabetical order and
+   * most-changed order are the same list and this asserts nothing about which one is being used.
+   */
+  const walk = ['z.ts', 'b.ts', '', 'z.ts', '', 'c.ts', 'z.ts', ''].join('\n');
 
   assert.deepEqual(parseAuthorFiles(walk), [
-    { path: 'a.ts', changes: 3 },
+    { path: 'z.ts', changes: 3 },
     { path: 'b.ts', changes: 1 },
     { path: 'c.ts', changes: 1 },
   ]);

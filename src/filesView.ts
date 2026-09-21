@@ -15,6 +15,8 @@
 import * as vscode from 'vscode';
 
 import type { CommitDetails, Comparison, FileChange } from './git/details.ts';
+import { ChangeStatus } from './git/details.ts';
+import type { TouchedFile } from './git/authorFiles.ts';
 import type { FileStatus } from './git/repoState.ts';
 import { pathAtUri, revisionUri } from './contentProvider.ts';
 
@@ -176,6 +178,8 @@ export function workingChanges(files: readonly FileStatus[]): FileChange[] {
 export type Subject =
   | { readonly kind: 'commit'; readonly sha: string }
   | { readonly kind: 'working' }
+  /** Every file one person has ever changed - see `setAuthorFiles`. */
+  | { readonly kind: 'author'; readonly label: string }
   | {
       readonly kind: 'range';
       readonly from: string;
@@ -264,6 +268,8 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
   /** The commit on show, or null when what is on show is the working tree. */
   private subject: Subject | null = null;
   private files: FileChange[] | null = null;
+  /** How many of that person's commits touched each file, for the author subject and no other. */
+  private counts: ReadonlyMap<string, number> | null = null;
   private root: Folder = newFolder('', '');
   private asTree: boolean;
 
@@ -303,10 +309,46 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     );
   }
 
-  private show(repo: string | null, subject: Subject | null, files: FileChange[] | null): void {
+  /**
+   * Point it at one person's work: every file they have ever changed, the most-changed first.
+   *
+   * This was a Quick Pick, and a Quick Pick is the wrong shape for it - 2,623 files that cannot be
+   * browsed, kept open, or folded by directory, and are gone the moment anything else is clicked.
+   * This section already folds directories, already offers a file's history and its links, and stays
+   * where it is put. Flat, the order is kept, because "what did they work on" is answered by the top
+   * of the list; as a tree it is by directory, because that is what a tree is for.
+   */
+  setAuthorFiles(repo: string, label: string, touched: readonly TouchedFile[]): void {
+    this.show(
+      repo,
+      { kind: 'author', label },
+      touched.map((file) => ({
+        /*
+         * Unknown, and meant. The question was who has changed this file, not what the last of those
+         * changes did to it - and a diff status invented here would be drawn in the colour that says
+         * git found it out.
+         */
+        status: ChangeStatus.Unknown,
+        path: file.path,
+        oldPath: null,
+        oldBlob: null,
+        newBlob: null,
+        similarity: null,
+      })),
+      new Map(touched.map((file) => [file.path, file.changes])),
+    );
+  }
+
+  private show(
+    repo: string | null,
+    subject: Subject | null,
+    files: FileChange[] | null,
+    counts: ReadonlyMap<string, number> | null = null,
+  ): void {
     this.repo = repo;
     this.subject = subject;
     this.files = files;
+    this.counts = counts;
     this.root = files === null ? newFolder('', '') : buildTree(files);
 
     this.changed.fire();
@@ -351,14 +393,23 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     const { file } = node;
     const status = STATUS_ICON[file.status] ?? STATUS_ICON['X'];
     const label = STATUS_LABEL[file.status] ?? file.status;
+    /*
+     * One person's files are not a diff, so nothing on the row pretends to be one: a plain file
+     * icon rather than a status glyph in a colour that means git worked it out, how many of their
+     * commits touched it rather than what the last one did, and a click that opens the file's
+     * history rather than a diff against a commit that was never selected.
+     */
+    const theirs = this.subject?.kind === 'author';
 
     const item = new vscode.TreeItem(basename(file.path));
 
     // A file node is the only thing the history command can act on, so it is the only thing that
-    // offers it.
+    // offers it. The same menu suits both subjects: none of those commands needs a commit.
     item.contextValue = 'weftFile';
 
-    if (status !== undefined) {
+    if (theirs) {
+      item.iconPath = vscode.ThemeIcon.File;
+    } else if (status !== undefined) {
       item.iconPath = new vscode.ThemeIcon(status.icon, new vscode.ThemeColor(status.color));
     }
 
@@ -367,19 +418,24 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
      * In the tree it is already on the row above, and repeating it is noise.
      */
     const where = this.asTree ? '' : dirname(file.path);
+    const changes = this.counts?.get(file.path);
+    const often = changes === undefined ? '' : `${changes} change${changes === 1 ? '' : 's'}`;
     const from = file.oldPath === null ? '' : `← ${file.oldPath}`;
-    const description = [where, from].filter((part) => part.length > 0).join('  ');
+    const description = [often, where, from].filter((part) => part.length > 0).join('  ');
 
     if (description.length > 0) {
       item.description = description;
     }
 
-    item.tooltip =
-      file.oldPath === null
+    item.tooltip = theirs
+      ? `${file.path}${often.length > 0 ? ` — ${often}` : ''}`
+      : file.oldPath === null
         ? `${label}: ${file.path}`
         : `${label}: ${file.oldPath} → ${file.path}`;
 
-    item.command = { command: 'weft.openCommitFile', title: 'Open Changes', arguments: [node] };
+    item.command = theirs
+      ? { command: 'weft.showFileHistory', title: 'Show File History', arguments: [node] }
+      : { command: 'weft.openCommitFile', title: 'Open Changes', arguments: [node] };
 
     return item;
   }
@@ -421,7 +477,9 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
           ? 'working tree'
           : subject.kind === 'range'
             ? `${subject.fromLabel} → ${subject.toLabel}`
-            : subject.sha.slice(0, 8);
+            : subject.kind === 'author'
+              ? subject.label
+              : subject.sha.slice(0, 8);
 
     this.view.description = `${what} · ${files}`;
     this.view.message =
@@ -429,7 +487,9 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
         ? ''
         : subject?.kind === 'range'
           ? 'These two commits have the same content.'
-          : 'This commit changed no files.';
+          : subject?.kind === 'author'
+            ? `${subject.label} has changed no files in this history.`
+            : 'This commit changed no files.';
   }
 
   /** Which of the two title-bar buttons to offer: the one for the mode you are not already in. */

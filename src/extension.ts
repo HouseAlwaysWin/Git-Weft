@@ -1547,41 +1547,23 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      if (touched.length === 0) {
-        void vscode.window.showInformationMessage(`Weft: ${label} has changed no files in this history.`);
-        return;
-      }
-
       /*
-       * The name in front and the path underneath, because four thousand full paths down a narrow
-       * list are unreadable - and `matchOnDetail`, so typing a folder still finds everything in it.
+       * Into the Commit Files section rather than a Quick Pick. A Quick Pick was the first shape this
+       * took and the wrong one: 2,623 files that cannot be browsed, cannot be folded by directory,
+       * cannot be left open beside the graph, and are gone the moment anything else is clicked. That
+       * section already does all three, and its file rows already offer the history and the links.
+       *
+       * An empty answer is shown rather than announced, for the same reason: the heading says whose
+       * files these are and how many, so "none" is a heading and not a dialog to dismiss.
        */
-      const picked = await vscode.window.showQuickPick(
-        touched.map((file) => ({
-          label: file.path.split('/').pop() ?? file.path,
-          description: `${file.changes} change${file.changes === 1 ? '' : 's'}`,
-          detail: file.path,
-          path: file.path,
-        })),
-        {
-          title: `${touched.length} files ${label} has changed`,
-          placeHolder: 'Pick one to open its history',
-          matchOnDetail: true,
-        },
-      );
+      const root = authors.repoRoot;
 
-      if (picked === undefined) {
+      if (root === null) {
         return;
       }
 
-      const panel = WeftPanel.any();
-
-      if (panel === null) {
-        void vscode.window.showInformationMessage('Weft: open the graph first.');
-        return;
-      }
-
-      panel.showFileHistory(picked.path);
+      files.setAuthorFiles(root, label, touched);
+      await vscode.commands.executeCommand('weft.files.focus');
     }),
 
     vscode.commands.registerCommand('weft.groupAuthor', async (node: unknown) => {

@@ -51,9 +51,15 @@ function makeTempRepo() {
    * thing that can tell the two apart.
    */
   runGit(dir, 'config', 'user.name', 'weft_test');
-  writeFileSync(join(dir, 'under-the-other-name.txt'), 'the same person, spelled differently\n');
-  runGit(dir, 'add', '-A');
-  runGit(dir, 'commit', '-q', '-m', 'a commit under the other spelling');
+
+  // Twice, so it is the most-changed file and sorts last by name: an ordering check against a file
+  // that would be first alphabetically anyway is not a check of the ordering.
+  for (const what of ['the same person, spelled differently', 'and again']) {
+    writeFileSync(join(dir, 'under-the-other-name.txt'), what + '\n');
+    runGit(dir, 'add', '-A');
+    runGit(dir, 'commit', '-q', '-m', `a commit under the other spelling: ${what}`);
+  }
+
   runGit(dir, 'config', 'user.name', 'Weft Test');
 
   // A second author, so filtering by one of them has something to remove.
@@ -2423,40 +2429,69 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
        * not answer. It ends at the file history, so the check is the whole path: the list comes back
        * counted and in order, and picking one asks the graph for that file and no other.
        */
-      const before = posted.length;
+      /*
+       * What that person has worked on, which the sidebar is asked and could not answer.
+       *
+       * Into the Commit Files section rather than a Quick Pick - which is what it was first, and was
+       * the wrong shape: thousands of rows that cannot be browsed, folded or left open. So the check
+       * is that section: the files, in order, counted, headed by whose they are, and a row that opens
+       * the file's history rather than a diff against a commit nobody selected.
+       */
+      const theirFiles = treeProviders.get('weft.files');
+      const theirView = treeViews.get('weft.files');
 
-      pickAnswers.push('f1.txt');
+      await commands.get('weft.filesAsList')();
       await commands.get('weft.authorFiles')(authors[0]);
 
-      const offered = picks.at(-1);
-      const asked = posted.slice(before).filter((m) => m.type === 'showHistory').pop();
+      const rows = theirFiles === undefined ? [] : theirFiles.getChildren();
+      const items = rows.map((node) => theirFiles.getTreeItem(node));
 
-      console.log('  their files  :', (offered?.labels ?? []).join(', ') || '(nothing offered)');
-      console.log('  title        :', offered?.title ?? '(none)', '| asked for', JSON.stringify(asked?.path ?? null));
+      console.log('  their files  :', rows.map((node) => node.file.path).join(', ') || '(nothing)');
+      console.log(
+        '  headed       :',
+        JSON.stringify(theirView?.description ?? null),
+        '| first row',
+        JSON.stringify(items[0]?.description ?? null),
+        '| opens',
+        JSON.stringify(items[0]?.command?.command ?? null),
+      );
 
-      /*
-       * Every file in this fixture, counted rather than listed once: `f1.txt` is committed and then
-       * edited again, so a set would say one where the walk says two - and the order is what makes a
-       * list of four thousand readable.
-       */
-      if ((offered?.labels ?? []).length === 0) {
+      const paths = rows.map((node) => node.file.path);
+
+      if (paths.length === 0) {
         problems.push('the files this author changed came back empty');
-      } else if (!String(offered?.title ?? '').startsWith(`${offered?.labels.length} files`)) {
-        problems.push(`the file list did not say how many there were: ${JSON.stringify(offered?.title ?? null)}`);
       }
 
       /*
        * And the file only their other spelling ever touched. This person is two names folded into one
        * row, so a list built from one of them is shorter than the truth and says nothing about being
-       * shorter - which is the whole reason the question is asked of the row rather than of a name.
+       * shorter - which is why the question is asked of the row rather than of a name.
        */
-      if (!(offered?.labels ?? []).includes('under-the-other-name.txt')) {
-        problems.push(`only one spelling was asked about: ${JSON.stringify(offered?.labels ?? null)}`);
+      if (!paths.includes('under-the-other-name.txt')) {
+        problems.push(`only one spelling was asked about: ${JSON.stringify(paths)}`);
       }
 
-      if (asked?.path !== 'f1.txt') {
-        problems.push(`picking a file asked the graph for ${JSON.stringify(asked?.path ?? null)}`);
+      /*
+       * Most-changed first, which is the whole of what makes a list of thousands worth opening - and
+       * checked against the file that sorts last by name, so alphabetical order cannot pass for it.
+       */
+      if (paths[0] !== 'under-the-other-name.txt') {
+        problems.push(`the files were not ordered by how often they changed: ${JSON.stringify(paths)}`);
       }
+
+      if (!/^\d+ changes?/.test(String(items[0]?.description ?? ''))) {
+        problems.push(`a row did not say how many times it changed: ${JSON.stringify(items[0]?.description ?? null)}`);
+      }
+
+      if (items[0]?.command?.command !== 'weft.showFileHistory') {
+        problems.push(`a row opens ${JSON.stringify(items[0]?.command?.command ?? null)}, not that file's history`);
+      }
+
+      if (!String(theirView?.description ?? '').includes(authors[0].author.name)) {
+        problems.push(`the section did not say whose files these are: ${JSON.stringify(theirView?.description ?? null)}`);
+      }
+
+      await commands.get('weft.filesAsTree')();
 
       // Put it back. Leaving a filter on would silently change what every later section is
       // measuring - which is exactly what it did the first time this ran.
