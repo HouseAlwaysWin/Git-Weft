@@ -94,7 +94,17 @@ import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
 import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
-import { parsePicked, pickedArgs, refsFor, remotesIn, tookTestBranch } from './git/testMerges.ts';
+import {
+  PATCH_ID_ARGS,
+  parsePatchIds,
+  parsePicked,
+  patchesArgs,
+  pickedArgs,
+  pickedByOneAuthor,
+  refsFor,
+  remotesIn,
+  tookTestBranch,
+} from './git/testMerges.ts';
 import { openUrl } from './openUrl.ts';
 import { coalesce } from './coalesce.ts';
 import { watchWorkingTree } from './git/vscodeGit.ts';
@@ -766,9 +776,30 @@ export class WeftPanel {
     }
 
     for (const [side, ref, name] of pairs.slice(0, PICK_READS)) {
-      const walked = await this.git.runRead(this.repo.root, pickedArgs(side, ref)).catch(() => '');
+      const mine = parsePicked(await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'left')).catch(() => ''));
 
-      for (const sha of parsePicked(walked)) {
+      if (mine.length === 0) {
+        continue;
+      }
+
+      /*
+       * Only now the other side, and only because there is something to ask about it: who wrote the
+       * twin of each of these - see `pickedByOneAuthor`, which is what stops a version bump being
+       * reported as somebody's cherry-pick. Three reads instead of one, and the two extra are paid
+       * where a pair has candidates at all. Measured on a 64,204-commit repository: the walk 0.9
+       * seconds each, the patches of 34 candidates 0.25, and `patch-id` itself beneath measuring.
+       */
+      const theirs = parsePicked(
+        await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'right')).catch(() => ''),
+      );
+      const patches = await this.git
+        .runRead(this.repo.root, patchesArgs(), { stdin: [...mine, ...theirs].map((c) => c.sha).join('\n') })
+        .catch(() => '');
+      const ids = parsePatchIds(
+        await this.git.runRead(this.repo.root, PATCH_ID_ARGS, { stdin: patches }).catch(() => ''),
+      );
+
+      for (const sha of pickedByOneAuthor(mine, theirs, ids)) {
         // The name from the box rather than the ref it was resolved to: `uat` is what was asked about.
         found.set(sha, name);
       }
@@ -1580,6 +1611,8 @@ export class WeftPanel {
 
     // After the refs are known, because which of them are drawn is one of the two sides it compares.
     const picked = await this.pickedFrom(drawnRefs);
+
+
 
     try {
       await loader.load(

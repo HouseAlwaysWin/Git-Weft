@@ -9,7 +9,9 @@
  * second number is small, and two of the five were from that same morning, so it is not a historical
  * curiosity either.
  *
- * The merges first, then - at the end - `pickedArgs` and `parsePicked`, which are the copies.
+ * The merges first, then - at the end - the copies: `pickedArgs` and `parsePicked` ask git which
+ * commits carry a change that is also on the other side, and `pickedByOneAuthor` throws out the
+ * ones that are the same change by coincidence rather than because anybody copied anything.
  *
  * A site everybody tests on - `uat`, `sit`, `staging` - is a branch with commits of its own on it, and
  * merging it into a feature branch puts those commits on the way to wherever that branch is going. The
@@ -158,30 +160,115 @@ function named(branch: string, names: readonly string[]): string | null {
 }
 
 /**
- * `git log --left-only --cherry-mark A...B`: the commits on A's side that have a copy on B's - the same
- * change under another name, which is what a cherry-pick or a rebase leaves behind.
+ * `git log --<side>-only --cherry-mark A...B`: the commits on one side that have a copy on the other -
+ * the same change under another name, which is what a cherry-pick or a rebase leaves behind.
  *
- * `--left-only` is the whole of the care here. The same change is two commits, one either side, and the
- * one worth anything is the one in this history: it is the commit that is drawn, the commit you can
- * click, and the commit whose sha the walk produces. Without it both sides come back marked and the set
- * quietly includes commits from over there, which are then drawn whenever the graph happens to be
- * showing that branch as well.
+ * Which side is asked for is the care here. The same change is two commits, one either side, and the
+ * one worth drawing is the one in this history: the commit that is on screen, the commit you can click,
+ * the commit whose sha the walk produces. Ask for both at once and the set quietly includes commits
+ * from over there, which are then drawn whenever the graph happens to be showing that branch as well.
+ *
+ * The right side is read too, but for one thing and never to be drawn: who wrote the twin. See
+ * `pickedByOneAuthor`.
  *
  * `git cherry` answers about the other side only, which is why it is not what this uses. Measured on a
  * 64,204-commit repository: `git cherry` 2.9 seconds, this 0.9.
  */
-export function pickedArgs(here: string, there: string): string[] {
-  return ['log', '--left-only', '--cherry-mark', '--format=%m%x00%H', `${here}...${there}`];
+export function pickedArgs(here: string, there: string, side: 'left' | 'right'): string[] {
+  return ['log', `--${side}-only`, '--cherry-mark', '--format=%m%x00%H%x00%an', `${here}...${there}`];
 }
 
-/** The shas that walk marked as having a copy on the other side. */
-export function parsePicked(output: string): string[] {
+/** A commit that walk marked as having a copy on the other side, and who wrote it. */
+export interface PickedCommit {
+  readonly sha: string;
+  readonly author: string;
+}
+
+/** The commits that walk marked as having a copy on the other side. */
+export function parsePicked(output: string): PickedCommit[] {
   return output.split('\n').flatMap((line) => {
-    const [mark, sha] = line.trim().split('\0');
+    const [mark, sha, author] = line.trim().split('\0');
 
     // `=` is the mark for a commit with a copy on the other side; `<` and `>` are the ones without.
-    return mark === '=' && sha !== undefined && sha.length > 0 ? [sha] : [];
+    return mark === '=' && sha !== undefined && sha.length > 0 ? [{ sha, author: author ?? '' }] : [];
   });
+}
+
+/**
+ * `git log --stdin --no-walk -p`: the patches of those commits, for `git patch-id` to read.
+ *
+ * The shas go in on stdin rather than on the command line. Nothing bounds how many commits a
+ * `--cherry-mark` walk can mark, and a command line is bounded - 32 KB on Windows, about 780 shas - and
+ * what happens past that is git refusing to start, which is not a failure anybody could act on.
+ */
+export function patchesArgs(): string[] {
+  return ['log', '--stdin', '--no-walk', '-p', '--format=%H'];
+}
+
+/** `git patch-id --stable`, which reads those patches on stdin and says which of them are one change. */
+export const PATCH_ID_ARGS = ['patch-id', '--stable'];
+
+/** `<patch id> <sha>` a line, as `git patch-id` writes it: which commit carries which change. */
+export function parsePatchIds(output: string): Map<string, string> {
+  const found = new Map<string, string>();
+
+  for (const line of output.split('\n')) {
+    const [id, sha] = line.trim().split(' ');
+
+    if (id !== undefined && sha !== undefined && id.length > 0 && sha.length > 0) {
+      found.set(sha, id);
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Of the commits marked as copies, the ones whose twin over there was written by the same person.
+ *
+ * A patch id says two commits are the same change. It does not say anybody copied anything, and on a
+ * real repository that difference is most of the answer. Measured on the 64,204-commit one: of the 17
+ * commits marked as copies between `release/v1.3` and `uat`, **thirteen were a version bump** - one
+ * line of `package.json`, 5382 becoming 5383 - matched against the commit that made the same bump on
+ * the other branch three months earlier, by somebody else entirely. Two branches walking the same
+ * counter pass through the same numbers, and those diffs are identical byte for byte. git is not
+ * wrong; "the same change" is simply not the question being asked.
+ *
+ * What a cherry-pick keeps is the author - the picker becomes the committer, the original author stays
+ * - so the twin's author is the cheapest thing that tells the two apart. On that repository it told
+ * them apart completely: all thirteen version bumps had a different name on each side, and all four
+ * real copies had the same name on both.
+ *
+ * It costs recall, deliberately. A change somebody retyped by hand is copied by any ordinary reading of
+ * the word, and its author is whoever retyped it, so it is no longer reported. That is the trade:
+ * thirteen wrong answers for one right one that needed somebody to have been careless in a particular
+ * way.
+ *
+ * A group of one is a twin that was not read, and is dropped rather than guessed at.
+ */
+export function pickedByOneAuthor(
+  mine: readonly PickedCommit[],
+  theirs: readonly PickedCommit[],
+  patchIds: ReadonlyMap<string, string>,
+): string[] {
+  const byPatch = new Map<string, PickedCommit[]>();
+
+  for (const commit of [...mine, ...theirs]) {
+    const id = patchIds.get(commit.sha);
+
+    if (id !== undefined) {
+      byPatch.set(id, [...(byPatch.get(id) ?? []), commit]);
+    }
+  }
+
+  return mine
+    .filter((commit) => {
+      const id = patchIds.get(commit.sha);
+      const group = id === undefined ? [] : (byPatch.get(id) ?? []);
+
+      return group.length > 1 && group.every((other) => other.author === commit.author);
+    })
+    .map((commit) => commit.sha);
 }
 
 /**

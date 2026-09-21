@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A change that is the same on two branches by coincidence is no longer reported as copied from a
+  test site.** `copied uat` was read off git's patch id, which says two commits are the same change and
+  nothing about anybody having copied one. Measured on a 64,204-commit repository: of seventeen commits
+  it called copies, thirteen were a version bump - one line of `package.json`, 5382 becoming 5383 -
+  matched against the commit that made the same bump on the other branch three months earlier, by
+  somebody else. Two branches walking the same counter pass through the same numbers. A cherry-pick
+  keeps the author it took the commit from, so the twin's author is now read as well and a change with
+  a different name on each side is not reported: seventeen became four, and the four are real. The cost
+  is a change somebody retyped by hand rather than picked, which is no longer found.
+
 - **The commit id is no longer the same colour as a badge that means something else.** It was the
   theme's chart orange, which is readable and was also, as of the badges above, the colour of "this
   commit was copied from a test site". Two things in one row meaning different things in one colour is

@@ -211,6 +211,10 @@ const settle = async (from, ms = 20_000) => {
  * The default is twice the watcher's 600 ms debounce, which is the slowest path from a change to a
  * reload; a wait shorter than that would pass by arriving before the thing it is ruling out.
  */
+/** For each message in `posted`, the graph panel that posted it - see `createWebviewPanel`. */
+const postedFrom = [];
+let graphPanels = 0;
+
 const quiet = (ms = 1200) => new Promise((r) => setTimeout(r, ms));
 
 /*
@@ -587,6 +591,16 @@ const vscodeStub = {
       }
 
       panelCreated = { viewType, title, options };
+
+      /*
+       * Which graph this is. Two can be open at once - a second repository's - and both post into the
+       * one array below, so a check that reads "the rows of the last walk" can read the other graph's
+       * walk instead: rows drawn without this graph's filter, sitting among the filtered ones. Recorded
+       * rather than separated, because everything here reads `posted` and only the checks that care
+       * which graph drew what have to ask.
+       */
+      const graph = graphPanels++;
+
       return (panelObject = {
         active: true,
         webview: {
@@ -599,6 +613,7 @@ const vscodeStub = {
           },
           asWebviewUri: (u) => u,
           postMessage: (m) => {
+            postedFrom.push(graph);
             posted.push(m);
             return Promise.resolve(true);
           },
@@ -6417,18 +6432,43 @@ if (!(await until(blamedAgain))) {
 
     const theCopy = runGit(repoPath, 'rev-parse', 'HEAD').trim();
 
+    /*
+     * And the trap the copies walk into: the same change on both sides that nobody copied.
+     *
+     * The same new file, with the same contents, written on each branch by a different person. git
+     * calls those one change - the patch id is the patch, and a patch id is all a cherry-pick leaves
+     * behind - so both come back marked, and the older answer drew them. On the repository this was
+     * found in, thirteen of seventeen "copies" were this: a version bump from 5382 to 5383, matched
+     * against the commit that made the same bump on the other branch three months earlier.
+     *
+     * What separates them is who wrote the twin, which a cherry-pick carries across and a coincidence
+     * does not. Nothing below asserts about this file by name - the check is the set of drawn rows
+     * further down, which has no room in it for a fourth.
+     */
+    runGit(repoPath, 'checkout', '-q', site);
+    writeFileSync(join(repoPath, 'stamp.txt'), 'release 2\n');
+    runGit(repoPath, 'add', '-A');
+    runGit(repoPath, 'commit', '-q', '-m', 'the release stamp, on the site');
+
+    runGit(repoPath, 'checkout', '-q', 'main');
+    writeFileSync(join(repoPath, 'stamp.txt'), 'release 2\n');
+    runGit(repoPath, 'add', '-A');
+    runGit(repoPath, 'commit', '-q', '--author=Somebody Else <else@example.invalid>', '-m', 'the release stamp, on main');
+
+
     await quiet();
 
-    const drawnSince = () => {
-      const types = posted.map((m) => m.type);
+    /** The pages of this graph's last walk, and only this graph's - see `postedFrom`. */
+    const lastWalk = () => {
+      const mine = posted.filter((_, at) => postedFrom[at] === graphPanels - 1);
+      const types = mine.map((m) => m.type);
       const doneAt = types.lastIndexOf('done');
       const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
 
-      return posted
-        .slice(resetAt, doneAt)
-        .filter((m) => m.type === 'page')
-        .flatMap((m) => m.rows.map((row) => row.subject));
+      return mine.slice(resetAt, doneAt).filter((m) => m.type === 'page');
     };
+
+    const drawnSince = () => lastWalk().flatMap((m) => m.rows.map((row) => row.subject));
 
     const walksBefore = posted.filter((m) => m.type === 'done').length;
 
@@ -6444,16 +6484,9 @@ if (!(await until(blamedAgain))) {
      * And each of them says why it is there. One switch draws two kinds of thing, and a row that does
      * not say which it is leaves the reader counting merge messages by eye.
      */
-    const reasons = (() => {
-      const types = posted.map((m) => m.type);
-      const doneAt = types.lastIndexOf('done');
-      const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
-
-      return posted
-        .slice(resetAt, doneAt)
-        .filter((m) => m.type === 'page')
-        .flatMap((m) => m.rows.map((row) => `${row.subject.slice(0, 24)} -> ${JSON.stringify(row.cameFrom)}`));
-    })();
+    const reasons = lastWalk().flatMap((m) =>
+      m.rows.map((row) => `${row.subject.slice(0, 24)} -> ${JSON.stringify(row.cameFrom)}`),
+    );
 
     console.log('  said why     :', reasons.join(' | '));
 
@@ -6490,16 +6523,7 @@ if (!(await until(blamedAgain))) {
      * rather than `git cherry`, and would be indistinguishable from the other way round in a check that
      * only counted rows.
      */
-    const drawnShas = (() => {
-      const types = posted.map((m) => m.type);
-      const doneAt = types.lastIndexOf('done');
-      const resetAt = types.slice(0, doneAt).lastIndexOf('reset');
-
-      return posted
-        .slice(resetAt, doneAt)
-        .filter((m) => m.type === 'page')
-        .flatMap((m) => m.rows.map((row) => row.sha));
-    })();
+    const drawnShas = lastWalk().flatMap((m) => m.rows.map((row) => row.sha));
 
     if (!drawnShas.includes(theCopy) || drawnShas.includes(onTheSite)) {
       problems.push('the came-from filter drew the commit it was copied from rather than the copy');
@@ -6548,7 +6572,18 @@ if (!(await until(blamedAgain))) {
 
     await commands.get('weft.showAllRefs')();
     await until(() => posted.filter((m) => m.type === 'done').length > everywhereFrom, 20_000);
-    await quiet();
+
+    /*
+     * And then until the copy is on it, because this graph is drawn twice and the first of the two
+     * cannot have it.
+     *
+     * The two refs above were written with `update-ref` rather than through the extension, so the panel
+     * does not know about them until the watcher says so. Show All draws straight away - no remote to
+     * compare against, so the merges and nothing else - and the watcher's reload draws again with the
+     * remote in hand. Measured: without this, the first of the two is what gets read, three runs out of
+     * three.
+     */
+    await until(() => drawnSince().includes('a change somebody took across'), 20_000);
 
     const everywhere = drawnSince();
 

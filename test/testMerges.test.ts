@@ -7,12 +7,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  PATCH_ID_ARGS,
   branchChoices,
   findTestMerges,
   mergedBranch,
   parseMerges,
+  parsePatchIds,
   parsePicked,
+  patchesArgs,
   pickedArgs,
+  pickedByOneAuthor,
   readTestBranches,
   refsFor,
   remotesIn,
@@ -127,26 +131,72 @@ test('a box of branch names is read as a list', () => {
   assert.deepEqual(splitBranchNames('  '), []);
 });
 
-test('a cherry-marked walk names the commits with a copy on the other side', () => {
+test('a cherry-marked walk names the commits with a copy on the other side, and who wrote them', () => {
   const NUL = '\x00';
 
-  assert.deepEqual(pickedArgs('HEAD', 'refs/remotes/origin/uat'), [
+  assert.deepEqual(pickedArgs('HEAD', 'refs/remotes/origin/uat', 'left'), [
     'log',
     '--left-only',
     '--cherry-mark',
-    '--format=%m%x00%H',
+    '--format=%m%x00%H%x00%an',
     'HEAD...refs/remotes/origin/uat',
   ]);
 
+  // The other side is read for one thing and is never drawn: who wrote the twin.
+  assert.equal(pickedArgs('HEAD', 'refs/remotes/origin/uat', 'right')[1], '--right-only');
+
   /*
    * `=` is a commit with a copy on the other side. The walk is asked for one side, so what comes back is
-   * what this history holds - the copy, not the commit it was copied from, which are two shas.
+   * what that history holds - the copy, not the commit it was copied from, which are two shas.
    */
   assert.deepEqual(
-    parsePicked([`=${NUL}aaa1`, `<${NUL}bbb2`, `>${NUL}ccc3`, `=${NUL}ddd4`, ''].join('\n')),
-    ['aaa1', 'ddd4'],
+    parsePicked(
+      [`=${NUL}aaa1${NUL}Ann`, `<${NUL}bbb2${NUL}Bob`, `>${NUL}ccc3${NUL}Cal`, `=${NUL}ddd4${NUL}Dee`, ''].join('\n'),
+    ),
+    [
+      { sha: 'aaa1', author: 'Ann' },
+      { sha: 'ddd4', author: 'Dee' },
+    ],
   );
   assert.deepEqual(parsePicked(''), []);
+});
+
+test('the same change by two different hands is not a copy either of them made', () => {
+  assert.deepEqual(patchesArgs(), ['log', '--stdin', '--no-walk', '-p', '--format=%H']);
+  assert.deepEqual(PATCH_ID_ARGS, ['patch-id', '--stable']);
+  assert.deepEqual(
+    parsePatchIds(['p1 aaa1', 'p2 bbb2', '', '  p3 ccc3  '].join('\n')),
+    new Map([
+      ['aaa1', 'p1'],
+      ['bbb2', 'p2'],
+      ['ccc3', 'p3'],
+    ]),
+  );
+
+  const mine = [
+    // A cherry-pick: the picker becomes the committer, so the author is still the one over there.
+    { sha: 'copy', author: 'Ann' },
+    // The version bump, which matched the same bump made months earlier by somebody else.
+    { sha: 'bump', author: 'Nick' },
+    // Marked as having a twin, but the twin was not among what was read.
+    { sha: 'lone', author: 'Ann' },
+  ];
+  const theirs = [
+    { sha: 'theOriginal', author: 'Ann' },
+    { sha: 'theirBump', author: 'Winni' },
+  ];
+  const ids = new Map([
+    ['copy', 'p1'],
+    ['theOriginal', 'p1'],
+    ['bump', 'p2'],
+    ['theirBump', 'p2'],
+    ['lone', 'p3'],
+  ]);
+
+  assert.deepEqual(pickedByOneAuthor(mine, theirs, ids), ['copy']);
+
+  // And nothing from over there comes back, whatever it is paired with.
+  assert.deepEqual(pickedByOneAuthor([], theirs, ids), []);
 });
 
 test('a name in the box means every branch of that name, local first', () => {
