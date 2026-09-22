@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 - **A checkout that swapped the files but could not move HEAD now finishes by itself.** On Windows git
   moves a branch by renaming a lock file over `HEAD`, and Windows refuses that while anything else has
