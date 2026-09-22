@@ -930,17 +930,45 @@ if (!outputLines.some((line) => line.includes('Weft activated'))) {
  * Source Control sections gone, and not a word about any of it.
  */
 if (breakView !== null) {
+  /*
+   * Two answers, and which is right depends on the section. Those three are what Weft is: take one
+   * away and there is nothing left to carry on for, so activation stops and says so. The two a
+   * command fills on demand are not, and taking the whole extension down over one of them is out of
+   * proportion to what it costs - and that state is every update, from the moment it lands until
+   * somebody reloads the window.
+   */
+  const core = ['weft.files', 'weft.refs', 'weft.authors'].includes(breakView);
   const logged = outputLines.some((line) => line.includes('Weft failed to activate'));
   const shown = problems.some((p) => p.includes('unexpected error message'));
+  const activated = outputLines.some((line) => line.includes('Weft activated'));
+  const warned = confirmations.some(
+    (asked) => String(asked.message).includes(breakView) && asked.answered === 'Reload Window',
+  );
 
-  console.log('broken view    :', breakView, '|', logged ? 'logged' : 'NOT LOGGED', '|', shown ? 'shown to the user' : 'NOT SHOWN');
+  console.log(
+    'broken view    :',
+    breakView,
+    core ? '| core' : '| on demand',
+    '| activated', activated,
+    '| failure logged', logged,
+    '| said something', shown || warned,
+  );
 
-  if (!logged || !shown) {
+  if (core && (!logged || !shown)) {
     console.error('\nFAILED: a failed activation said nothing.');
     process.exit(1);
   }
 
-  console.log('\nOK - a failed activation reports itself.');
+  if (!core && !(activated && warned && !logged)) {
+    console.error('\nFAILED: one missing section took the whole extension with it, or took it quietly.');
+    process.exit(1);
+  }
+
+  console.log(
+    core
+      ? '\nOK - a failed activation reports itself.'
+      : '\nOK - a section this window has never heard of costs it that section, and says so.',
+  );
   process.exit(0);
 }
 

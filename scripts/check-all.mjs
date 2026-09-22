@@ -32,6 +32,8 @@ const GROUPS = [
     ['ui probe', ['scripts/ui-probe.mjs', 'assert']],
     ['load check', ['scripts/load-check.mjs', '--watch']],
     ['load check, broken view', ['scripts/load-check.mjs', '--break-view=weft.files']],
+    // The other answer: a section a window has never heard of costs it that section and nothing more.
+    ['load check, missing section', ['scripts/load-check.mjs', '--break-view=weft.authorFiles']],
   ],
   [['unit tests', ['--test', 'test/**/*.test.ts']]],
   [

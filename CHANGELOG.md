@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1
+
+- **An update no longer breaks Weft until the window is reloaded.** VS Code replaces an extension
+  underneath a running window and asks for a reload afterwards, so between those two moments the new
+  code is running against the old manifest - and a section added since does not exist yet as far as
+  that window is concerned. Creating it threw, inside activation, which took the whole extension with
+  it: no graph, no sections, and an error naming a view id. The three sections Weft is made of still
+  stop activation if they are missing, because there is nothing to carry on for; the two a command
+  fills on demand cost you that section and a warning with a Reload Window button on it. Anybody who
+  installed 0.11.0 saw this once, on the update that installed it.
+
 ## 0.11.0
 
 - **A checkout that swapped the files but could not move HEAD now finishes by itself.** On Windows git

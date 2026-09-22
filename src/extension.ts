@@ -207,6 +207,43 @@ function selectedLines(uri: vscode.Uri): Lines | null {
 type FileLink = { readonly url: string; readonly sha: string; readonly remote: string; readonly repo: RepoInfo };
 
 /**
+ * A section this window may not have heard of.
+ *
+ * A view is registered by the manifest, and the manifest a window is running can be older than the
+ * code in it: VS Code updates an extension underneath a live window and asks for a reload afterwards,
+ * so between those two moments `createTreeView` throws for anything added since. That is a real
+ * state, not a corner case - it is what every update looks like until somebody reloads - and it used
+ * to take the whole of activation with it, which is Weft dead in that window rather than one section
+ * missing from it.
+ *
+ * Said out loud rather than swallowed, because the other way round is how adding a view and not
+ * restarting used to look: no commands, no sections, and not a word about any of it. The sections
+ * that are not optional are created the ordinary way and still stop activation, because without them
+ * there is nothing to carry on for.
+ */
+function optionalView<T>(id: string, treeDataProvider: vscode.TreeDataProvider<T>): vscode.TreeView<T> | null {
+  try {
+    return vscode.window.createTreeView(id, { treeDataProvider });
+  } catch {
+    const reload = 'Reload Window';
+
+    void vscode.window
+      .showWarningMessage(
+        `Weft: this window is running an older copy of the extension's manifest, so the ${id} section ` +
+          'is missing. Reload the window to finish the update - everything else works meanwhile.',
+        reload,
+      )
+      .then((answer) => {
+        if (answer === reload) {
+          void vscode.commands.executeCommand('workbench.action.reloadWindow');
+        }
+      });
+
+    return null;
+  }
+}
+
+/**
  * What the Author Files heading calls the branches it searched.
  *
  * Named rather than counted when there is one, because one branch is the ordinary case and its name
@@ -692,9 +729,11 @@ function start(context: vscode.ExtensionContext): void {
     treeKey: 'weft.authorFilesAsTree',
     empty: 'Right-click a person in Authors to see every file they have changed.',
   });
-  const theirFilesView = vscode.window.createTreeView('weft.authorFiles', { treeDataProvider: theirFiles });
+  const theirFilesView = optionalView('weft.authorFiles', theirFiles);
 
-  theirFiles.attach(theirFilesView);
+  if (theirFilesView !== null) {
+    theirFiles.attach(theirFilesView);
+  }
 
   /** A file row from either section: the two are one view of two subjects. */
   const fileAt = (node: unknown): ReturnType<FilesProvider['target']> => files.target(node) ?? theirFiles.target(node);
@@ -704,9 +743,11 @@ function start(context: vscode.ExtensionContext): void {
    * `git log -L` walks from one commit and cannot be the graph's walk with a filter on it.
    */
   const lines = new LineHistoryProvider();
-  const linesView = vscode.window.createTreeView('weft.lineHistory', { treeDataProvider: lines });
+  const linesView = optionalView('weft.lineHistory', lines);
 
-  lines.attach(linesView);
+  if (linesView !== null) {
+    lines.attach(linesView);
+  }
 
   files.attach(filesView);
   setCommitFiles({
