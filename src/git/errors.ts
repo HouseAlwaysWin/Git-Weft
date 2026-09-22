@@ -40,6 +40,16 @@ export interface MappedError {
   /** Paths git named, when it named any - so the dialog can list them. */
   readonly paths: string[];
   readonly remedies: Remedy[];
+  /**
+   * Run the same thing again, once, without asking.
+   *
+   * For the failures that are somebody else's timing and nothing about this repository - a file the
+   * virus scanner had open for the half-second git wanted to rename over it. The advice is already
+   * "do it again", and offering a button for it means the reader is asked to press a button whose
+   * answer is never anything else. Only where doing it again is safe: the same command, the same
+   * arguments, and a state that running it twice cannot make worse.
+   */
+  readonly retryBySelf?: boolean;
   /** Exactly what git said, for the log. */
   readonly raw: string;
 }
@@ -50,6 +60,8 @@ interface Rule {
   readonly remedies: Remedy[];
   /** Whether the message is followed by an indented list of paths. */
   readonly listsPaths?: boolean;
+  /** See `MappedError.retryBySelf`. */
+  readonly retryBySelf?: boolean;
 }
 
 /**
@@ -142,6 +154,13 @@ const RULES: Rule[] = [
     message: () =>
       "git swapped the files over but could not move HEAD, so the branch has not changed and the working tree now holds the other branch's contents. Something else had the repository open at that moment - antivirus and file indexers do this on Windows. Running the same checkout again finishes the switch.",
     remedies: [Remedy.Retry, Remedy.ShowLog],
+    /*
+     * And run again by itself, because the half-done state is the dangerous part and the reader can
+     * do nothing about the cause. The files are already swapped; the second run has only HEAD left
+     * to move, so it is quick and it cannot make this worse. Reported for somebody to act on only if
+     * it fails twice - by then it is not a passing lock.
+     */
+    retryBySelf: true,
   },
   {
     match: /(cannot lock ref|Unable to create .*\.lock|could not lock config file|File exists)/,
@@ -274,6 +293,7 @@ export function mapGitError(error: unknown): MappedError {
       message: rule.message(trimmed),
       paths: rule.listsPaths === true ? pathsAfter(trimmed, rule.match) : [],
       remedies: rule.remedies,
+      ...(rule.retryBySelf === true ? { retryBySelf: true } : {}),
       raw: trimmed,
     };
   }

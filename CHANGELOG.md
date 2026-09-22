@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **A checkout that swapped the files but could not move HEAD now finishes by itself.** On Windows git
+  moves a branch by renaming a lock file over `HEAD`, and Windows refuses that while anything else has
+  the file open - a virus scanner or a file indexer for half a second is enough. git writes the index
+  and the working tree first, so the failure leaves the worst state there is: every file from the
+  branch you asked for, `HEAD` still on the one you left, and a thousand files reading as staged
+  because the index and `HEAD` disagree. The next commit would land on the wrong branch. Weft already
+  explained this and offered a Try Again button, which is a button whose answer is never anything
+  else; it runs the same checkout again by itself now, and says something only if that fails too.
+
 - **"Files They Have Changed…" on a person in the Authors sidebar.** The sidebar knew who, and the
   graph knew when; what nobody could ask was what one person had worked on. The answer fills the
   **Author Files** section, which appears once it has an answer: every file they have ever changed,

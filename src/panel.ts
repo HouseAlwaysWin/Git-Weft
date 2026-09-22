@@ -1276,6 +1276,22 @@ export class WeftPanel {
     const detail = mapped.paths.length === 0 ? '' : `\n\n${mapped.paths.map((p) => `  ${p}`).join('\n')}`;
 
     output?.warn(`${mapped.message}\n${mapped.raw}`);
+
+    /*
+     * Some failures answer themselves. A checkout that swapped every file and then could not move
+     * HEAD - because something had the ref open for the half-second git wanted to rename over it -
+     * leaves the worst state this extension can produce: the working tree and the index holding one
+     * branch while HEAD names another, so every differing file reads as staged and the next commit
+     * lands on the wrong branch. The remedy is the same command again, the reader can do nothing
+     * about the cause, and `retry` is that same action with its confirmation already answered. So it
+     * runs. Only a second failure is worth a dialog: by then it is not a passing lock.
+     */
+    if (mapped.retryBySelf === true && retry !== null) {
+      output?.info(`${mapped.message}\nRunning it again.`);
+      await retry();
+      return;
+    }
+
     this.post({ type: 'error', message: mapped.message });
 
     // git usually does say what to do about a failure; the whole point of mapping errors was to

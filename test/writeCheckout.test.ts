@@ -186,6 +186,39 @@ test('a ref that could not be locked says what state it left behind, and offers 
   // The words git chooses read like nothing happened. The files have already moved.
   assert.match(mapped.message, /working tree now holds the other branch/);
   assert.deepEqual(mapped.remedies, [Remedy.Retry, Remedy.ShowLog]);
+
+  /*
+   * And it goes again by itself before anybody is asked. The state it leaves is the dangerous one -
+   * the index and the working tree on one branch, HEAD on another - the cause is a passing lock that
+   * the reader cannot do anything about, and the remedy is the same command. A button whose answer
+   * is never anything else is a button not worth offering first.
+   */
+  assert.equal(mapped.retryBySelf, true);
+});
+
+test('a failure about this repository is not run again behind the reader', () => {
+  /*
+   * The opposite case, and the reason the flag is on one rule rather than on retrying in general:
+   * these are about what the repository holds. Doing them again does the same thing again, and the
+   * second failure is as useless as the first.
+   */
+  for (const [args, stderr] of [
+    [
+      ['checkout', 'other'],
+      'error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts\n',
+    ],
+    [['merge', 'other'], 'CONFLICT (content): Merge conflict in src/a.ts\n'],
+    [
+      ['push'],
+      'error: failed to push some refs\nhint: Updates were rejected because the remote contains work\n',
+    ],
+  ] as const) {
+    assert.notEqual(
+      mapGitError(new GitError([...args], 1, stderr)).retryBySelf,
+      true,
+      stderr.split('\n')[0],
+    );
+  }
 });
 
 test('an unrecognised failure keeps git own words rather than inventing vaguer ones', () => {
