@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { buildMenu, findAction } from '../src/actions/registry.ts';
 import { Remedy, mapGitError } from '../src/git/errors.ts';
 import { GitError } from '../src/git/exec.ts';
+import { canPutBack } from '../src/git/repoState.ts';
 import { RepoLock } from '../src/git/lock.ts';
 import { Operation, parseStatus, readOperation, readRepoState, workAtRisk } from '../src/git/repoState.ts';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -194,6 +195,37 @@ test('a ref that could not be locked says what state it left behind, and offers 
    * is never anything else is a button not worth offering first.
    */
   assert.equal(mapped.retryBySelf, true);
+});
+
+test('a switch is only undone when there is nothing of yours to lose by it', () => {
+  /*
+   * Undoing it is `git reset --hard HEAD`, and a checkout carries uncommitted changes across when
+   * they do not conflict - so after a failed one they are in there with the other branch's files.
+   * From a clean tree there is nothing to lose. From anything else the cure is worse than the state,
+   * and this is the line between them.
+   */
+  const state = (files: unknown[], branch: string | null = 'main') =>
+    ({
+      operation: 'none',
+      head: 'abc',
+      branch,
+      detached: branch === null,
+      files,
+      branches: [],
+      tags: [],
+      remotes: [],
+      upstream: null,
+      fetchedAt: null,
+    }) as unknown as Parameters<typeof canPutBack>[0];
+
+  assert.equal(canPutBack(state([])), true);
+
+  // One modified file is one file somebody would lose, and it is not this code's to spend.
+  assert.equal(canPutBack(state([{ path: 'a.ts', code: ' M' }])), false);
+
+  // Nothing to say afterwards, so nothing worth writing: there is no branch you are still on.
+  assert.equal(canPutBack(state([], null)), false);
+  assert.equal(canPutBack(null), false);
 });
 
 test('a failure about this repository is not run again behind the reader', () => {

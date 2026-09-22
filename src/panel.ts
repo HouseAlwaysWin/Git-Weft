@@ -93,7 +93,8 @@ export interface FilterSource {
 }
 import { RepoLock } from './git/lock.ts';
 import type { WorkingTree } from './git/repoState.ts';
-import { describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
+import type { RepoState } from './git/repoState.ts';
+import { canPutBack, describeOperation, readRepoState, readWorkingTree } from './git/repoState.ts';
 import { readTicketLinks, ticketUrl } from './git/ticketLinks.ts';
 import {
   PATCH_ID_ARGS,
@@ -1158,9 +1159,17 @@ export class WeftPanel {
       return false;
     }
 
+    /*
+     * What the working tree looked like before any of this: read inside the lock with everything
+     * else, kept out here because only the failure path wants it. See `putBackAfterHalfASwitch`.
+     */
+    let started: RepoState | null = null;
+
     try {
       const result = await WeftPanel.lock.run(this.repo.root, async () => {
         const state = await readRepoState(this.git, this.repo);
+
+        started = state;
         const unavailable = action.unavailable(target, state);
 
         if (unavailable !== null) {
@@ -1266,12 +1275,52 @@ export class WeftPanel {
     } catch (err) {
       // One retry, never two: an offer to stash and retry that fails the same way must not become
       // a loop of dialogs the user has to fight their way out of.
-      await this.reportError(err, retrying ? null : () => this.runAction(id, target, true, announce));
+      await this.reportError(
+        err,
+        retrying ? null : () => this.runAction(id, target, true, announce),
+        action.movesHead === true ? () => this.putBackAfterHalfASwitch(started) : null,
+      );
       return false;
     }
   }
 
-  private async reportError(err: unknown, retry: (() => Promise<unknown>) | null = null): Promise<void> {
+  /**
+   * Put the files back after a switch that got half way, when that can be done without losing work.
+   *
+   * The failure this is for leaves the working tree and the index holding the branch you asked for
+   * while HEAD names the one you left. `git reset --hard HEAD` makes both agree with HEAD again -
+   * and it can, because what it writes is the branch's own ref rather than `HEAD`, which is the file
+   * git could not write. Being back where you started is a state somebody can act on; the split one
+   * is not, and it aims the next commit at the wrong branch.
+   *
+   * Only from a clean tree, and that is the whole of the safety here: a checkout carries uncommitted
+   * changes across when they do not conflict, and `--hard` would throw those away. Anything else, and
+   * the files stay where they are and the reader is told what state they are in.
+   */
+  private async putBackAfterHalfASwitch(started: RepoState | null): Promise<string | null> {
+    if (!canPutBack(started) || started === null || started.branch === null) {
+      return null;
+    }
+
+    try {
+      await this.git.runWrite(this.repo.root, ['reset', '--hard', 'HEAD']);
+    } catch {
+      // The same lock, most likely. Nothing is worse than it was, and the message below still fits.
+      return null;
+    }
+
+    return (
+      `git could not move HEAD, twice over, so the switch was undone: you are still on ${started.branch}, ` +
+      'with its own files. Something has the repository open - antivirus and file indexers do this on ' +
+      'Windows. Trying again in a moment usually works.'
+    );
+  }
+
+  private async reportError(
+    err: unknown,
+    retry: (() => Promise<unknown>) | null = null,
+    putBack: (() => Promise<string | null>) | null = null,
+  ): Promise<void> {
     const mapped = await explainStaleLock(mapGitError(err), this.repo.root);
     const detail = mapped.paths.length === 0 ? '' : `\n\n${mapped.paths.map((p) => `  ${p}`).join('\n')}`;
 
@@ -1292,7 +1341,18 @@ export class WeftPanel {
       return;
     }
 
-    this.post({ type: 'error', message: mapped.message });
+    /*
+     * And when running it again did not work either, put the files back rather than leaving somebody
+     * in the split state to read a dialog about it. Afterwards rather than instead: the second
+     * attempt has only HEAD left to move, since the files already match, so it is much the cheaper
+     * thing to try first - undoing and redoing writes every file in the repository twice to arrive
+     * at the same place. What `putBack` says replaces the message, because the one written for this
+     * failure describes a working tree that no longer exists.
+     */
+    const undone = mapped.retryBySelf === true && retry === null ? ((await putBack?.()) ?? null) : null;
+    const message = undone ?? mapped.message;
+
+    this.post({ type: 'error', message });
 
     // git usually does say what to do about a failure; the whole point of mapping errors was to
     // keep that advice instead of losing it in a wall of text. A remedy with no button is advice
@@ -1303,7 +1363,7 @@ export class WeftPanel {
     );
 
     const choice = await vscode.window.showWarningMessage(
-      mapped.message + detail,
+      message + detail,
       { modal: mapped.paths.length > 0 },
       ...offered.map((remedy) => REMEDY_LABELS[remedy]),
     );

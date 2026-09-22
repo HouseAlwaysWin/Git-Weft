@@ -234,6 +234,21 @@ export function parseStatus(output: string): FileStatus[] {
   return files;
 }
 
+/**
+ * Whether a switch that got half way can be undone without losing anything.
+ *
+ * Undoing it is `git reset --hard HEAD`, which throws away everything not committed - and a checkout
+ * carries uncommitted changes across when they do not conflict, so after a failed one they are in
+ * there among the other branch's files. From a clean tree there is nothing to lose and being put back
+ * is plainly better than being left split; from a dirty one the cure is worse than the state.
+ *
+ * A detached HEAD says no as well, though `reset --hard` would work: there is no branch to say you
+ * are still on, and a message that cannot name where you are is not worth the write.
+ */
+export function canPutBack(started: RepoState | null): boolean {
+  return started !== null && started.files.length === 0 && started.branch !== null;
+}
+
 /** The working tree and where the branch stands - everything one `git status -b` already says. */
 export interface WorkingTree {
   readonly files: FileStatus[];

@@ -11,6 +11,13 @@
   explained this and offered a Try Again button, which is a button whose answer is never anything
   else; it runs the same checkout again by itself now, and says something only if that fails too.
 
+- **And if that fails too, the half-done switch is undone.** You are put back on the branch you were
+  on, with its own files, rather than left holding one branch's contents under another branch's name.
+  Only from a clean tree: undoing it is `git reset --hard`, a checkout carries uncommitted changes
+  across when they do not conflict, and throwing those away to tidy up would be a worse failure than
+  the one being tidied. With changes in the tree the files stay where they are and the message says
+  what state they are in.
+
 - **"Files They Have Changed…" on a person in the Authors sidebar.** The sidebar knew who, and the
   graph knew when; what nobody could ask was what one person had worked on. The answer fills the
   **Author Files** section, which appears once it has an answer: every file they have ever changed,
