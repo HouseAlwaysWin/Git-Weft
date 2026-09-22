@@ -173,6 +173,8 @@ let panelCreated = null;
 const problems = [];
 const contentProviders = new Map();
 const diffsOpened = [];
+/** Files handed to VS Code to open as themselves, rather than as a diff. */
+const filesOpened = [];
 const contextKeys = new Map();
 const copied = [];
 /** Addresses handed to the operating system to open. */
@@ -426,6 +428,9 @@ const vscodeStub = {
     executeCommand: async (id, ...args) => {
       if (id === 'vscode.diff') {
         diffsOpened.push({ left: args[0], right: args[1], title: args[2] });
+      }
+      if (id === 'vscode.open') {
+        filesOpened.push(args[0]);
       }
       if (id === 'setContext') {
         contextKeys.set(args[0], args[1]);
@@ -2514,8 +2519,8 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
         problems.push(`a row did not say how many times it changed: ${JSON.stringify(items[0]?.description ?? null)}`);
       }
 
-      if (items[0]?.command?.command !== 'weft.showFileHistory') {
-        problems.push(`a row opens ${JSON.stringify(items[0]?.command?.command ?? null)}, not that file's history`);
+      if (items[0]?.command?.command !== 'weft.openFile') {
+        problems.push(`a row opens ${JSON.stringify(items[0]?.command?.command ?? null)}, not the file itself`);
       }
 
       /*
@@ -2567,17 +2572,35 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
        * And the row actually opens, which is the one thing the command name does not prove: the
        * commands that act on a file row resolve it through whichever section holds it, and a resolver
        * that only knows the first one leaves every row in this section inert.
+       *
+       * Both ways in: clicking, which opens the file, and the menu item beside it, which opens its
+       * history. They are two different answers and a row has to give the right one to each.
        */
+      const openedFrom = filesOpened.length;
       const askedFrom = posted.length;
 
+      await commands.get('weft.openFile')(rows[0]);
       await commands.get('weft.showFileHistory')(rows[0]);
 
+      const opened = String(filesOpened[openedFrom] ?? '');
       const asked = posted.slice(askedFrom).filter((m) => m.type === 'showHistory').pop();
 
-      console.log('  opening a row:', JSON.stringify(asked?.path ?? null));
+      console.log('  a row opens  :', JSON.stringify(opened), '| its menu asks for', JSON.stringify(asked?.path ?? null));
+
+      /*
+       * The directory too, not the name alone. A row that opens the right name under the wrong root
+       * is what a lookup answering for another section's rows produces, and it ends with the same
+       * word - but only as far as the repository's own folder, because the path this process was
+       * given and the one VS Code hands back differ by Windows' short form when the driver runs it.
+       */
+      const inRepo = `${repoPath.split('/').pop()}/under-the-other-name.txt`;
+
+      if (!opened.endsWith(inRepo)) {
+        problems.push(`clicking a row opened ${JSON.stringify(opened)}, not .../${inRepo}`);
+      }
 
       if (asked?.path !== 'under-the-other-name.txt') {
-        problems.push(`a row in this section opened ${JSON.stringify(asked?.path ?? null)}`);
+        problems.push(`the history of a row was asked for as ${JSON.stringify(asked?.path ?? null)}`);
       }
 
       await commands.get('weft.authorFilesAsTree')();

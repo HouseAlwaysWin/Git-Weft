@@ -5,8 +5,9 @@
 - **"Files They Have Changed…" on a person in the Authors sidebar.** The sidebar knew who, and the
   graph knew when; what nobody could ask was what one person had worked on. The answer fills the
   **Author Files** section, which appears once it has an answer: every file they have ever changed,
-  most-changed first with the count beside it, foldable by directory, and clicking one opens that
-  file's history - so it is three things Weft already did, joined up. Its own section rather than a
+  most-changed first with the count beside it, foldable by directory, and clicking one opens the file
+  - its history, its links and both kinds of copied path are on the right-click menu, so the click is
+  not a second route to something already there. Its own section rather than a
   corner of Commit Files, so picking a commit does not throw the answer away and the two can be read
   together.
 

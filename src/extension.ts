@@ -1407,6 +1407,29 @@ function start(context: vscode.ExtensionContext): void {
       return panel.clearFilters();
     }),
 
+    /*
+     * The file itself, for a row in Author Files. Not its history - that is on the menu, and a click
+     * that goes to the same place as a menu item is one of the two wasted. A file listed there need
+     * not still exist: the list is every commit anybody made, and some of them deleted things.
+     */
+    vscode.commands.registerCommand('weft.openFile', async (node: unknown) => {
+      const target = fileAt(node);
+
+      if (target === null) {
+        return;
+      }
+
+      const uri = vscode.Uri.joinPath(vscode.Uri.file(target.repo), target.file.path);
+
+      try {
+        await vscode.commands.executeCommand('vscode.open', uri);
+      } catch {
+        void vscode.window.showInformationMessage(
+          `Weft: ${target.file.path} is not in the working tree now. Its history still is - Show File History on the menu.`,
+        );
+      }
+    }),
+
     vscode.commands.registerCommand('weft.filesAsTree', () => files.setAsTree(true)),
     // The other section's own toggle: two lists, two ways somebody wants to read them.
     vscode.commands.registerCommand('weft.authorFilesAsTree', () => theirFiles.setAsTree(true)),

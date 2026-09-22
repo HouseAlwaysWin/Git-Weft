@@ -425,8 +425,9 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     /*
      * One person's files are not a diff, so nothing on the row pretends to be one: a plain file
      * icon rather than a status glyph in a colour that means git worked it out, how many of their
-     * commits touched it rather than what the last one did, and a click that opens the file's
-     * history rather than a diff against a commit that was never selected.
+     * commits touched it rather than what the last one did, and a click that opens the file itself
+     * rather than a diff against a commit that was never selected. The file rather than its history,
+     * which is a right-click away and would make the click the second way to the same place.
      */
     const theirs = this.subject?.kind === 'author';
 
@@ -463,7 +464,7 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
         : `${label}: ${file.oldPath} → ${file.path}`;
 
     item.command = theirs
-      ? { command: 'weft.showFileHistory', title: 'Show File History', arguments: [node] }
+      ? { command: 'weft.openFile', title: 'Open File', arguments: [node] }
       : { command: 'weft.openCommitFile', title: 'Open Changes', arguments: [node] };
 
     return item;
