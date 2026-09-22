@@ -7,7 +7,9 @@
   **Author Files** section, which appears once it has an answer: every file they have ever changed,
   most-changed first with the count beside it, foldable by directory, and clicking one opens the file
   - its history, its links and both kinds of copied path are on the right-click menu, so the click is
-  not a second route to something already there. Its own section rather than a
+  not a second route to something already there. Changing a file includes deleting it, so plenty of
+  that list is not on disk any more; a file that is not says so and offers its history, rather than
+  VS Code's own "the file was not found" and a button offering to write it back. Its own section rather than a
   corner of Commit Files, so picking a commit does not throw the answer away and the two can be read
   together.
 

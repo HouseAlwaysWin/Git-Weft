@@ -706,6 +706,22 @@ const vscodeStub = {
   TreeItemCheckboxState: { Unchecked: 0, Checked: 1 },
   workspace: {
     workspaceFolders: [{ uri: uri(repoPath) }],
+    /*
+     * Enough of the file system to answer "is this file there". Asking matters: `vscode.open` does
+     * not fail on a file that is not, it opens an editor offering to create it - so the one branch
+     * that tells a reader their file was deleted hangs on this call.
+     */
+    fs: {
+      stat: async (target) => {
+        const path = String(target?.fsPath ?? target).replace(/^file:\/\//, '');
+
+        if (!existsSync(path)) {
+          throw new Error(`ENOENT: ${path}`);
+        }
+
+        return { type: 1, size: statSync(path).size, ctime: 0, mtime: 0 };
+      },
+    },
     getConfiguration: (section) => ({
       get: (key, fallback) => {
         const full = section === undefined ? key : `${section}.${key}`;
@@ -2598,6 +2614,41 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       if (!opened.endsWith(inRepo)) {
         problems.push(`clicking a row opened ${JSON.stringify(opened)}, not .../${inRepo}`);
       }
+
+      /*
+       * And a row whose file is not there any more, which is most of what a list like this holds:
+       * changing a file includes deleting it. `vscode.open` does not fail on one - it offers to
+       * create the file - so the check is that nothing was opened and something was said instead.
+       */
+      const deleted = rows.find((node) => node.file.path === 'f2.txt');
+
+      // Off the disk rather than out of the index, which is the state a reader actually meets.
+      rmSync(join(repoPath, 'f2.txt'));
+
+      const beforeMissing = filesOpened.length;
+      const saidFrom = offers.length;
+
+      await commands.get('weft.openFile')(deleted);
+
+      const offered = offers[saidFrom];
+
+      console.log(
+        '  a deleted row:',
+        filesOpened.length - beforeMissing,
+        'opened |',
+        JSON.stringify(offered?.message ?? null),
+        JSON.stringify(offered?.buttons ?? []),
+      );
+
+      if (filesOpened.length !== beforeMissing) {
+        problems.push('a file that is not in the working tree was handed to the editor anyway');
+      }
+
+      if (!String(offered?.message ?? '').includes('f2.txt') || !(offered?.buttons ?? []).includes('Show File History')) {
+        problems.push(`a row whose file is gone offered ${JSON.stringify(offered ?? null)}`);
+      }
+
+      runGit(repoPath, 'checkout', '-q', '--', 'f2.txt');
 
       if (asked?.path !== 'under-the-other-name.txt') {
         problems.push(`the history of a row was asked for as ${JSON.stringify(asked?.path ?? null)}`);

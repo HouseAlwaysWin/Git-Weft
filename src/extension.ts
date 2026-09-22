@@ -1421,13 +1421,29 @@ function start(context: vscode.ExtensionContext): void {
 
       const uri = vscode.Uri.joinPath(vscode.Uri.file(target.repo), target.file.path);
 
+      /*
+       * Asked before opening, because `vscode.open` does not fail on a file that is not there: it
+       * opens an editor showing "the file was not found" and a Create File button, which for a file
+       * somebody deleted three years ago is an offer to write it back. What the reader wants is the
+       * history, so that is what is offered.
+       */
       try {
-        await vscode.commands.executeCommand('vscode.open', uri);
+        await vscode.workspace.fs.stat(uri);
       } catch {
-        void vscode.window.showInformationMessage(
-          `Weft: ${target.file.path} is not in the working tree now. Its history still is - Show File History on the menu.`,
+        const history = 'Show File History';
+        const answer = await vscode.window.showInformationMessage(
+          `Weft: ${target.file.path} is not in the working tree - deleted at some point, or only ever on another branch. Its history is still here.`,
+          history,
         );
+
+        if (answer === history) {
+          await vscode.commands.executeCommand('weft.showFileHistory', node);
+        }
+
+        return;
       }
+
+      await vscode.commands.executeCommand('vscode.open', uri);
     }),
 
     vscode.commands.registerCommand('weft.filesAsTree', () => files.setAsTree(true)),
