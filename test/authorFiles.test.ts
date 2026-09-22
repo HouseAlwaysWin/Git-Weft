@@ -8,17 +8,32 @@ import assert from 'node:assert/strict';
 import { authorFilesArgs, looksLikeMerge, parseAuthorFiles } from '../src/git/authorFiles.ts';
 
 test('the walk asks about every spelling at once, and about history rather than stashes', () => {
-  assert.deepEqual(authorFilesArgs(['Gaga Liu', 'gaga_liu']), [
+  assert.deepEqual(authorFilesArgs(['Gaga Liu', 'gaga_liu'], null), [
     'log',
-    '--branches',
-    '--tags',
-    '--remotes',
     '--no-merges',
     '--name-only',
     '--format=%x00%s',
     '--author=Gaga Liu',
     '--author=gaga_liu',
+    '--branches',
+    '--tags',
+    '--remotes',
+    '--',
   ]);
+
+  /*
+   * And from what the graph is drawing, when the sidebar has narrowed it. Ticking a branch means walk
+   * from here, so the question becomes what they did that reached what is on screen - and the trailing
+   * `--` is there so a branch named like a folder is still read as a branch.
+   */
+  assert.deepEqual(authorFilesArgs(['Gaga Liu'], ['refs/heads/main', 'refs/remotes/origin/uat']).slice(-3), [
+    'refs/heads/main',
+    'refs/remotes/origin/uat',
+    '--',
+  ]);
+
+  // Nothing ticked apart is nothing to narrow by, which is what the sidebar means by null.
+  assert.ok(!authorFilesArgs(['Gaga Liu'], ['refs/heads/main']).includes('--branches'));
 
   /*
    * A name is a basic regular expression to git, and a Windows domain login has a backslash in it -
@@ -27,10 +42,10 @@ test('the walk asks about every spelling at once, and about history rather than 
    */
   const login = 'A02-01564' + String.fromCharCode(92) + 'Poyuan_Jung';
 
-  assert.equal(authorFilesArgs([login]).at(-1), '--author=A02-01564\\\\Poyuan_Jung');
+  assert.equal(authorFilesArgs([login], null).find((arg) => arg.startsWith('--author=')), '--author=A02-01564\\\\Poyuan_Jung');
 
   // A dot is an operator and is escaped; a plus is literal until escaped and must be left alone.
-  assert.equal(authorFilesArgs(['C++ fan.jr']).at(-1), '--author=C++ fan\\.jr');
+  assert.equal(authorFilesArgs(['C++ fan.jr'], null).find((arg) => arg.startsWith('--author=')), '--author=C++ fan\\.jr');
 });
 
 test('the files are counted, and the one changed most often comes first', () => {

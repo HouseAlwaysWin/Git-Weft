@@ -299,8 +299,15 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
    * Here rather than in the command, because the two things it needs are here: which repository is on
    * screen, and every spelling this person is listed under. A group is one person under several
    * names, and asking about one of them is a different question with a smaller and wrong answer.
+   *
+   * `refs` is what the graph is drawing, handed in by the caller rather than read here - the ticks
+   * belong to the Branches & Tags view, and this one is about people.
    */
-  async filesTouchedBy(node: AuthorNode, signal: AbortSignal): Promise<AuthorFiles> {
+  async filesTouchedBy(
+    node: AuthorNode,
+    refs: readonly string[] | null,
+    signal: AbortSignal,
+  ): Promise<AuthorFiles> {
     const spellings = this.spellingsOf(node);
 
     if (this.repo === null || spellings.length === 0) {
@@ -318,7 +325,7 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
     ).patterns;
 
     return parseAuthorFiles(
-      await this.git.runRead(this.repo.root, authorFilesArgs(spellings), { signal }),
+      await this.git.runRead(this.repo.root, authorFilesArgs(spellings, refs), { signal }),
       ignore,
     );
   }

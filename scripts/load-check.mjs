@@ -2493,7 +2493,6 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       await commands.get('weft.authorFilesAsList')();
       await commands.get('weft.authorFiles')(authors[0]);
 
-      settings.delete('weft.statistics.excludeMessages');
 
       const rows = theirFiles === undefined ? [] : theirFiles.getChildren();
       const items = rows.map((node) => theirFiles.getTreeItem(node));
@@ -2655,6 +2654,35 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       }
 
       await commands.get('weft.authorFilesAsTree')();
+
+      /*
+       * The same refs the graph is drawing. `f9.txt` is on `side` and nowhere else, so with every
+       * branch listed it is there and with the current branch alone it is not - which is the whole
+       * of the change: ticking a branch means walk from here, and a branch's history holds what was
+       * merged into it, so this answers what they did that reached what is on screen.
+       */
+      await commands.get('weft.showCurrentRefOnly')();
+      await commands.get('weft.authorFiles')(authors[0]);
+
+      const narrowed = (theirFiles?.getChildren() ?? []).map((node) => node.file.path);
+
+      console.log('  ticked one   :', narrowed.join(', ') || '(nothing)', '|', treeViews.get('weft.authorFiles')?.description);
+
+      if (narrowed.includes('f9.txt')) {
+        problems.push(`a branch nobody is drawing was still walked: ${JSON.stringify(narrowed)}`);
+      }
+
+      if (!narrowed.includes('f1.txt')) {
+        problems.push(`the branch that is drawn was not walked: ${JSON.stringify(narrowed)}`);
+      }
+
+      if (String(treeViews.get('weft.authorFiles')?.description ?? '').includes('every branch')) {
+        problems.push('the heading still says every branch while one is drawn');
+      }
+
+      await commands.get('weft.showAllRefs')();
+
+      settings.delete('weft.statistics.excludeMessages');
 
       // Put it back. Leaving a filter on would silently change what every later section is
       // measuring - which is exactly what it did the first time this ran.

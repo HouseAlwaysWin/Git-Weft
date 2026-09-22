@@ -20,7 +20,8 @@
 
 - **"Files They Have Changed…" on a person in the Authors sidebar.** The sidebar knew who, and the
   graph knew when; what nobody could ask was what one person had worked on. The answer fills the
-  **Author Files** section, which appears once it has an answer: every file they have ever changed,
+  **Author Files** section, which appears once it has an answer: every file they have changed in what
+  the graph is drawing,
   most-changed first with the count beside it, foldable by directory, and clicking one opens the file
   - its history, its links and both kinds of copied path are on the right-click menu, so the click is
   not a second route to something already there. Changing a file includes deleting it, so plenty of
@@ -28,6 +29,13 @@
   VS Code's own "the file was not found" and a button offering to write it back. Its own section rather than a
   corner of Commit Files, so picking a commit does not throw the answer away and the two can be read
   together.
+
+- **The list follows the branches you have ticked.** Ticking a branch means "walk from here", and a
+  branch's history holds everything ever merged into it - so the answer is what that person did that
+  reached what you are looking at, rather than everything they ever did anywhere. A file they changed
+  on a branch that went nowhere is no longer listed under a graph that cannot show it, which is how
+  this was reported twice. With nothing ticked apart it is every branch still, and the heading names
+  whichever of the two it was.
 
 - **A commit is not the same thing as the work in it.** Two kinds of commit hand one person a pile of
   files they did not write, and both are now left out of that list. A **merge somebody squashed** has

@@ -15,9 +15,15 @@
  * repeats as "any of these", and the names are escaped rather than passed with `--fixed-strings`,
  * which is a walk-wide flag and would quietly change what the reader's own query means.
  *
- * `--branches --tags --remotes` rather than `--all`: a stash is work somebody has not committed, and
- * this is a question about history. Measured on that repository, which has three stashes in it, both
- * spellings of the walk produced the same 16,468 lines - so saying what is meant costs nothing here.
+ * Where it walks from is what the sidebar has ticked, which is what the graph beside it is drawing.
+ * Ticking a branch means "walk from here", and a branch's history holds everything ever merged into
+ * it - so this answers "what did they do that reached what I am looking at", and a file they changed
+ * on a branch that went nowhere stops being listed under a graph that cannot show it. With nothing
+ * ticked apart there is nothing to narrow by, and `--branches --tags --remotes` is every branch.
+ *
+ * That rather than `--all`: a stash is work somebody has not committed, and this is a question about
+ * history. Measured on that repository, which has three stashes in it, both spellings of the walk
+ * produced the same 16,468 lines - so saying what is meant costs nothing here.
  *
  * Merges are left out because `--name-only` says nothing about one anyway: git shows no diff for a
  * merge unless it is asked to, and asking would hand every file in a branch to whoever merged it.
@@ -25,17 +31,17 @@
  */
 import { authorArgs } from './search.ts';
 
-export function authorFilesArgs(spellings: readonly string[]): string[] {
+export function authorFilesArgs(spellings: readonly string[], refs: readonly string[] | null): string[] {
   return [
     'log',
-    '--branches',
-    '--tags',
-    '--remotes',
     '--no-merges',
     '--name-only',
     // A NUL and the subject open each commit, so the files below it can be attributed or dropped.
     '--format=%x00%s',
     ...authorArgs(spellings),
+    ...(refs === null ? ['--branches', '--tags', '--remotes'] : refs),
+    // Nothing after this is a path, so a branch named like a folder is still read as a branch.
+    '--',
   ];
 }
 

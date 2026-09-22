@@ -207,6 +207,25 @@ function selectedLines(uri: vscode.Uri): Lines | null {
 type FileLink = { readonly url: string; readonly sha: string; readonly remote: string; readonly repo: RepoInfo };
 
 /**
+ * What the Author Files heading calls the branches it searched.
+ *
+ * Named rather than counted when there is one, because one branch is the ordinary case and its name
+ * is the whole answer to "why is this list this size". Counted past that: five ref names in a
+ * heading is a line nobody finishes reading.
+ */
+function describeDrawn(refs: readonly string[] | null): string {
+  if (refs === null) {
+    return 'every branch';
+  }
+
+  if (refs.length === 1) {
+    return refs[0]?.replace(/^refs\/(heads|remotes|tags)\//, '') ?? 'one branch';
+  }
+
+  return `${refs.length} branches`;
+}
+
+/**
  * The address of a file on the site that hosts it: a row in Commit Files, or a file anywhere else in VS
  * Code - the Explorer, a tab, the editor with the cursor in it.
  *
@@ -1614,6 +1633,19 @@ function start(context: vscode.ExtensionContext): void {
       }
 
       const label = authors.labelOf(target);
+      const root = authors.repoRoot;
+
+      if (root === null) {
+        return;
+      }
+
+      /*
+       * The same refs the graph beside it is drawing. Ticking a branch means "walk from here", and a
+       * branch's history holds everything merged into it - so this answers what that person did that
+       * reached what is on screen, rather than listing files from a branch the graph cannot show.
+       * Nothing narrowed is every branch, which is what the sidebar means by all of them ticked.
+       */
+      const drawn = refs.visibleRefs(root);
       const controller = new AbortController();
       const touched = await vscode.window.withProgress(
         {
@@ -1624,7 +1656,7 @@ function start(context: vscode.ExtensionContext): void {
         (_progress, token) => {
           token.onCancellationRequested(() => controller.abort());
 
-          return authors.filesTouchedBy(target, controller.signal).catch(() => null);
+          return authors.filesTouchedBy(target, drawn, controller.signal).catch(() => null);
         },
       );
 
@@ -1641,13 +1673,7 @@ function start(context: vscode.ExtensionContext): void {
        * An empty answer is shown rather than announced, for the same reason: the heading says whose
        * files these are and how many, so "none" is a heading and not a dialog to dismiss.
        */
-      const root = authors.repoRoot;
-
-      if (root === null) {
-        return;
-      }
-
-      theirFiles.setAuthorFiles(root, label, touched);
+      theirFiles.setAuthorFiles(root, label, touched, describeDrawn(drawn));
 
       /*
        * The section only exists once it has an answer. A fifth always-empty row in Source Control is
