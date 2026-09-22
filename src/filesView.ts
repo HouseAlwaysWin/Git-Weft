@@ -50,7 +50,6 @@ const STATUS_ICON: Record<string, { readonly icon: string; readonly color: strin
   '?': { icon: 'diff-added', color: 'gitDecoration.untrackedResourceForeground' },
 };
 
-const TREE_KEY = 'weft.filesAsTree';
 
 interface Folder {
   readonly kind: 'folder';
@@ -262,6 +261,16 @@ export async function openFileDiff(
 export class FilesProvider implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<void>();
   private readonly memento: vscode.Memento;
+  /**
+   * What this section is, since there are two of them.
+   *
+   * One shows what a commit changed and the other what one person has ever changed. They are the
+   * same view of two different subjects - folding, the tree-or-flat choice, the file menu - so they
+   * are one class twice rather than two classes that drift. What differs is where the choice is
+   * remembered, and what to say when there is nothing to show.
+   */
+  private readonly treeKey: string;
+  private readonly empty: string;
 
   private view: vscode.TreeView<Node> | null = null;
   private repo: string | null = null;
@@ -270,14 +279,26 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
   private files: FileChange[] | null = null;
   /** How many of that person's commits touched each file, for the author subject and no other. */
   private counts: ReadonlyMap<string, number> | null = null;
+  /**
+   * The rows this section is showing, by identity.
+   *
+   * `target` answered about any file node it was handed, and there are two sections handing them
+   * out now - so a row from the other one came back attached to *this* one's subject: a file from
+   * somebody's history, reported as belonging to whichever commit happened to be selected here.
+   * Nothing about it looked wrong, and "Open on the Web" would have linked the file at a commit that
+   * need not contain it. A section answers for its own rows and says null to anything else.
+   */
+  private own = new Set<FileChange>();
   private root: Folder = newFolder('', '');
   private asTree: boolean;
 
   readonly onDidChangeTreeData = this.changed.event;
 
-  constructor(memento: vscode.Memento) {
+  constructor(memento: vscode.Memento, options: { readonly treeKey: string; readonly empty: string }) {
     this.memento = memento;
-    this.asTree = memento.get<boolean>(TREE_KEY, true);
+    this.treeKey = options.treeKey;
+    this.empty = options.empty;
+    this.asTree = memento.get<boolean>(options.treeKey, true);
     this.publishMode();
   }
 
@@ -293,6 +314,11 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
       details === null ? null : { kind: 'commit', sha: details.sha },
       details?.files ?? null,
     );
+  }
+
+  /** Nothing on show: the section says what it is for and waits to be pointed at something. */
+  clear(): void {
+    this.show(null, null, null);
   }
 
   /** Point it at the working tree instead: changes that belong to no commit yet. */
@@ -349,6 +375,7 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     this.subject = subject;
     this.files = files;
     this.counts = counts;
+    this.own = new Set(files ?? []);
     this.root = files === null ? newFolder('', '') : buildTree(files);
 
     this.changed.fire();
@@ -362,7 +389,7 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     }
 
     this.asTree = asTree;
-    void this.memento.update(TREE_KEY, asTree);
+    void this.memento.update(this.treeKey, asTree);
     this.publishMode();
     this.changed.fire();
   }
@@ -444,7 +471,7 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
   target(node: unknown): { repo: string; subject: Subject; file: FileChange } | null {
     const entry = node as Node | undefined;
 
-    if (entry?.kind !== 'file' || this.repo === null || this.subject === null) {
+    if (entry?.kind !== 'file' || !this.own.has(entry.file) || this.repo === null || this.subject === null) {
       return null;
     }
 
@@ -462,7 +489,7 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
 
     if (this.files === null) {
       this.view.description = '';
-      this.view.message = 'Select a commit in the graph to see the files it changed.';
+      this.view.message = this.empty;
       return;
     }
 
@@ -492,8 +519,14 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
             : 'This commit changed no files.';
   }
 
-  /** Which of the two title-bar buttons to offer: the one for the mode you are not already in. */
+  /**
+   * Which way this section is reading: the title bar offers the button for the mode it is not in.
+   *
+   * The key is `treeKey`, so the two sections cannot fight over one: it is what the choice is stored
+   * under and what the manifest tests to decide which of the two buttons to draw, and those being the
+   * same string is the reason a second section needed no third name.
+   */
   private publishMode(): void {
-    void vscode.commands.executeCommand('setContext', 'weft.filesAsTree', this.asTree);
+    void vscode.commands.executeCommand('setContext', this.treeKey, this.asTree);
   }
 }

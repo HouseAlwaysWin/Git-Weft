@@ -2432,15 +2432,17 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       /*
        * What that person has worked on, which the sidebar is asked and could not answer.
        *
-       * Into the Commit Files section rather than a Quick Pick - which is what it was first, and was
-       * the wrong shape: thousands of rows that cannot be browsed, folded or left open. So the check
-       * is that section: the files, in order, counted, headed by whose they are, and a row that opens
-       * the file's history rather than a diff against a commit nobody selected.
+       * Into a section of its own - it was a Quick Pick first, then a fourth subject inside Commit
+       * Files, and both were wrong in the same direction: one cannot be browsed and the other makes
+       * the two answers replace each other. So the check is that section: the files, in order,
+       * counted, headed by whose they are, a row that opens the file's history rather than a diff
+       * against a commit nobody selected - and Commit Files left holding what it was holding.
        */
-      const theirFiles = treeProviders.get('weft.files');
-      const theirView = treeViews.get('weft.files');
+      const theirFiles = treeProviders.get('weft.authorFiles');
+      const theirView = treeViews.get('weft.authorFiles');
+      const commitFilesBefore = (treeProviders.get('weft.files')?.getChildren() ?? []).length;
 
-      await commands.get('weft.filesAsList')();
+      await commands.get('weft.authorFilesAsList')();
       await commands.get('weft.authorFiles')(authors[0]);
 
       const rows = theirFiles === undefined ? [] : theirFiles.getChildren();
@@ -2491,7 +2493,46 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
         problems.push(`the section did not say whose files these are: ${JSON.stringify(theirView?.description ?? null)}`);
       }
 
-      await commands.get('weft.filesAsTree')();
+      if ((treeProviders.get('weft.files')?.getChildren() ?? []).length !== commitFilesBefore) {
+        problems.push('asking about a person emptied the Commit Files section');
+      }
+
+      if (contextKeys.get('weft.hasAuthorFiles') !== true) {
+        problems.push('the section was filled but never told to appear');
+      }
+
+      /*
+       * The two sections read their own way. One context key between them and the title bar of each
+       * offers the button for the other one's mode - which is a wrong button, silently, in whichever
+       * section was not the last to be toggled.
+       */
+      if (contextKeys.get('weft.authorFilesAsTree') !== false || contextKeys.get('weft.filesAsTree') !== true) {
+        problems.push(
+          `the two file sections share one tree-or-flat key: ${JSON.stringify([
+            contextKeys.get('weft.filesAsTree'),
+            contextKeys.get('weft.authorFilesAsTree'),
+          ])}`,
+        );
+      }
+
+      /*
+       * And the row actually opens, which is the one thing the command name does not prove: the
+       * commands that act on a file row resolve it through whichever section holds it, and a resolver
+       * that only knows the first one leaves every row in this section inert.
+       */
+      const askedFrom = posted.length;
+
+      await commands.get('weft.showFileHistory')(rows[0]);
+
+      const asked = posted.slice(askedFrom).filter((m) => m.type === 'showHistory').pop();
+
+      console.log('  opening a row:', JSON.stringify(asked?.path ?? null));
+
+      if (asked?.path !== 'under-the-other-name.txt') {
+        problems.push(`a row in this section opened ${JSON.stringify(asked?.path ?? null)}`);
+      }
+
+      await commands.get('weft.authorFilesAsTree')();
 
       // Put it back. Leaving a filter on would silently change what every later section is
       // measuring - which is exactly what it did the first time this ran.

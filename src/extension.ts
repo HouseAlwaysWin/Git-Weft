@@ -12,6 +12,8 @@ import type { RefsPreset } from './protocol.ts';
 import { RefsProvider } from './refsView.ts';
 import type { AuthorNode } from './authorsView.ts';
 import { AuthorsProvider } from './authorsView.ts';
+import type { Subject } from './filesView.ts';
+import type { FileChange } from './git/details.ts';
 import { FilesProvider, openFileDiff } from './filesView.ts';
 import { BlameAnnotations } from './blameAnnotations.ts';
 import { FileCodeLens } from './codeLens.ts';
@@ -210,10 +212,17 @@ type FileLink = { readonly url: string; readonly sha: string; readonly remote: s
  *
  * A row from Commit Files is linked at the commit it was listed under, which is the version being looked
  * at. Everything else is linked at HEAD: the file on screen is the working tree's, and HEAD is the
- * nearest thing to it that a server has a page for.
+ * nearest thing to it that a server has a page for - which is what a row in Author Files gets, since
+ * the commit it belongs to is not the question that list answers.
+ *
+ * `at` resolves a row in either of those two sections; `fileAt` is the one that knows both.
  */
-async function fileLink(git: Git, files: FilesProvider, node: unknown): Promise<FileLink | { readonly reason: string }> {
-  const fromTree = files.target(node);
+async function fileLink(
+  git: Git,
+  at: (node: unknown) => { repo: string; subject: Subject; file: FileChange } | null,
+  node: unknown,
+): Promise<FileLink | { readonly reason: string }> {
+  const fromTree = at(node);
   const uri = fromTree === null ? (asUri(node) ?? vscode.window.activeTextEditor?.document.uri) : undefined;
 
   if (fromTree === null && (uri === undefined || uri.scheme !== 'file')) {
@@ -645,8 +654,31 @@ function start(context: vscode.ExtensionContext): void {
    * The selected commit's files. `globalState` rather than the workspace's, because tree-or-flat is
    * how someone likes to read a file list, not something about this repository.
    */
-  const files = new FilesProvider(context.globalState);
+  const files = new FilesProvider(context.globalState, {
+    treeKey: 'weft.filesAsTree',
+    empty: 'Select a commit in the graph to see the files it changed.',
+  });
   const filesView = vscode.window.createTreeView('weft.files', { treeDataProvider: files });
+
+  /*
+   * And one person's files, in a section of its own.
+   *
+   * It was inside Commit Files at first, as a fourth subject, which made every answer replace the
+   * other: pick a commit and the person's files are gone, run the command and the commit's are.
+   * Two questions that get asked together want two places to be looked at together. Same class, so
+   * the folding and the file menu and the tree-or-flat choice are the same in both - and its own
+   * memento key, because how you like to read one list is not how you like to read the other.
+   */
+  const theirFiles = new FilesProvider(context.globalState, {
+    treeKey: 'weft.authorFilesAsTree',
+    empty: 'Right-click a person in Authors to see every file they have changed.',
+  });
+  const theirFilesView = vscode.window.createTreeView('weft.authorFiles', { treeDataProvider: theirFiles });
+
+  theirFiles.attach(theirFilesView);
+
+  /** A file row from either section: the two are one view of two subjects. */
+  const fileAt = (node: unknown): ReturnType<FilesProvider['target']> => files.target(node) ?? theirFiles.target(node);
 
   /*
    * The lines somebody asked about. Its own section rather than the graph narrowed down, because
@@ -686,6 +718,17 @@ function start(context: vscode.ExtensionContext): void {
      */
     activated: (repo: RepoInfo) => {
       void refs.setRepository(repo);
+
+      /*
+       * A person's files belong to the repository they were read from. Left up while the sidebar
+       * moves to another one, they are a list under a heading naming somebody who may not even be in
+       * it - so the section goes when the repository does, rather than being quietly wrong.
+       */
+      if (authors.repoRoot !== repo.root) {
+        theirFiles.clear();
+        void vscode.commands.executeCommand('setContext', 'weft.hasAuthorFiles', false);
+      }
+
       authors.setRepository(repo);
     },
     listRefs: () => refs.listForMenu(),
@@ -1178,7 +1221,7 @@ function start(context: vscode.ExtensionContext): void {
      * whether a graph is open is not part of the question.
      */
     vscode.commands.registerCommand('weft.copyFileWebLink', async (node: unknown) => {
-      const link = await fileLink(git, files, node);
+      const link = await fileLink(git, fileAt, node);
 
       if ('reason' in link) {
         void vscode.window.showInformationMessage(link.reason);
@@ -1196,7 +1239,7 @@ function start(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand('weft.openFileOnWeb', async (node: unknown) => {
-      const link = await fileLink(git, files, node);
+      const link = await fileLink(git, fileAt, node);
 
       if ('reason' in link) {
         void vscode.window.showInformationMessage(link.reason);
@@ -1224,7 +1267,7 @@ function start(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand('weft.copyFilePath', async (node: unknown) => {
-      const target = files.target(node);
+      const target = fileAt(node);
 
       if (target !== null) {
         await copy(target.file.path);
@@ -1232,7 +1275,7 @@ function start(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand('weft.copyAbsoluteFilePath', async (node: unknown) => {
-      const target = files.target(node);
+      const target = fileAt(node);
 
       if (target !== null) {
         // The path on this machine, separators and all, because that is what it is for: pasting
@@ -1365,6 +1408,9 @@ function start(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand('weft.filesAsTree', () => files.setAsTree(true)),
+    // The other section's own toggle: two lists, two ways somebody wants to read them.
+    vscode.commands.registerCommand('weft.authorFilesAsTree', () => theirFiles.setAsTree(true)),
+    vscode.commands.registerCommand('weft.authorFilesAsList', () => theirFiles.setAsTree(false)),
     vscode.commands.registerCommand('weft.filesAsList', () => files.setAsTree(false)),
 
     /*
@@ -1377,7 +1423,7 @@ function start(context: vscode.ExtensionContext): void {
      * pathspec, so the spelling has to be git's own.
      */
     vscode.commands.registerCommand('weft.showFileHistory', async (node: unknown) => {
-      const fromTree = files.target(node);
+      const fromTree = fileAt(node);
 
       if (fromTree !== null) {
         const panel = WeftPanel.any();
@@ -1429,7 +1475,7 @@ function start(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand('weft.openCommitFile', async (node: unknown) => {
-      const target = files.target(node);
+      const target = fileAt(node);
 
       if (target !== null) {
         await openFileDiff(target.repo, target.subject, target.file);
@@ -1562,8 +1608,15 @@ function start(context: vscode.ExtensionContext): void {
         return;
       }
 
-      files.setAuthorFiles(root, label, touched);
-      await vscode.commands.executeCommand('weft.files.focus');
+      theirFiles.setAuthorFiles(root, label, touched);
+
+      /*
+       * The section only exists once it has an answer. A fifth always-empty row in Source Control is
+       * a cost paid by everyone who never asks this, and the answer is a transient one - it goes when
+       * the window does, which is the right lifetime for "what has this person worked on".
+       */
+      await vscode.commands.executeCommand('setContext', 'weft.hasAuthorFiles', true);
+      await vscode.commands.executeCommand('weft.authorFiles.focus');
     }),
 
     vscode.commands.registerCommand('weft.groupAuthor', async (node: unknown) => {

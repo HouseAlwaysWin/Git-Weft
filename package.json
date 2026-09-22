@@ -220,6 +220,18 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "weft.authorFilesAsTree",
+        "title": "View Their Files as Tree",
+        "category": "Git Weft",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "weft.authorFilesAsList",
+        "title": "View Their Files as List",
+        "category": "Git Weft",
+        "icon": "$(list-flat)"
+      },
+      {
         "command": "weft.filesAsTree",
         "title": "View Changed Files as Tree",
         "category": "Git Weft",
@@ -557,27 +569,27 @@
       "view/item/context": [
         {
           "command": "weft.showFileHistory",
-          "when": "view == weft.files && viewItem == weftFile",
+          "when": "(view == weft.files || view == weft.authorFiles) && viewItem == weftFile",
           "group": "navigation@1"
         },
         {
           "command": "weft.openFileOnWeb",
-          "when": "view == weft.files && viewItem == weftFile",
+          "when": "(view == weft.files || view == weft.authorFiles) && viewItem == weftFile",
           "group": "web@1"
         },
         {
           "command": "weft.copyFileWebLink",
-          "when": "view == weft.files && viewItem == weftFile",
+          "when": "(view == weft.files || view == weft.authorFiles) && viewItem == weftFile",
           "group": "copy@1"
         },
         {
           "command": "weft.copyFilePath",
-          "when": "view == weft.files && viewItem == weftFile",
+          "when": "(view == weft.files || view == weft.authorFiles) && viewItem == weftFile",
           "group": "copy@2"
         },
         {
           "command": "weft.copyAbsoluteFilePath",
-          "when": "view == weft.files && viewItem == weftFile",
+          "when": "(view == weft.files || view == weft.authorFiles) && viewItem == weftFile",
           "group": "copy@2"
         },
         {
@@ -746,6 +758,16 @@
           "command": "weft.showStatistics",
           "when": "view == weft.authors",
           "group": "stats@1"
+        },
+        {
+          "command": "weft.authorFilesAsList",
+          "when": "view == weft.authorFiles && weft.authorFilesAsTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "weft.authorFilesAsTree",
+          "when": "view == weft.authorFiles && !weft.authorFilesAsTree",
+          "group": "navigation@1"
         },
         {
           "command": "weft.filesAsList",
@@ -963,6 +985,14 @@
           "contextualTitle": "Weft",
           "visibility": "collapsed",
           "when": "weft.hasRepository"
+        },
+        {
+          "id": "weft.authorFiles",
+          "name": "Author Files",
+          "icon": "media/weft.svg",
+          "contextualTitle": "Weft",
+          "visibility": "visible",
+          "when": "weft.hasAuthorFiles"
         },
         {
           "id": "weft.refs",
