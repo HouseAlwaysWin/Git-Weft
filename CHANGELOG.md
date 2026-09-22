@@ -8,7 +8,17 @@
   most-changed first with the count beside it, foldable by directory, and clicking one opens that
   file's history - so it is three things Weft already did, joined up. Its own section rather than a
   corner of Commit Files, so picking a commit does not throw the answer away and the two can be read
-  together. Every spelling of a grouped person is asked about at once. Measured on a
+  together.
+
+- **A commit is not the same thing as the work in it.** Two kinds of commit hand one person a pile of
+  files they did not write, and both are now left out of that list. A **merge somebody squashed** has
+  a single parent and an ordinary diff, so nothing structural tells it from real work - three of them
+  put 635 files into one person's 2,623 on the repository this was found on, including files whose
+  only other author is the person who actually wrote them. And a **release stamp** carries whatever
+  was in the tree when it was cut; git has no marker for those, but `weft.statistics.excludeMessages`
+  does, and that setting - which used to apply to the statistics tab alone - is now what both of them
+  read. The heading says how many commits of each kind were left out, and that the list covers every
+  branch rather than only what the graph is drawing. Every spelling of a grouped person is asked about at once. Measured on a
   64,252-commit repository: 0.9 seconds and 4,401 files for a prolific contributor.
 
 - **"List Every Branch & Tag" lists every branch and tag.** Two independent things narrow that list -

@@ -972,7 +972,7 @@
             "type": "string"
           },
           "default": [],
-          "markdownDescription": "Regular expressions matched against each commit's subject, for **Git Weft: Show Statistics**. A commit one of them matches is left out of the statistics - counted apart, the way merges are, and put back by the tab's own switch - while the graph draws it as ever. For release commits named like `release [2026.05.03]`: `^release \\[`. Matched with their case. A rule that cannot be used leaves nothing out, and the tab says which."
+          "markdownDescription": "Regular expressions matched against each commit's subject: the commits that are not somebody's work. One that matches is left out of **Git Weft: Show Statistics** - counted apart, the way merges are, and put back by the tab's own switch - and out of the **Author Files** list, where a release stamp would otherwise hand one person every file that was in the tree when it was cut. The graph draws them as ever. For release commits named like `release [2026.05.03]`: `^release \\[`. Matched with their case. A rule that cannot be used leaves nothing out, and the tab says which."
         }
       }
     },

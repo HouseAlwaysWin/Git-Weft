@@ -16,7 +16,7 @@ import * as vscode from 'vscode';
 
 import type { CommitDetails, Comparison, FileChange } from './git/details.ts';
 import { ChangeStatus } from './git/details.ts';
-import type { TouchedFile } from './git/authorFiles.ts';
+import type { AuthorFiles } from './git/authorFiles.ts';
 import type { FileStatus } from './git/repoState.ts';
 import { pathAtUri, revisionUri } from './contentProvider.ts';
 
@@ -178,7 +178,7 @@ export type Subject =
   | { readonly kind: 'commit'; readonly sha: string }
   | { readonly kind: 'working' }
   /** Every file one person has ever changed - see `setAuthorFiles`. */
-  | { readonly kind: 'author'; readonly label: string }
+  | { readonly kind: 'author'; readonly label: string; readonly merges: number; readonly excluded: number }
   | {
       readonly kind: 'range';
       readonly from: string;
@@ -344,10 +344,12 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
    * where it is put. Flat, the order is kept, because "what did they work on" is answered by the top
    * of the list; as a tree it is by directory, because that is what a tree is for.
    */
-  setAuthorFiles(repo: string, label: string, touched: readonly TouchedFile[]): void {
+  setAuthorFiles(repo: string, label: string, found: AuthorFiles): void {
+    const touched = found.files;
+
     this.show(
       repo,
-      { kind: 'author', label },
+      { kind: 'author', label, merges: found.merges, excluded: found.excluded },
       touched.map((file) => ({
         /*
          * Unknown, and meant. The question was who has changed this file, not what the last of those
@@ -508,7 +510,20 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
               ? subject.label
               : subject.sha.slice(0, 8);
 
-    this.view.description = `${what} · ${files}`;
+    /*
+     * And for a person, two things the reader cannot otherwise know. Which branches were searched,
+     * because this list is the whole repository while the graph beside it is drawing one branch -
+     * a file listed here and not findable there is the ordinary case, not a fault. And how many
+     * commits were left out as merges somebody squashed, because a quarter of a list can go that
+     * way and a number that changed with nothing to show for it is the same lie in reverse.
+     */
+    const leftOut = (n: number, what: string): string => (n === 0 ? '' : ` · ${n} ${what}${n === 1 ? '' : 's'} left out`);
+    const aside =
+      subject?.kind !== 'author'
+        ? ''
+        : ` · every branch${leftOut(subject.merges, 'merge')}${leftOut(subject.excluded, 'release commit')}`;
+
+    this.view.description = `${what} · ${files}${aside}`;
     this.view.message =
       count > 0
         ? ''

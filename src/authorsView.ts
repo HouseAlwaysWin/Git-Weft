@@ -27,7 +27,8 @@
 
 import * as vscode from 'vscode';
 
-import type { TouchedFile } from './git/authorFiles.ts';
+import type { AuthorFiles } from './git/authorFiles.ts';
+import { readExclusions } from './stats/exclude.ts';
 import { authorFilesArgs, parseAuthorFiles } from './git/authorFiles.ts';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
@@ -299,14 +300,27 @@ export class AuthorsProvider implements vscode.TreeDataProvider<AuthorNode> {
    * screen, and every spelling this person is listed under. A group is one person under several
    * names, and asking about one of them is a different question with a smaller and wrong answer.
    */
-  async filesTouchedBy(node: AuthorNode, signal: AbortSignal): Promise<TouchedFile[]> {
+  async filesTouchedBy(node: AuthorNode, signal: AbortSignal): Promise<AuthorFiles> {
     const spellings = this.spellingsOf(node);
 
     if (this.repo === null || spellings.length === 0) {
-      return [];
+      return { files: [], merges: 0, excluded: 0 };
     }
 
-    return parseAuthorFiles(await this.git.runRead(this.repo.root, authorFilesArgs(spellings), { signal }));
+    /*
+     * The same list the statistics tab leaves out of its charts. A release stamp carries everything
+     * in the tree under the name of whoever cut it, and there is no marker in git for that - but a
+     * reader who has already written down which commits are not work has answered this question too,
+     * and asking them twice in two settings would be the worse of the two options.
+     */
+    const ignore = readExclusions(
+      vscode.workspace.getConfiguration('weft').get<unknown[]>('statistics.excludeMessages', []),
+    ).patterns;
+
+    return parseAuthorFiles(
+      await this.git.runRead(this.repo.root, authorFilesArgs(spellings), { signal }),
+      ignore,
+    );
   }
 
   /** Which group a right-click was in: a spelling's own row, or the group row itself. */

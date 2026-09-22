@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { authorFilesArgs, parseAuthorFiles } from '../src/git/authorFiles.ts';
+import { authorFilesArgs, looksLikeMerge, parseAuthorFiles } from '../src/git/authorFiles.ts';
 
 test('the walk asks about every spelling at once, and about history rather than stashes', () => {
   assert.deepEqual(authorFilesArgs(['Gaga Liu', 'gaga_liu']), [
@@ -15,7 +15,7 @@ test('the walk asks about every spelling at once, and about history rather than 
     '--remotes',
     '--no-merges',
     '--name-only',
-    '--format=',
+    '--format=%x00%s',
     '--author=Gaga Liu',
     '--author=gaga_liu',
   ]);
@@ -38,17 +38,66 @@ test('the files are counted, and the one changed most often comes first', () => 
    * The busiest file sorts last by name, on purpose. With `a.ts` as both, alphabetical order and
    * most-changed order are the same list and this asserts nothing about which one is being used.
    */
-  const walk = ['z.ts', 'b.ts', '', 'z.ts', '', 'c.ts', 'z.ts', ''].join('\n');
+  const commit = (subject: string, ...paths: string[]): string => `\0${subject}\n\n${paths.join('\n')}\n`;
+  const walk = [commit('one', 'z.ts', 'b.ts'), commit('two', 'z.ts'), commit('three', 'c.ts', 'z.ts')].join('');
 
-  assert.deepEqual(parseAuthorFiles(walk), [
+  assert.deepEqual(parseAuthorFiles(walk).files, [
     { path: 'z.ts', changes: 3 },
     { path: 'b.ts', changes: 1 },
     { path: 'c.ts', changes: 1 },
   ]);
 
   // Nothing at all is an answer: a person who has changed no files is not an error.
-  assert.deepEqual(parseAuthorFiles(''), []);
+  assert.deepEqual(parseAuthorFiles(''), { files: [], merges: 0, excluded: 0 });
 
   // A carriage return is a line ending, not part of the name of the file.
-  assert.deepEqual(parseAuthorFiles('a.ts\r\na.ts\r\n'), [{ path: 'a.ts', changes: 2 }]);
+  assert.deepEqual(parseAuthorFiles(commit('one', 'a.ts\r') + commit('two', 'a.ts\r')).files, [
+    { path: 'a.ts', changes: 2 },
+  ]);
+});
+
+test('a merge somebody squashed is not work that person did', () => {
+  /*
+   * git recorded these with one parent, so `--no-merges` keeps them and their diff is the whole of
+   * somebody else's branch. Three of them put 635 files into one person's list of 2,623 on the
+   * repository this was found on.
+   */
+  assert.equal(looksLikeMerge("Merge branch 'release/v1.3' of http://host/r into DEV_WEI"), true);
+  assert.equal(looksLikeMerge("Merge remote-tracking branch 'origin/uat' into Dev_Thing"), true);
+  assert.equal(looksLikeMerge("Merge cs 'x' into y"), true);
+
+  // The word alone is not enough: this one is a refactor, and every file in it is the author's.
+  assert.equal(looksLikeMerge('Merge the two config files into one'), false);
+  assert.equal(looksLikeMerge('[Fix][MPI045] merge the totals'), false);
+
+  const commit = (subject: string, ...paths: string[]): string => `\0${subject}\n\n${paths.join('\n')}\n`;
+  const walk = [
+    commit('a change of their own', 'mine.ts'),
+    commit("Merge branch 'someone-else' into mine", 'theirs.ts', 'mine.ts'),
+  ].join('');
+
+  // The merge is dropped whole - not its files minus the ones they touched - and it is counted.
+  assert.deepEqual(parseAuthorFiles(walk), { files: [{ path: 'mine.ts', changes: 1 }], merges: 1, excluded: 0 });
+});
+
+test('and nor is a release the reader has already said is not work', () => {
+  const commit = (subject: string, ...paths: string[]): string =>
+    `\0${subject}\n\n${paths.join('\n')}\n`;
+  const walk = [
+    commit('a change of their own', 'mine.ts'),
+    // A release stamp carries whatever was in the tree when it was cut, under whoever cut it.
+    commit('dg_[260101.0900]', 'somebody-elses-scratch.sql', 'mine.ts'),
+  ].join('');
+
+  const rule = [/^([a-z]+_)*\[[A-Z]?\d+\.\d+\]$/];
+
+  assert.deepEqual(parseAuthorFiles(walk, rule), {
+    files: [{ path: 'mine.ts', changes: 1 }],
+    merges: 0,
+    excluded: 1,
+  });
+
+  // And with no rules written, nothing is left out: this is the reader's list, not a guess.
+  assert.equal(parseAuthorFiles(walk).files.length, 2);
+  assert.equal(parseAuthorFiles(walk).excluded, 0);
 });

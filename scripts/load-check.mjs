@@ -62,6 +62,26 @@ function makeTempRepo() {
 
   runGit(dir, 'config', 'user.name', 'Weft Test');
 
+  /*
+   * A merge somebody squashed: one parent, a diff, and a message saying it is a merge.
+   *
+   * git keeps it out of nothing - `--no-merges` sees a single parent and lets it through - so its
+   * whole diff, which is somebody else's branch, is attributed to whoever pressed the button. Three
+   * of these put 635 files into one person's list of 2,623 on the repository it was found on.
+   */
+  writeFileSync(join(dir, 'carried-in-by-a-merge.txt'), 'somebody else wrote this\n');
+  runGit(dir, 'add', '-A');
+  runGit(dir, 'commit', '-q', '-m', "Merge branch 'someone-elses-work' into main");
+
+  /*
+   * And a release, which carries the same kind of freight with nothing in git to mark it. What marks
+   * it is the reader's own `weft.statistics.excludeMessages` - already written, on the repository
+   * this came from, and already matching these.
+   */
+  writeFileSync(join(dir, 'carried-in-by-a-release.txt'), 'in the tree when it was cut\n');
+  runGit(dir, 'add', '-A');
+  runGit(dir, 'commit', '-q', '-m', 'dg_[260101.0900]');
+
   // A second author, so filtering by one of them has something to remove.
   runGit(dir, 'config', 'user.name', 'Someone Else');
   runGit(dir, 'config', 'user.email', 'else@example.invalid');
@@ -2442,8 +2462,17 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       const theirView = treeViews.get('weft.authorFiles');
       const commitFilesBefore = (treeProviders.get('weft.files')?.getChildren() ?? []).length;
 
+      /*
+       * The reader's own list of commits that are not work, which the statistics tab has always read
+       * and this list reads now. Set here and taken away again: a rule left behind would quietly
+       * change what the statistics section further down is measuring.
+       */
+      settings.set('weft.statistics.excludeMessages', ['^([a-z]+_)*\\[[A-Z]?\\d+\\.\\d+\\]$']);
+
       await commands.get('weft.authorFilesAsList')();
       await commands.get('weft.authorFiles')(authors[0]);
+
+      settings.delete('weft.statistics.excludeMessages');
 
       const rows = theirFiles === undefined ? [] : theirFiles.getChildren();
       const items = rows.map((node) => theirFiles.getTreeItem(node));
@@ -2489,8 +2518,27 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
         problems.push(`a row opens ${JSON.stringify(items[0]?.command?.command ?? null)}, not that file's history`);
       }
 
-      if (!String(theirView?.description ?? '').includes(authors[0].author.name)) {
-        problems.push(`the section did not say whose files these are: ${JSON.stringify(theirView?.description ?? null)}`);
+      /*
+       * The heading says whose, how many, over what, and what was left out. The scope matters as much
+       * as the count: this list is the whole repository while the graph beside it draws one branch, so
+       * a file here that the graph cannot find is the ordinary case and has to be readable as one.
+       */
+      const heading = String(theirView?.description ?? '');
+
+      for (const part of [authors[0].author.name, 'every branch', '1 merge left out', '1 release commit left out']) {
+        if (!heading.includes(part)) {
+          problems.push(`the section heading does not say "${part}": ${JSON.stringify(heading)}`);
+        }
+      }
+
+      /*
+       * And the file that only a squashed merge ever carried is not in the list. It is the one file
+       * in this fixture that nobody wrote - it arrived in a commit whose message says so.
+       */
+      for (const carried of ['carried-in-by-a-merge.txt', 'carried-in-by-a-release.txt']) {
+        if (paths.includes(carried)) {
+          problems.push(`${carried} arrived in a commit that is not their work: ${JSON.stringify(paths)}`);
+        }
       }
 
       if ((treeProviders.get('weft.files')?.getChildren() ?? []).length !== commitFilesBefore) {
