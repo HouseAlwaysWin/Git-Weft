@@ -220,6 +220,18 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "weft.authorFilesExpandAll",
+        "title": "Expand All Folders",
+        "category": "Git Weft",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "weft.authorFilesCollapseAll",
+        "title": "Collapse All Folders",
+        "category": "Git Weft",
+        "icon": "$(collapse-all)"
+      },
+      {
         "command": "weft.authorFilesAsTree",
         "title": "View Their Files as Tree",
         "category": "Git Weft",
@@ -760,14 +772,24 @@
           "group": "stats@1"
         },
         {
-          "command": "weft.authorFilesAsList",
+          "command": "weft.authorFilesExpandAll",
           "when": "view == weft.authorFiles && weft.authorFilesAsTree",
           "group": "navigation@1"
         },
         {
+          "command": "weft.authorFilesCollapseAll",
+          "when": "view == weft.authorFiles && weft.authorFilesAsTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "weft.authorFilesAsList",
+          "when": "view == weft.authorFiles && weft.authorFilesAsTree",
+          "group": "navigation@3"
+        },
+        {
           "command": "weft.authorFilesAsTree",
           "when": "view == weft.authorFiles && !weft.authorFilesAsTree",
-          "group": "navigation@1"
+          "group": "navigation@3"
         },
         {
           "command": "weft.filesAsList",

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Author Files has a button to open every folder and one to shut them all.** A commit's files fit on
+  a screen and are drawn open; one person's are thousands across a few hundred folders, where both
+  "show me everything" and "show me the shape of it" are things you want a minute apart. They appear
+  in tree view, where there is something to fold.
+
 ## 0.11.1
 
 - **An update no longer breaks Weft until the window is reloaded.** VS Code replaces an extension

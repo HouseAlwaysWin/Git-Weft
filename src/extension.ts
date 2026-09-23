@@ -1510,6 +1510,15 @@ function start(context: vscode.ExtensionContext): void {
     // The other section's own toggle: two lists, two ways somebody wants to read them.
     vscode.commands.registerCommand('weft.authorFilesAsTree', () => theirFiles.setAsTree(true)),
     vscode.commands.registerCommand('weft.authorFilesAsList', () => theirFiles.setAsTree(false)),
+
+    /*
+     * And open or shut all of it. A commit's files fit on a screen; one person's are thousands in a
+     * few hundred folders, where both "show me everything" and "show me the shape of it" are things
+     * somebody wants, a minute apart. VS Code's own Collapse All is not used: it collapses what is on
+     * screen and leaves the provider thinking otherwise, so the next redraw opens it all again.
+     */
+    vscode.commands.registerCommand('weft.authorFilesExpandAll', () => theirFiles.setFoldersOpen(true)),
+    vscode.commands.registerCommand('weft.authorFilesCollapseAll', () => theirFiles.setFoldersOpen(false)),
     vscode.commands.registerCommand('weft.filesAsList', () => files.setAsTree(false)),
 
     /*

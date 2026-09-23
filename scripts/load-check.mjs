@@ -14,6 +14,7 @@ import { resolve, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -81,6 +82,15 @@ function makeTempRepo() {
   writeFileSync(join(dir, 'carried-in-by-a-release.txt'), 'in the tree when it was cut\n');
   runGit(dir, 'add', '-A');
   runGit(dir, 'commit', '-q', '-m', 'dg_[260101.0900]');
+
+  /*
+   * And one in a folder. Everything else here is at the root, so the tree view had nothing to fold -
+   * which meant the buttons that open and shut it had nothing to prove.
+   */
+  mkdirSync(join(dir, 'tools', 'deep'), { recursive: true });
+  writeFileSync(join(dir, 'tools', 'deep', 'thing.txt'), 'in a folder\n');
+  runGit(dir, 'add', '-A');
+  runGit(dir, 'commit', '-q', '-m', 'a file in a folder');
 
   // A second author, so filtering by one of them has something to remove.
   runGit(dir, 'config', 'user.name', 'Someone Else');
@@ -2692,6 +2702,13 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       await commands.get('weft.showCurrentRefOnly')();
       await commands.get('weft.authorFiles')(authors[0]);
 
+      /*
+       * Flat, because this is about which files and not about their shape - and in tree view the top
+       * of the list is folders, which have no path of their own. It read file nodes only while every
+       * file in the fixture was at the root, which is the kind of check that works until it does not.
+       */
+      await commands.get('weft.authorFilesAsList')();
+
       const narrowed = (theirFiles?.getChildren() ?? []).map((node) => node.file.path);
 
       console.log('  ticked one   :', narrowed.join(', ') || '(nothing)', '|', treeViews.get('weft.authorFiles')?.description);
@@ -2707,6 +2724,53 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
       if (String(treeViews.get('weft.authorFiles')?.description ?? '').includes('every branch')) {
         problems.push('the heading still says every branch while one is drawn');
       }
+
+      /*
+       * Open every folder and shut every folder. The state has to come back from `getTreeItem` rather
+       * than from whatever the reader last did with the twisties: VS Code keeps that against the
+       * folder object it was handed, so a tree redrawn with the same objects comes back the way it
+       * was, and the button looks broken for a reason nothing on screen shows.
+       */
+      await commands.get('weft.authorFilesAsTree')();
+
+      const folderState = () =>
+        (theirFiles?.getChildren() ?? [])
+          .filter((node) => node.kind === 'folder')
+          .map((node) => theirFiles.getTreeItem(node).collapsibleState);
+
+      const foldersBefore = (theirFiles?.getChildren() ?? []).filter((node) => node.kind === 'folder');
+
+      await commands.get('weft.authorFilesCollapseAll')();
+
+      const shut = folderState();
+      const foldersAfter = (theirFiles?.getChildren() ?? []).filter((node) => node.kind === 'folder');
+
+      await commands.get('weft.authorFilesExpandAll')();
+
+      const open = folderState();
+
+      console.log('  folders      :', JSON.stringify({ shut, open }), '| rebuilt', foldersBefore[0] !== foldersAfter[0]);
+
+      /*
+       * And built again rather than redrawn, which this harness cannot see any other way: VS Code
+       * keeps what it knows about a folder against the object it was handed, so the same object back
+       * with a different state is the reader's own arrangement returned to them. There is no twisty
+       * here to watch, but there is identity, and a rebuilt tree hands back different objects.
+       */
+      if (foldersBefore.length > 0 && foldersBefore[0] === foldersAfter[0]) {
+        problems.push('the tree was redrawn rather than built again, so VS Code would keep the old state');
+      }
+
+      if (shut.length === 0) {
+        problems.push('no folders to open or shut, so the buttons prove nothing');
+      }
+
+      // 1 is collapsed and 2 is expanded, as VS Code numbers them.
+      if (!shut.every((state) => state === 1) || !open.every((state) => state === 2)) {
+        problems.push(`the folders did not follow the buttons: ${JSON.stringify({ shut, open })}`);
+      }
+
+      await commands.get('weft.authorFilesAsList')();
 
       await commands.get('weft.showAllRefs')();
 

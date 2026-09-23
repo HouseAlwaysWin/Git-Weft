@@ -297,6 +297,17 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
    */
   private own = new Set<FileChange>();
   private root: Folder = newFolder('', '');
+  /**
+   * Whether folders are drawn open.
+   *
+   * A commit's files are a handful and open is the only useful way to draw them. One person's are
+   * thousands across a few hundred folders, and there is no one right answer - so there is a pair of
+   * buttons, and this is what they set. The tree is rebuilt when it changes rather than only redrawn:
+   * VS Code remembers whether it has seen a folder open before, by the object, and a folder it
+   * recognises keeps the state the reader left it in - which is the state the button was pressed to
+   * get out of.
+   */
+  private foldersOpen = true;
   private asTree: boolean;
 
   readonly onDidChangeTreeData = this.changed.event;
@@ -391,6 +402,20 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
     this.updateHeading();
   }
 
+  /**
+   * Open every folder, or shut every folder.
+   *
+   * The tree is built again rather than redrawn, and that is the whole of why this works: VS Code
+   * keeps what it knows about a folder against the object it was given, so redrawing the same objects
+   * with a different state leaves the reader looking at the arrangement they pressed the button to
+   * change. New objects have no history to keep.
+   */
+  setFoldersOpen(open: boolean): void {
+    this.foldersOpen = open;
+    this.root = this.files === null ? newFolder('', '') : buildTree(this.files);
+    this.changed.fire();
+  }
+
   /** Tree or flat. The choice is the user's, not the commit's, so it outlives the selection. */
   setAsTree(asTree: boolean): void {
     if (asTree === this.asTree) {
@@ -419,9 +444,12 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
 
   getTreeItem(node: Node): vscode.TreeItem {
     if (node.kind === 'folder') {
-      // Expanded by default: one commit's tree is small, and folding it shut would hide the only
-      // thing the section exists to show.
-      const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Expanded);
+      // Open by default: one commit's tree is small, and folding it shut would hide the only thing
+      // the section exists to show. A person's is not small, which is what the buttons are for.
+      const item = new vscode.TreeItem(
+        node.name,
+        this.foldersOpen ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
+      );
       item.iconPath = vscode.ThemeIcon.Folder;
       return item;
     }
