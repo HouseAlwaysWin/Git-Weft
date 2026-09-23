@@ -5,7 +5,9 @@
 - **Author Files has a button to open every folder and one to shut them all.** A commit's files fit on
   a screen and are drawn open; one person's are thousands across a few hundred folders, where both
   "show me everything" and "show me the shape of it" are things you want a minute apart. They appear
-  in tree view, where there is something to fold.
+  in tree view, where there is something to fold. (They were added earlier in this batch and did
+  nothing at all: VS Code remembers whether a row is open against the row's id, and for a row it
+  recognises that memory wins.)
 
 ## 0.11.1
 

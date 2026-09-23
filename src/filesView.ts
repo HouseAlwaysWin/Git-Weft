@@ -302,12 +302,22 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
    *
    * A commit's files are a handful and open is the only useful way to draw them. One person's are
    * thousands across a few hundred folders, and there is no one right answer - so there is a pair of
-   * buttons, and this is what they set. The tree is rebuilt when it changes rather than only redrawn:
-   * VS Code remembers whether it has seen a folder open before, by the object, and a folder it
-   * recognises keeps the state the reader left it in - which is the state the button was pressed to
-   * get out of.
+   * buttons, and this is what they set.
    */
   private foldersOpen = true;
+  /**
+   * How many times that has been asked for, which is what makes the asking work.
+   *
+   * VS Code remembers whether a row is open against the `id` of the item, and for a row it recognises
+   * that memory wins: the `collapsibleState` handed back is ignored. So both buttons did exactly what
+   * they said and the tree did not move. Rebuilding it did not help either - the objects were new and
+   * the ids were the same, and the id is what VS Code looks at.
+   *
+   * Counting the presses into the id makes every folder a row it has not seen, which has no state to
+   * remember and gets the one it is given. The cost is that the rows are new: what was selected is
+   * not any more. For a button whose whole purpose is to rearrange every row, that is the point.
+   */
+  private folded = 0;
   private asTree: boolean;
 
   readonly onDidChangeTreeData = this.changed.event;
@@ -405,14 +415,13 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
   /**
    * Open every folder, or shut every folder.
    *
-   * The tree is built again rather than redrawn, and that is the whole of why this works: VS Code
-   * keeps what it knows about a folder against the object it was given, so redrawing the same objects
-   * with a different state leaves the reader looking at the arrangement they pressed the button to
-   * change. New objects have no history to keep.
+   * The counter is the whole of why this works - see `folded`. Setting the state alone is what the
+   * first version of this did, and both buttons did nothing at all: VS Code had seen those rows and
+   * kept its own answer about them.
    */
   setFoldersOpen(open: boolean): void {
     this.foldersOpen = open;
-    this.root = this.files === null ? newFolder('', '') : buildTree(this.files);
+    this.folded += 1;
     this.changed.fire();
   }
 
@@ -450,6 +459,9 @@ export class FilesProvider implements vscode.TreeDataProvider<Node> {
         node.name,
         this.foldersOpen ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
       );
+
+      // See `folded`: without an id that moves, VS Code draws the row the way the reader last left it.
+      item.id = `${this.folded}:${node.path}`;
       item.iconPath = vscode.ThemeIcon.Folder;
       return item;
     }

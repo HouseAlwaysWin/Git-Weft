@@ -2738,27 +2738,39 @@ if (treeProvider !== undefined && checkboxHandler !== undefined) {
           .filter((node) => node.kind === 'folder')
           .map((node) => theirFiles.getTreeItem(node).collapsibleState);
 
-      const foldersBefore = (theirFiles?.getChildren() ?? []).filter((node) => node.kind === 'folder');
+      const folderIds = () =>
+        (theirFiles?.getChildren() ?? [])
+          .filter((node) => node.kind === 'folder')
+          .map((node) => theirFiles.getTreeItem(node).id);
+
+      const idsBefore = folderIds();
 
       await commands.get('weft.authorFilesCollapseAll')();
 
       const shut = folderState();
-      const foldersAfter = (theirFiles?.getChildren() ?? []).filter((node) => node.kind === 'folder');
+      const idsAfter = folderIds();
 
       await commands.get('weft.authorFilesExpandAll')();
 
       const open = folderState();
 
-      console.log('  folders      :', JSON.stringify({ shut, open }), '| rebuilt', foldersBefore[0] !== foldersAfter[0]);
+      console.log('  folders      :', JSON.stringify({ shut, open }), '| ids', JSON.stringify([idsBefore[0], idsAfter[0]]));
 
       /*
-       * And built again rather than redrawn, which this harness cannot see any other way: VS Code
-       * keeps what it knows about a folder against the object it was handed, so the same object back
-       * with a different state is the reader's own arrangement returned to them. There is no twisty
-       * here to watch, but there is identity, and a rebuilt tree hands back different objects.
+       * And the id moved with it, which is the part that makes any of this happen.
+       *
+       * VS Code remembers whether a row is open against the `id` of its item, and for a row it
+       * recognises that memory wins - the state handed back is ignored. The first version of this
+       * check watched the state the provider reported and the objects it handed over; both moved,
+       * both were right, and neither was what VS Code reads. The buttons did nothing and everything
+       * here passed.
        */
-      if (foldersBefore.length > 0 && foldersBefore[0] === foldersAfter[0]) {
-        problems.push('the tree was redrawn rather than built again, so VS Code would keep the old state');
+      if (idsBefore.length === 0 || idsBefore.some((id) => id === undefined)) {
+        problems.push('the folders have no id, so VS Code will keep whatever it last drew');
+      }
+
+      if (idsBefore[0] === idsAfter[0]) {
+        problems.push(`the folder ids did not move with the buttons: ${JSON.stringify([idsBefore[0], idsAfter[0]])}`);
       }
 
       if (shut.length === 0) {
