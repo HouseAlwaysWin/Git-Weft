@@ -7075,6 +7075,39 @@ if (!(await until(blamedAgain))) {
     }
 
     /*
+     * And the answer moves when the branches do.
+     *
+     * What those reads cost is the reason they are remembered between reloads - seconds each on a real
+     * repository, paid again every time a tick moves or a file is saved. What makes remembering safe is
+     * the key: where both refs point. So the test site gets another copied commit, and the filter has to
+     * find it. An answer kept under the two names alone would be right once and wrong from here on, and
+     * nothing on screen would say which.
+     */
+    runGit(repoPath, 'checkout', '-q', site);
+    writeFileSync(join(repoPath, 'taken-again.txt'), 'another one they took across\n');
+    runGit(repoPath, 'add', '-A');
+    runGit(repoPath, 'commit', '-q', '-m', 'another change somebody took across');
+
+    const takenAgain = runGit(repoPath, 'rev-parse', 'HEAD').trim();
+
+    runGit(repoPath, 'checkout', '-q', 'main');
+    runGit(repoPath, 'cherry-pick', takenAgain);
+
+    const movedFrom = posted.filter((m) => m.type === 'done').length;
+
+    await commands.get('weft.refresh')();
+    await until(() => posted.filter((m) => m.type === 'done').length > movedFrom, 20_000);
+    await quiet();
+
+    const afterMoving = drawnSince();
+
+    console.log('  after a move :', afterMoving.join(' | ') || '(nothing drawn)');
+
+    if (!afterMoving.includes('another change somebody took across')) {
+      problems.push(`the branches moved and the answer did not: ${JSON.stringify(afterMoving)}`);
+    }
+
+    /*
      * Back as it was for what follows: standing on main, every branch drawn - and in that order, because
      * the sidebar follows the branch you are on and a checkout after Show All narrows it straight back.
      */

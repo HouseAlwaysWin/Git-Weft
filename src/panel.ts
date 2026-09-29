@@ -752,6 +752,51 @@ export class WeftPanel {
   }
 
   /**
+   * What a pair of sides last answered, while neither of them has moved.
+   *
+   * The reads behind this are the most expensive thing a reload does while the switch is on, and a
+   * reload happens for reasons that have nothing to do with these two refs: a tick moved, a file was
+   * saved, a watcher fired. Two refs that have not moved cannot have a different answer - a
+   * comparison is a function of the two commits it is given - so where they point is the whole key.
+   *
+   * Small on purpose. Each entry holds every sha one walk produced, which for two branches a few
+   * thousand commits apart is a few thousand strings; a dozen is more pairs than one reload can ask
+   * about, and the oldest goes when a new one arrives.
+   */
+  private readonly pickedBefore = new Map<string, { readonly looked: string[]; readonly copied: string[] }>();
+
+  /** Where each ref in those pairs pointed when this reload read them - the other half of that key. */
+  private pointsAt = new Map<string, string>();
+
+  /** More pairs than one reload can ask about - see `PICK_READS`. */
+  private static readonly PICKED_KEPT = 12;
+
+  private pickedKey(side: string, ref: string): string {
+    return [side, ref, this.pointsAt.get(side) ?? '', this.pointsAt.get(ref) ?? ''].join('\u0000');
+  }
+
+  private remember(side: string, ref: string, answer: { readonly looked: string[]; readonly copied: string[] }): void {
+    /*
+     * Nothing is kept about a ref that would not say where it points. The key cannot tell two states
+     * of it apart, and an answer filed under a key that cannot change is one that never goes stale -
+     * which is the same thing as one that is always wrong from the second time onwards.
+     */
+    if (!this.pointsAt.has(side) || !this.pointsAt.has(ref)) {
+      return;
+    }
+
+    if (this.pickedBefore.size >= WeftPanel.PICKED_KEPT) {
+      const oldest = this.pickedBefore.keys().next().value;
+
+      if (oldest !== undefined) {
+        this.pickedBefore.delete(oldest);
+      }
+    }
+
+    this.pickedBefore.set(this.pickedKey(side, ref), answer);
+  }
+
+  /**
    * The commits in what this graph draws whose change is also on one of the branches the switch names.
    *
    * A cherry-pick leaves no record of where it came from - `-x` is a habit, not a rule, and in the
@@ -771,9 +816,12 @@ export class WeftPanel {
    *   `uat`, which was 251 commits behind, and none against `origin/uat`, where the recent copies are.
    *
    * So: every drawn ref against every copy of every name, and the graph drawing everything is asked
-   * about `HEAD`, which is the one case with nothing else to ask about. Capped, because this is a read
-   * each - 0.9 seconds on that repository - and a graph with forty branches ticked would otherwise stop
-   * to do arithmetic about all of them.
+   * about `HEAD`, which is the one case with nothing else to ask about.
+   *
+   * Capped, and the pairs run at the same time as each other. Both are needed: they are seconds each -
+   * 1.6 for a walk on a 79,226-commit repository - so a graph with forty branches ticked would spend
+   * a minute of git on arithmetic nobody asked for, and running the few that are allowed one after
+   * another was the whole wait before a row appeared.
    */
   private async pickedFrom(drawn: readonly string[] | null): Promise<CameFrom> {
     const found = new Map<string, string>();
@@ -809,43 +857,97 @@ export class WeftPanel {
 
     const asked = pairs.slice(0, PICK_READS);
 
-    for (const [side, ref, name] of asked) {
-      /*
-       * The whole side, not only what was marked. The unmarked ones are not copies and are never drawn
-       * as any, but they are what the question was asked of - and a reader who cannot see that number
-       * cannot tell "nobody copied anything" from "there was nothing here to look at", which is what
-       * a branch that is kept merged looks like: four found this week and two empty years above.
-       */
-      const walked = parseWalked(await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'left')).catch(() => ''));
+    /*
+     * Where every ref in those pairs points, in one call, so an answer can be kept while they stay
+     * there. One `rev-parse` of a dozen names is milliseconds against the seconds below it, and
+     * without it the only safe thing to do is read all of it again every time.
+     */
+    const named = [...new Set(asked.flatMap(([side, ref]) => [side, ref]))];
 
-      for (const commit of walked) {
-        into(seen, name, commit.sha);
-      }
+    this.pointsAt = new Map(
+      (await this.git.runRead(this.repo.root, ['rev-parse', ...named]).catch(() => ''))
+        .split('\n')
+        .map((line) => line.trim())
+        .flatMap((sha, at) => {
+          const name = named[at];
 
-      const mine = walked.filter((commit) => commit.sameChange);
+          return /^[0-9a-f]{40}$/.test(sha) && name !== undefined ? [[name, sha] as const] : [];
+        }),
+    );
 
-      if (mine.length === 0) {
+    /*
+     * The pairs at the same time as each other, and the reads inside one pair still in order.
+     *
+     * They share nothing: each is two refs compared, and the answers are put into the sets below at
+     * the end. Run one after another they were the whole wait before a row was drawn - measured on a
+     * 79,226-commit repository, 1.6 seconds a walk and about 3.4 a pair, so `uat, sit` in the box is
+     * four pairs and fourteen seconds of blank graph, again on every reload. The git runner already
+     * holds itself to `weft.maxConcurrentGitProcesses`, so this hands it the work rather than taking
+     * the limit into its own hands.
+     *
+     * Inside a pair the order is kept on purpose: the second walk is only worth doing when the first
+     * marked something, and on a branch that is merged back daily it usually marks nothing at all.
+     * Starting both together would buy the slow case a second and charge the common one a walk.
+     */
+    const answers = await Promise.all(
+      asked.map(async ([side, ref, name]) => {
+        const held = this.pickedBefore.get(this.pickedKey(side, ref));
+
+        if (held !== undefined) {
+          return { name, ...held };
+        }
+
+        /*
+         * The whole side, not only what was marked. The unmarked ones are not copies and are never
+         * drawn as any, but they are what the question was asked of - and a reader who cannot see
+         * that number cannot tell "nobody copied anything" from "there was nothing here to look at",
+         * which is what a branch that is kept merged looks like: four found this week and two empty
+         * years above.
+         */
+        const walked = parseWalked(
+          await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'left')).catch(() => ''),
+        );
+        const looked = walked.map((commit) => commit.sha);
+        const mine = walked.filter((commit) => commit.sameChange);
+
+        if (mine.length === 0) {
+          return { name, looked, copied: [] as string[] };
+        }
+
+        /*
+         * Only now the other side, and only because there is something to ask about it: who wrote the
+         * twin of each of these - see `pickedByOneAuthor`, which is what stops a version bump being
+         * reported as somebody's cherry-pick. Measured on that repository: 1.6 seconds a walk, and
+         * the patches of 34 candidates a quarter of a second, with `patch-id` beneath measuring.
+         */
+        const theirs = parsePicked(
+          await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'right')).catch(() => ''),
+        );
+        const patches = await this.git
+          .runRead(this.repo.root, patchesArgs(), { stdin: [...mine, ...theirs].map((c) => c.sha).join('\n') })
+          .catch(() => '');
+        const ids = parsePatchIds(
+          await this.git.runRead(this.repo.root, PATCH_ID_ARGS, { stdin: patches }).catch(() => ''),
+        );
+
+        return { name, looked, copied: pickedByOneAuthor(mine, theirs, ids) };
+      }),
+    );
+
+    for (const [at, [side, ref, name]] of asked.entries()) {
+      const answer = answers[at];
+
+      if (answer === undefined) {
         continue;
       }
 
-      /*
-       * Only now the other side, and only because there is something to ask about it: who wrote the
-       * twin of each of these - see `pickedByOneAuthor`, which is what stops a version bump being
-       * reported as somebody's cherry-pick. Three reads instead of one, and the two extra are paid
-       * where a pair has candidates at all. Measured on a 64,204-commit repository: the walk 0.9
-       * seconds each, the patches of 34 candidates 0.25, and `patch-id` itself beneath measuring.
-       */
-      const theirs = parsePicked(
-        await this.git.runRead(this.repo.root, pickedArgs(side, ref, 'right')).catch(() => ''),
-      );
-      const patches = await this.git
-        .runRead(this.repo.root, patchesArgs(), { stdin: [...mine, ...theirs].map((c) => c.sha).join('\n') })
-        .catch(() => '');
-      const ids = parsePatchIds(
-        await this.git.runRead(this.repo.root, PATCH_ID_ARGS, { stdin: patches }).catch(() => ''),
-      );
+      this.remember(side, ref, { looked: answer.looked, copied: answer.copied });
 
-      for (const sha of pickedByOneAuthor(mine, theirs, ids)) {
+      for (const sha of answer.looked) {
+        into(seen, name, sha);
+      }
+
+      for (const sha of answer.copied) {
         // The name from the box rather than the ref it was resolved to: `uat` is what was asked about.
         found.set(sha, name);
         into(copies, name, sha);

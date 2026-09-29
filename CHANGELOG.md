@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The came-from switch stops holding the graph up.** Its comparisons ran one after another, before a
+  single row was drawn, and again on every reload - a tick moving, a file being saved. Measured on a
+  79,226-commit repository with `uat, sit` in the box: **48 seconds of blank graph, now 19**. They run
+  at the same time as each other now, inside the limit `weft.maxConcurrentGitProcesses` already sets,
+  and an answer is kept while both of its branches stay where they are, so the reloads after the first
+  cost nothing at all. Two refs that have not moved cannot have a different answer.
+
 ## 0.11.2
 
 - **Author Files has a button to open every folder and one to shut them all.** A commit's files fit on
