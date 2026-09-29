@@ -67,7 +67,7 @@ export class BlameAnnotations {
    * repository being checked out. On Windows that is what turns a checkout into
    * `unable to write symref for HEAD`, with the branch left behind and the whole diff staged.
    */
-  private readonly isBusy: (root: string) => boolean;
+  private readonly isBusy: (commonDir: string) => boolean;
 
   /** The one at the end of the line the cursor is on. */
   private readonly lineDecoration = vscode.window.createTextEditorDecorationType({
@@ -145,7 +145,7 @@ export class BlameAnnotations {
   private timer: NodeJS.Timeout | null = null;
   private readonly disposables: vscode.Disposable[] = [];
 
-  constructor(git: Git, isBusy: (root: string) => boolean) {
+  constructor(git: Git, isBusy: (commonDir: string) => boolean) {
     this.git = git;
     this.isBusy = isBusy;
 
@@ -301,7 +301,7 @@ export class BlameAnnotations {
      * Not while the repository is being written to. Coming back in half a second is free; running
      * git against a checkout in progress is how the checkout fails.
      */
-    if (this.isBusy(repo.root)) {
+    if (this.isBusy(repo.commonDir)) {
       this.schedule(BUSY_MS);
       return;
     }

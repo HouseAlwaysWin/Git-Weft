@@ -6178,24 +6178,24 @@ if (!(await until(blamedAgain))) {
   const guards = [
     [
       'src/panel.ts',
-      /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.root\)/,
+      /refreshWorking\(\): Promise<void> \{[\s\S]{0,1400}?isBusy\(this\.repo\.commonDir\)/,
       'reads the working tree without standing back for a write in flight',
     ],
     // And a read that was queued behind another: a write may have begun while the first one ran.
     [
       'src/panel.ts',
-      /readWorkingNow\(\): Promise<void> \{[\s\S]{0,400}?isBusy\(this\.repo\.root\)/,
+      /readWorkingNow\(\): Promise<void> \{[\s\S]{0,400}?isBusy\(this\.repo\.commonDir\)/,
       'reads the working tree again, for a queued request, without standing back for a write',
     ],
     // And git's own settings, written when a slow git status is answered with Enable.
     [
       'src/extension.ts',
-      /WeftPanel\.exclusive\(root, async \(\) => \{[\s\S]{0,400}?core\.untrackedCache/,
+      /WeftPanel\.exclusive\([^,]*commonDir[^,]*, async \(\) => \{[\s\S]{0,400}?core\.untrackedCache/,
       "writes git's settings outside the repository's lock",
     ],
     [
       'src/blameAnnotations.ts',
-      /this\.isBusy\(repo\.root\)/,
+      /this\.isBusy\(repo\.commonDir\)/,
       'blames a file without standing back for a write in flight',
     ],
     // And the one writer that was not a reader: auto-fetch prunes, so it belongs in the queue and

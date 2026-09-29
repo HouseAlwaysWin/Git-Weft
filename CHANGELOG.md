@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Two working trees of one repository no longer write over each other.** Weft runs one write at a
+  time so that read-decide-act sequences stay atomic, and that queue was keyed on the working tree. A
+  linked worktree has its own working tree and shares the refs, the objects and the config, so a
+  branch deleted in one and checked out in the other were free to interleave. The queue is the
+  repository's now - `git rev-parse --git-common-dir` - and two real repositories, or a submodule and
+  its parent, still wait for nobody. The five places that ask *whether* a write is in flight - the
+  watcher, the two working-tree reads, auto-fetch and the blame - ask about the repository too. Asked
+  about a working tree against a queue keyed on the repository, the answer would always have been
+  "nothing is writing", which is how a read ends up holding a file open in the middle of a checkout.
+
 - **The came-from switch stops holding the graph up.** Its comparisons ran one after another, before a
   single row was drawn, and again on every reload - a tick moving, a file being saved. Measured on a
   79,226-commit repository with `uat, sit` in the box: **48 seconds of blank graph, now 19**. They run

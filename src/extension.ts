@@ -517,7 +517,14 @@ async function offerFasterStatus(git: Git, root: string, memento: vscode.Memento
   }
 
   try {
-    await WeftPanel.exclusive(root, async () => {
+    /*
+     * Asked for here because this write is `--local`, which lives in the common directory and is
+     * therefore shared by every working tree of this repository - so the queue it has to join is the
+     * repository's, and all this has is the path a slow `git status` was run in.
+     */
+    const repo = await discover(git, root);
+
+    await WeftPanel.exclusive(repo?.commonDir ?? root, async () => {
       if (offer.untrackedCache) {
         await git.runWrite(root, ['config', '--local', 'core.untrackedCache', 'true']);
       }
@@ -762,7 +769,7 @@ function start(context: vscode.ExtensionContext): void {
    * listens to the window rather than to the graph, so a workspace with no graph open still gets
    * it - which is the point of it.
    */
-  const blame = new BlameAnnotations(git, (root) => WeftPanel.isBusy(root));
+  const blame = new BlameAnnotations(git, (commonDir) => WeftPanel.isBusy(commonDir));
   const codeLens = new FileCodeLens(git);
 
   // Read fresh on every reload, so neither view has to push anything at the panel.

@@ -236,9 +236,12 @@ export class WeftPanel {
   /**
    * Run `work` holding a repository's lock, for a write that does not come from a graph - git's
    * own settings, say - and still has to queue behind a checkout rather than run alongside it.
+   *
+   * The key is the common directory, not a working tree: see `RepoLock`. A caller that has only a
+   * path has to ask git which repository it is in before it can queue for it.
    */
-  static exclusive<T>(root: string, work: () => Promise<T>): Promise<T> {
-    return WeftPanel.lock.run(root, work);
+  static exclusive<T>(commonDir: string, work: () => Promise<T>): Promise<T> {
+    return WeftPanel.lock.run(commonDir, work);
   }
 
   /** The graph the user is looking at, for commands that act on "this graph". */
@@ -343,9 +346,13 @@ export class WeftPanel {
    * the wrong moment. On Windows that is not a slowdown but a failure - git renames a lock over
    * the file it is replacing, and Windows refuses that while any other process has the old one
    * open.
+   *
+   * By common directory, as the queue is keyed: a write in one working tree is a write against the
+   * repository all of them share. Asked about a working tree instead, a second tree of the same
+   * repository would always be told nobody is writing.
    */
-  static isBusy(root: string): boolean {
-    return WeftPanel.lock.isBusy(root);
+  static isBusy(commonDir: string): boolean {
+    return WeftPanel.lock.isBusy(commonDir);
   }
 
   /** Any open graph, for a sidebar action that needs one to run against. */
@@ -610,7 +617,7 @@ export class WeftPanel {
   private async onRepositoryChanged(): Promise<void> {
     // A write in flight touches refs constantly. Its own reload comes at the end; reacting here as
     // well would reload the graph from the middle of a half-finished operation.
-    if (WeftPanel.lock.isBusy(this.repo.root)) {
+    if (WeftPanel.lock.isBusy(this.repo.commonDir)) {
       return;
     }
 
@@ -1268,7 +1275,7 @@ export class WeftPanel {
     let started: RepoState | null = null;
 
     try {
-      const result = await WeftPanel.lock.run(this.repo.root, async () => {
+      const result = await WeftPanel.lock.run(this.repo.commonDir, async () => {
         const state = await readRepoState(this.git, this.repo);
 
         started = state;
@@ -1733,7 +1740,7 @@ export class WeftPanel {
      * watches for is our own. Nothing is lost by waiting: every write ends in a reload, which
      * re-reads the working tree anyway.
      */
-    if (WeftPanel.lock.isBusy(this.repo.root)) {
+    if (WeftPanel.lock.isBusy(this.repo.commonDir)) {
       return;
     }
 
@@ -1748,7 +1755,7 @@ export class WeftPanel {
    */
   private async readWorkingNow(): Promise<void> {
     // Asked again for a run that was queued: a write may have begun while the one before it read.
-    if (WeftPanel.lock.isBusy(this.repo.root)) {
+    if (WeftPanel.lock.isBusy(this.repo.commonDir)) {
       return;
     }
 
@@ -2070,7 +2077,7 @@ ${BODY_MARKUP}
    * a failure rather than a child process waiting forever on a password nobody can type.
    */
   private async autoFetch(): Promise<void> {
-    if (WeftPanel.lock.isBusy(this.repo.root) || this.loading !== null) {
+    if (WeftPanel.lock.isBusy(this.repo.commonDir) || this.loading !== null) {
       return;
     }
 
@@ -2086,7 +2093,7 @@ ${BODY_MARKUP}
        * A fetch somebody asked for has always queued behind the lock. One nobody asked for has no
        * business being the exception.
        */
-      await WeftPanel.lock.run(this.repo.root, () =>
+      await WeftPanel.lock.run(this.repo.commonDir, () =>
         this.git.runNetwork(this.repo.root, ['fetch', '--all', '--prune', '--quiet']),
       );
     } catch (err) {

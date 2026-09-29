@@ -175,6 +175,47 @@ test('the lock serialises writers and survives one of them failing', async () =>
   assert.equal(lock.isBusy('r'), false, 'the queue should drain');
 });
 
+test('two working trees of one repository share a queue, and two repositories do not', async () => {
+  /*
+   * A linked worktree has its own root, its own index and its own HEAD, and shares the refs, the
+   * objects and the config - which is everything this queue exists to protect. Keyed by working tree,
+   * a branch deleted in one and checked out in the other were free to interleave, and every sequence
+   * here is read, decide, act. So the key is `git rev-parse --git-common-dir`, which those two share
+   * and which a second repository - or a submodule - has its own of.
+   */
+  const lock = new RepoLock();
+  const order: string[] = [];
+  const hold = (name: string, until: Promise<void>) => lock.run(name.split(':')[0] ?? '', async () => {
+    order.push(`${name} in`);
+    await until;
+    order.push(`${name} out`);
+  });
+
+  let releaseFirst = (): void => {};
+  const first = new Promise<void>((go) => {
+    releaseFirst = go;
+  });
+
+  // Two trees of one repository, named by the common directory they share.
+  const a = hold('repo/.git:tree-a', first);
+  const b = hold('repo/.git:tree-b', Promise.resolve());
+  // And another repository, which has nothing to say to either of them.
+  const other = hold('elsewhere/.git:tree-c', Promise.resolve());
+
+  await other;
+
+  assert.deepEqual(
+    order,
+    ['repo/.git:tree-a in', 'elsewhere/.git:tree-c in', 'elsewhere/.git:tree-c out'],
+    'the other repository ran while the first was still holding its own queue',
+  );
+
+  releaseFirst();
+  await Promise.all([a, b]);
+
+  assert.deepEqual(order.slice(3), ['repo/.git:tree-a out', 'repo/.git:tree-b in', 'repo/.git:tree-b out']);
+});
+
 test('a ref that could not be locked says what state it left behind, and offers to retry', () => {
   const mapped = mapGitError(
     new GitError(
