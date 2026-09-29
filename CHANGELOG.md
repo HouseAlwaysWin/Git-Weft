@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Worktrees…, in Branches & Tags and the command palette.** `git worktree add` gives one repository
+  several folders checked out at once - a release branch open beside the one being worked on, without a
+  stash and without a second clone - and nothing in an editor ever shows them. The list says what each
+  one is on, which folder it is, which one this window is, and which are locked or have had their folder
+  deleted out from under them. From there: open one in a new window, reveal it in the file manager,
+  unlock it, or remove it. The main worktree is never offered for removal, because it is the repository.
+  Removing one that has uncommitted changes in it asks first and says what goes, and a locked one offers
+  to unlock rather than to force - a lock usually means a disk that is not plugged in, not a tree that
+  has stopped mattering.
+
 - **Two working trees of one repository no longer write over each other.** Weft runs one write at a
   time so that read-decide-act sequences stay atomic, and that queue was keyed on the working tree. A
   linked worktree has its own working tree and shares the refs, the objects and the config, so a

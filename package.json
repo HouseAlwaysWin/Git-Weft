@@ -113,6 +113,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "weft.worktrees",
+        "title": "Worktrees…",
+        "category": "Git Weft",
+        "icon": "$(root-folder)"
+      },
+      {
         "command": "weft.sortRefsByRecent",
         "title": "Sort Branches & Tags by Most Recent",
         "category": "Git Weft",
@@ -725,6 +731,11 @@
           "command": "weft.cleanUpBranches",
           "when": "view == weft.refs",
           "group": "cleanup@1"
+        },
+        {
+          "command": "weft.worktrees",
+          "when": "view == weft.refs",
+          "group": "cleanup@2"
         },
         {
           "command": "weft.untickAllRefs",

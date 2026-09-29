@@ -108,6 +108,17 @@ function makeTempRepo() {
   // asking what a tag looks like gets the group node above it and quietly checks the wrong thing.
   runGit(dir, 'tag', 'v1.0');
 
+  /*
+   * A second working tree of the same repository, which nothing else here has.
+   *
+   * Detached, and beside the repository rather than under it. On a branch it would make that branch
+   * refuse to check out anywhere else, which is true of worktrees and would silently break the
+   * checkout checks; under the main tree it would be untracked files in every `git status` taken
+   * below. Detached and outside, the only thing that changes is that `git worktree list` has two
+   * records instead of one.
+   */
+  runGit(dir, 'worktree', 'add', '-q', '--detach', dir + '-side');
+
   return dir;
 }
 
@@ -185,6 +196,7 @@ const contentProviders = new Map();
 const diffsOpened = [];
 /** Files handed to VS Code to open as themselves, rather than as a diff. */
 const filesOpened = [];
+const foldersOpened = [];
 const contextKeys = new Map();
 const copied = [];
 /** Addresses handed to the operating system to open. */
@@ -441,6 +453,9 @@ const vscodeStub = {
       }
       if (id === 'vscode.open') {
         filesOpened.push(args[0]);
+      }
+      if (id === 'vscode.openFolder') {
+        foldersOpened.push({ folder: String(args[0] ?? ''), options: args[1] });
       }
       if (id === 'setContext') {
         contextKeys.set(args[0], args[1]);
@@ -5275,6 +5290,93 @@ if (disposeHandler !== null) {
   }
 }
 
+
+/*
+ * The repository's other working trees: listed, opened, and removed.
+ *
+ * The parse is unit-tested against every shape git prints. What cannot be unit-tested is that the
+ * list is read from the repository the window is actually pointed at, that the main worktree is
+ * told apart from the rest, and that removing one removes it - so this drives the command against a
+ * fixture with a real second tree in it and then asks git what is left.
+ *
+ * The rows are never matched by name. git normalises the path it was handed - on Windows an 8.3
+ * temporary directory comes back spelled out in full - so the labels are read from the list the
+ * command itself produced, which is the only spelling guaranteed to be the one on screen.
+ */
+{
+  await commands.get('weft.worktrees')();
+
+  const listed = picks.at(-1);
+  const rows = listed?.labels ?? [];
+
+  console.log('\nworktrees      :', rows.join(' | ') || '(nothing listed)');
+  console.log('  title        :', listed?.title ?? '(none)');
+
+  if (rows.length !== 2) {
+    problems.push(`the worktree list showed ${rows.length} working trees, not the fixture's two`);
+  }
+
+  // The main worktree is first, and says so: it is the one git refuses to remove.
+  if (!(listed?.title ?? '').includes(': 2')) {
+    problems.push(`the worktree list's title said ${JSON.stringify(listed?.title ?? '')}`);
+  }
+
+  const openedFrom = foldersOpened.length;
+
+  if (rows.length === 2) {
+    pickAnswers.push(rows[1], '$(empty-window) Open in a New Window');
+    await commands.get('weft.worktrees')();
+
+    const opened = foldersOpened.at(-1);
+
+    console.log('  opened       :', opened?.folder ?? '(nothing)', JSON.stringify(opened?.options ?? {}));
+
+    if (foldersOpened.length === openedFrom) {
+      problems.push('opening a worktree opened no folder at all');
+    } else if (opened?.options?.forceNewWindow !== true) {
+      // A second working tree exists so both can be open at once. Replacing this window with it
+      // throws away the thing that made it worth having.
+      problems.push('opening a worktree took over this window instead of opening a new one');
+    }
+
+    // And the one thing that must never be offered: removing the repository itself.
+    pickAnswers.push(rows[0]);
+    await commands.get('weft.worktrees')();
+
+    /*
+     * Not `picks.at(-1)`: the list reopens after an action is dismissed, so the last pick recorded
+     * is the list again - and a list's rows never say "Remove It" however wrong the menu is. The
+     * actions are the last pick that is not the list.
+     */
+    const forMain = picks.filter((pick) => !pick.title.startsWith('Worktrees of')).at(-1)?.labels ?? [];
+
+    console.log('  main offers  :', forMain.join(' | ') || '(nothing)');
+
+    if (forMain.some((label) => label.includes('Remove It'))) {
+      problems.push('the main worktree was offered for removal, which git refuses and should');
+    }
+
+    // And the tree this window is already in is not offered a window to open it in - which is the
+    // only thing here that proves the path comparison behind "this window" answers at all.
+    if (forMain.some((label) => label.includes('Open in'))) {
+      problems.push('the worktree this window already has open was offered to be opened');
+    }
+
+    // Removed, and git asked rather than the list believed.
+    pickAnswers.push(rows[1], '$(trash) Remove It');
+    await commands.get('weft.worktrees')();
+
+    const left = runGit(repoPath, 'worktree', 'list', '--porcelain')
+      .split('\n')
+      .filter((line) => line.startsWith('worktree ')).length;
+
+    console.log('  after remove :', left, 'working tree(s)');
+
+    if (left !== 1) {
+      problems.push(`removing a worktree left ${left} working trees behind`);
+    }
+  }
+}
 
 /*
  * Committed text, for the two annotations that are about commits - and the editor told, the way VS

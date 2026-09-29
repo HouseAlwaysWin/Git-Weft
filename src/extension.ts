@@ -31,6 +31,8 @@ import { openUrl } from './openUrl.ts';
 import { shasIn } from './terminalLinks.ts';
 import { BRANCH_ARGS, MERGE_ARGS, branchChoices, findTestMerges, parseMerges, readTestBranches } from './git/testMerges.ts';
 import { readTicketLinks } from './git/ticketLinks.ts';
+import type { Worktree } from './git/worktrees.ts';
+import { listWorktrees } from './git/worktrees.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -179,6 +181,219 @@ async function pickRepository(found: readonly RepoInfo[]): Promise<RepoInfo | nu
   );
 
   return chosen?.repo ?? null;
+}
+
+/** What a worktree's row says it is on: a branch, a commit, or nothing at all. */
+function worktreeIsOn(worktree: Worktree): string {
+  if (worktree.bare) {
+    return 'bare - no files checked out';
+  }
+
+  return worktree.branch === null
+    ? `detached at ${worktree.head?.slice(0, 7) ?? 'an unknown commit'}`
+    : worktree.branch.replace(/^refs\/heads\//, '');
+}
+
+/**
+ * The other working trees of this repository, and what can be done to them.
+ *
+ * They are worth a list because they are invisible. A branch that will not check out, with git
+ * naming a folder the user set up weeks ago and has not opened since, is the usual way anyone
+ * remembers they exist - and the folder is the one thing the error does not explain.
+ *
+ * Reopened after each action rather than closed: tidying one of five is rarely the whole errand.
+ */
+async function showWorktrees(git: Git, repo: RepoInfo): Promise<void> {
+  const mine = (path: string): boolean =>
+    path.toLowerCase().replace(/\/$/, '') === repo.root.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
+
+  for (;;) {
+    const worktrees = await listWorktrees(git, repo);
+
+    /*
+     * Never empty for a repository that answered: it always has at least the tree it was asked
+     * from. So nothing means the command failed, and the likeliest reason is a git too old to have
+     * `worktree list --porcelain` at all, which is worth saying rather than showing a blank list.
+     */
+    if (worktrees.length === 0) {
+      void vscode.window.showWarningMessage(
+        'Weft: git did not say what working trees this repository has. `git worktree list --porcelain` arrived in git 2.7.',
+      );
+
+      return;
+    }
+
+    const picked = await vscode.window.showQuickPick(
+      worktrees.map((worktree) => ({
+        // A missing folder is the one state worth seeing before reading anything else.
+        label: `$(${worktree.prunable === null ? 'root-folder' : 'warning'}) ${basename(worktree.path)}`,
+        description: worktreeIsOn(worktree),
+        detail: [
+          worktree.path,
+          mine(worktree.path) ? 'this window' : null,
+          worktree.main ? 'the main worktree' : null,
+          worktree.locked === null
+            ? null
+            : worktree.locked.reason === ''
+              ? 'locked'
+              : `locked: ${worktree.locked.reason}`,
+          worktree.prunable === null ? null : `the folder is gone - ${worktree.prunable}`,
+        ]
+          .filter((note) => note !== null)
+          .join(' · '),
+        worktree,
+      })),
+      {
+        title: `Worktrees of ${basename(repo.root)}: ${worktrees.length}`,
+        placeHolder: 'One repository, several folders checked out at once',
+        matchOnDescription: true,
+        matchOnDetail: true,
+      },
+    );
+
+    if (picked === undefined) {
+      return;
+    }
+
+    if (!(await actOnWorktree(git, repo, picked.worktree, mine(picked.worktree.path)))) {
+      return;
+    }
+  }
+}
+
+/** Whether to show the list again afterwards - false when the user walked away from it. */
+async function actOnWorktree(
+  git: Git,
+  repo: RepoInfo,
+  worktree: Worktree,
+  isHere: boolean,
+): Promise<boolean> {
+  const folder = vscode.Uri.file(worktree.path);
+  const here = worktree.prunable === null && !worktree.bare;
+  const offers = [
+    // Opening a second window is the point of a second working tree: the reason to have one is
+    // having both at once, so that is the first offer and the one the row means.
+    ...(here && !isHere
+      ? [{ label: '$(empty-window) Open in a New Window', action: 'new' as const }]
+      : []),
+    ...(here && !isHere
+      ? [{ label: '$(folder-opened) Open in This Window', action: 'same' as const }]
+      : []),
+    ...(here ? [{ label: '$(files) Reveal in File Explorer', action: 'reveal' as const }] : []),
+    ...(worktree.locked === null
+      ? []
+      : [{ label: '$(unlock) Unlock It', action: 'unlock' as const }]),
+    // git refuses the main worktree, and it is right to: it is the repository.
+    ...(worktree.main
+      ? []
+      : [{ label: '$(trash) Remove It', action: 'remove' as const }]),
+  ];
+
+  /*
+   * A bare main worktree, which is every one of these at once: no files to open, no folder worth
+   * revealing, and git refuses to remove it. An empty Quick Pick says "No matching results", which
+   * reads as something having gone wrong rather than as the answer.
+   */
+  if (offers.length === 0) {
+    void vscode.window.showInformationMessage(
+      `Weft: ${basename(worktree.path)} is the repository itself, with no files checked out. There is nothing here to open or remove.`,
+    );
+
+    return true;
+  }
+
+  const chosen = await vscode.window.showQuickPick(offers, {
+    title: `${basename(worktree.path)} · ${worktreeIsOn(worktree)}`,
+    placeHolder: worktree.path,
+  });
+
+  if (chosen === undefined) {
+    return true;
+  }
+
+  if (chosen.action === 'new' || chosen.action === 'same') {
+    await vscode.commands.executeCommand('vscode.openFolder', folder, {
+      forceNewWindow: chosen.action === 'new',
+    });
+
+    return false;
+  }
+
+  if (chosen.action === 'reveal') {
+    await vscode.commands.executeCommand('revealFileInOS', folder);
+
+    return true;
+  }
+
+  return chosen.action === 'unlock' ? unlockWorktree(git, repo, worktree) : removeWorktree(git, repo, worktree);
+}
+
+async function unlockWorktree(git: Git, repo: RepoInfo, worktree: Worktree): Promise<boolean> {
+  try {
+    await WeftPanel.exclusive(repo.commonDir, () =>
+      git.runWrite(repo.root, ['worktree', 'unlock', worktree.path]),
+    );
+  } catch (err) {
+    void vscode.window.showErrorMessage(`Weft: ${mapGitError(err).message}`);
+  }
+
+  return true;
+}
+
+/**
+ * Remove one, and turn each of git's two refusals into the answer that fits it.
+ *
+ * They are different refusals and they do not deserve the same button. A tree with changes in it
+ * can be forced away, and that destroys work nothing recovers, so the offer says what goes. A
+ * locked tree is someone having written down that it is absent rather than gone - a disk that is
+ * not plugged in - and the honest answer there is to unlock it deliberately, not to pass `-f`
+ * twice because git mentioned that it would work.
+ *
+ * A worktree whose folder is already gone needs none of this: `remove` tidies its administrative
+ * files and says nothing, which is why there is no separate prune here.
+ */
+async function removeWorktree(git: Git, repo: RepoInfo, worktree: Worktree): Promise<boolean> {
+  const remove = (force: boolean): Promise<string> =>
+    WeftPanel.exclusive(repo.commonDir, () =>
+      git.runWrite(repo.root, ['worktree', 'remove', ...(force ? ['--force'] : []), worktree.path]),
+    );
+
+  try {
+    await remove(false);
+
+    return true;
+  } catch (err) {
+    const said = mapGitError(err).message;
+
+    if (worktree.locked !== null) {
+      const choice = await vscode.window.showWarningMessage(
+        `Weft: ${basename(worktree.path)} is locked${worktree.locked.reason === '' ? '' : ` - ${worktree.locked.reason}`}. A lock usually means the folder is somewhere that is not plugged in, rather than somewhere it has stopped being.`,
+        'Unlock It',
+      );
+
+      return choice === 'Unlock It' ? unlockWorktree(git, repo, worktree) : true;
+    }
+
+    if (!/modified or untracked/i.test(said)) {
+      void vscode.window.showErrorMessage(`Weft: ${said}`);
+
+      return true;
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Weft: ${basename(worktree.path)} has changes that were never committed. Removing it deletes the folder, and nothing in git brings those back.`,
+      { modal: true },
+      'Delete It and the Changes',
+    );
+
+    if (choice !== undefined) {
+      await remove(true).catch((again: unknown) => {
+        void vscode.window.showErrorMessage(`Weft: ${mapGitError(again).message}`);
+      });
+    }
+
+    return true;
+  }
 }
 
 /** Put something on the clipboard and say so, briefly - a copy with no feedback reads as a no-op. */
@@ -1183,6 +1398,29 @@ function start(context: vscode.ExtensionContext): void {
 
       if (picked !== undefined) {
         await revealInGraph(root, picked.sha);
+      }
+    }),
+
+    /*
+     * One repository, several folders checked out at once.
+     *
+     * `git worktree add` is how a release branch is opened beside the branch being worked on
+     * without a stash and without a second clone. Weft shows them because nothing else does: they
+     * have no window, no entry in the sidebar, and the only time most people are reminded of one is
+     * when a checkout is refused and git names a path they no longer recognise.
+     */
+    vscode.commands.registerCommand('weft.worktrees', async () => {
+      const root =
+        WeftPanel.active()?.root ?? WeftPanel.any()?.root ?? (await chooseRepository())?.root ?? null;
+
+      if (root === null) {
+        return;
+      }
+
+      const repo = await discover(git, root).catch(() => null);
+
+      if (repo !== null) {
+        await showWorktrees(git, repo);
       }
     }),
 
