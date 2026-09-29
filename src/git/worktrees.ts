@@ -122,15 +122,22 @@ export async function listWorktrees(
 }
 
 /**
- * Which tree, if any, has this branch checked out - and never the one asking.
+ * Which tree, if any, has this branch checked out.
  *
- * git refuses a checkout of a branch that is already out somewhere else, and this is what turns
- * that refusal into a sentence naming the folder. `here` is the root of the tree the user is in,
- * compared case-insensitively because Windows paths are, and with slashes normalised because git
- * prints forward ones where VS Code hands us back slashes.
+ * `here` is the one tree the answer ignores, and which that is depends on what is being asked.
+ * Checking a branch out ignores the tree doing the asking, because being on a branch is no reason to
+ * refuse to check it out. Making a worktree for a branch ignores nothing - git refuses that for the
+ * branch you are standing on as readily as for one open in another folder - and passes null.
+ *
+ * Compared case-insensitively because Windows paths are, and with slashes normalised because git
+ * prints forward ones where VS Code hands back backslashes.
  */
-export function branchIsOut(worktrees: readonly Worktree[], ref: string, here: string): Worktree | null {
-  const mine = here.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
+export function branchIsOut(
+  worktrees: readonly Worktree[],
+  ref: string,
+  here: string | null,
+): Worktree | null {
+  const mine = here === null ? null : here.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
 
   return (
     worktrees.find(

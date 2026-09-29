@@ -159,3 +159,20 @@ test('a branch that is checked out somewhere else is named, and this tree is not
 
   assert.equal(branchIsOut(worktrees, 'refs/heads/nobody', 'D:/Projects/app'), null);
 });
+
+test('with no tree left out, the branch this window is on counts as checked out', () => {
+  const worktrees = parseWorktrees(printed(RECORDS, true), true);
+
+  /*
+   * The other question entirely, and the one `git worktree add` asks. Being on a branch is no
+   * reason to refuse to check it out, so a checkout ignores the tree asking - but it is every
+   * reason to refuse a second folder for it, and git refuses exactly that.
+   */
+  assert.equal(
+    branchIsOut(worktrees, 'refs/heads/main', null)?.path,
+    'D:/Projects/app',
+    'the branch this window is on is still a branch that is checked out somewhere',
+  );
+
+  assert.equal(branchIsOut(worktrees, 'refs/heads/nobody', null), null, 'and one nobody has out is not');
+});

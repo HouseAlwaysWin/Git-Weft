@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { basename, dirname } from 'node:path';
+import { existsSync } from 'node:fs';
 
 import { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
@@ -32,7 +33,9 @@ import { shasIn } from './terminalLinks.ts';
 import { BRANCH_ARGS, MERGE_ARGS, branchChoices, findTestMerges, parseMerges, readTestBranches } from './git/testMerges.ts';
 import { readTicketLinks } from './git/ticketLinks.ts';
 import type { Worktree } from './git/worktrees.ts';
-import { listWorktrees } from './git/worktrees.ts';
+import { branchIsOut, listWorktrees } from './git/worktrees.ts';
+import { suggestWorktreePath, worktreeAddArgs } from './git/worktreeAdd.ts';
+import { localBranches } from './git/localBranches.ts';
 
 let output: vscode.LogOutputChannel | undefined;
 
@@ -393,6 +396,118 @@ async function removeWorktree(git: Git, repo: RepoInfo, worktree: Worktree): Pro
     }
 
     return true;
+  }
+}
+
+/**
+ * A second folder with this branch checked out in it.
+ *
+ * The gesture that makes worktrees worth having at all: a branch in the tree, right-clicked, open in
+ * its own window a moment later - no stash, no second clone, and the branch you were on still where
+ * you left it.
+ *
+ * Three things git would otherwise refuse or do surprisingly, answered before it is asked. A branch
+ * already checked out somewhere else is named rather than refused, and the folder holding it offered
+ * instead. A remote branch is given a local branch to be on, because checking out `origin/thing`
+ * directly leaves a detached HEAD, which is not what right-clicking a branch meant. And a folder is
+ * suggested rather than demanded, beside the repository and named after both, because the one thing
+ * nobody wants to invent on the spot is a path.
+ */
+async function addWorktree(
+  git: Git,
+  repo: RepoInfo,
+  target: { refName: string; label: string; refKind: 'local' | 'remote' | 'tag' },
+): Promise<void> {
+  const worktrees = await listWorktrees(git, repo);
+  // Null, not this tree: git refuses a worktree for the branch this window is on as readily as
+  // for one open in another folder, so this is the question that leaves nothing out.
+  const already = target.refKind === 'local' ? branchIsOut(worktrees, target.refName, null) : null;
+
+  /*
+   * Already open somewhere. git would refuse this, and its refusal names a path with no offer to go
+   * there - which is the exact moment somebody goes looking for the folder by hand.
+   */
+  if (already !== null) {
+    /*
+     * The branch this window is on is the same refusal wearing a different face, and pointing at the
+     * folder the reader is already in would be no help at all.
+     */
+    if (branchIsOut(worktrees, target.refName, repo.root) === null) {
+      const said = await vscode.window.showInformationMessage(
+        `Weft: ${target.label} is the branch this window is on, and a branch can only be in one working tree at a time. Check out something else here first, or make the worktree for a different branch.`,
+        'Show Worktrees',
+      );
+
+      if (said === 'Show Worktrees') {
+        await vscode.commands.executeCommand('weft.worktrees');
+      }
+
+      return;
+    }
+
+    const choice = await vscode.window.showInformationMessage(
+      `Weft: ${target.label} is already checked out in ${already.path}. A branch can only be in one working tree at a time.`,
+      'Open That Folder',
+    );
+
+    if (choice === 'Open That Folder') {
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(already.path), {
+        forceNewWindow: true,
+      });
+    }
+
+    return;
+  }
+
+  const suggested = suggestWorktreePath(repo.root, target.label);
+  const taken = new Set((await localBranches(git, repo).catch(() => [])).map((branch) => branch.name));
+  const where = await vscode.window.showInputBox({
+    title: `A worktree for ${target.label}`,
+    value: suggested,
+    // The name is the part worth changing; the folder it sits in rarely is.
+    valueSelection: [suggested.lastIndexOf('/') + 1, suggested.length],
+    prompt: 'A new folder, outside the repository',
+    validateInput: (value) => {
+      const trimmed = value.trim();
+
+      if (trimmed.length === 0) {
+        return 'A worktree needs a folder';
+      }
+
+      /*
+       * git makes the folder itself and refuses one that is already there with anything in it. Said
+       * here instead, because a validation message is a keystroke away from being fixed and an error
+       * afterwards means typing the whole path again.
+       */
+      return existsSync(trimmed) ? 'That folder already exists' : null;
+    },
+  });
+
+  if (where === undefined || where.trim().length === 0) {
+    return;
+  }
+
+  const folder = where.trim();
+
+  try {
+    await WeftPanel.exclusive(repo.commonDir, () =>
+      git.runWrite(repo.root, worktreeAddArgs(folder, target.refName, target.refKind, taken)),
+    );
+  } catch (err) {
+    void vscode.window.showErrorMessage(`Weft: ${mapGitError(err).message}`);
+
+    return;
+  }
+
+  const choice = await vscode.window.showInformationMessage(
+    `Weft: ${target.label} is checked out in ${folder}.`,
+    'Open in a New Window',
+  );
+
+  if (choice === 'Open in a New Window') {
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(folder), {
+      forceNewWindow: true,
+    });
   }
 }
 
@@ -1673,6 +1788,28 @@ function start(context: vscode.ExtensionContext): void {
       }
 
       panel.runTargetAction('weft.deleteRemoteBranch', { kind: 'ref', ...target });
+    }),
+
+    /*
+     * A worktree for the branch that was right-clicked.
+     *
+     * Not through the panel, unlike the deletes beside it: this makes no change to any history and
+     * nothing in the graph moves, so there is nothing for the graph to be the owner of. It takes the
+     * repository's lock like every other write, because `worktree add` writes refs.
+     */
+    vscode.commands.registerCommand('weft.addWorktree', async (node: unknown) => {
+      const target = refs.targetOf(node);
+      const root = refs.repoRoot;
+
+      if (target === null || root === null || target.refKind === 'tag') {
+        return;
+      }
+
+      const repo = await discover(git, root).catch(() => null);
+
+      if (repo !== null) {
+        await addWorktree(git, repo, target);
+      }
     }),
 
     // Through the panel like the others: it is the graph's action, and the graph's lock it runs under.

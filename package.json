@@ -119,6 +119,12 @@
         "icon": "$(root-folder)"
       },
       {
+        "command": "weft.addWorktree",
+        "title": "Add a Worktree for This Branch…",
+        "category": "Git Weft",
+        "icon": "$(new-folder)"
+      },
+      {
         "command": "weft.sortRefsByRecent",
         "title": "Sort Branches & Tags by Most Recent",
         "category": "Git Weft",
@@ -634,6 +640,11 @@
           "command": "weft.checkoutRef",
           "when": "view == weft.refs && viewItem =~ /^weftRef/",
           "group": "navigation@1"
+        },
+        {
+          "command": "weft.addWorktree",
+          "when": "view == weft.refs && viewItem =~ /^weftRef(Local|Remote)$/",
+          "group": "navigation@2"
         },
         {
           "command": "weft.showOnlyRef",

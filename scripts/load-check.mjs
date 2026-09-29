@@ -196,6 +196,7 @@ const contentProviders = new Map();
 const diffsOpened = [];
 /** Files handed to VS Code to open as themselves, rather than as a diff. */
 const filesOpened = [];
+const inputs = [];
 const foldersOpened = [];
 const contextKeys = new Map();
 const copied = [];
@@ -535,8 +536,17 @@ const vscodeStub = {
       });
       return confirmed ? buttons[0] : undefined;
     },
-    // An input box, answered from inputAnswers and dismissed when nothing is queued.
-    showInputBox: async () => inputAnswers.shift(),
+    /*
+     * An input box, answered from inputAnswers and dismissed when nothing is queued - and the value
+     * it was offered kept, because for anything that suggests an answer the suggestion is the
+     * feature. A box that proposes nothing and one that proposes the wrong thing are both answered
+     * the same way here.
+     */
+    showInputBox: async (options) => {
+      inputs.push({ title: options?.title ?? '', value: options?.value ?? '' });
+
+      return inputAnswers.shift();
+    },
     showQuickPick: async (items, options) => {
       const list = await items;
       const label = (item) => (typeof item === 'string' ? item : item.label);
@@ -5376,6 +5386,171 @@ if (disposeHandler !== null) {
       problems.push(`removing a worktree left ${left} working trees behind`);
     }
   }
+}
+
+/*
+ * A worktree made for a branch, from the branch's own row.
+ *
+ * The gesture worktrees exist for, and three answers it has to get right before git is asked
+ * anything: a folder suggested rather than demanded, a branch that is already out somewhere named
+ * rather than refused, and the new tree actually holding the branch that was clicked.
+ *
+ * The suggestion is checked because a box that proposes nothing and a box that proposes the wrong
+ * folder are answered identically by a harness - and by a tired reader.
+ */
+{
+  const refsTree = treeProviders.get('weft.refs');
+  const rowFor = (refName) =>
+    refsTree
+      ?.getChildren()
+      .flatMap((group) => refsTree.getChildren(group))
+      .find((node) => refsTree.targetOf(node)?.refName === refName);
+
+  /*
+   * Made here rather than taken from the fixture: everything the fixture started with has been
+   * checked out, deleted or filtered by now, and a section that quietly finds nothing to work with
+   * reports the state of the run rather than the state of the feature.
+   */
+  const spare = 'for-a-worktree';
+
+  runGit(repoPath, 'branch', spare);
+  await refsTree?.reload();
+
+  const localRows = (refsTree?.getChildren() ?? [])
+    .flatMap((group) => refsTree.getChildren(group))
+    .filter((node) => refsTree.targetOf(node)?.refKind === 'local');
+
+  // Not the branch HEAD is on: that one is refused on purpose, and is checked on its own below.
+  const onNow = runGit(repoPath, 'rev-parse', '--abbrev-ref', 'HEAD').trim();
+  const sideRow = localRows.find((node) => refsTree.targetOf(node)?.refName !== `refs/heads/${onNow}`);
+  const branch = refsTree?.targetOf(sideRow)?.label ?? '';
+
+  console.log(
+    '\nworktree add   : from',
+    localRows.map((node) => refsTree.targetOf(node)?.label).join(', ') || '(no local branches listed)',
+    '| on',
+    onNow,
+  );
+
+  if (sideRow === undefined) {
+    problems.push(`no branch in Branches & Tags to make a worktree from, other than ${onNow}`);
+  } else {
+    const made = `${repoPath}-for-${branch}`;
+    const inputsBefore = inputs.length;
+
+    inputAnswers.push(made);
+    // Nothing queued for the offer afterwards, which is the reader closing it: the tree is made
+    // either way, and this run has no use for a second window.
+    await commands.get('weft.addWorktree')(sideRow);
+
+    const suggested = inputs.at(-1);
+    const trees = () =>
+      runGit(repoPath, 'worktree', 'list', '--porcelain')
+        .split('\n')
+        .filter((line) => line.startsWith('worktree ')).length;
+
+    console.log('  made         :', trees(), 'working tree(s) for', branch);
+    console.log('  suggested    :', suggested?.value ?? '(nothing offered)');
+
+    if (inputs.length === inputsBefore) {
+      problems.push('making a worktree never asked where to put it');
+    } else if (!(suggested?.value ?? '').endsWith(`-${branch}`)) {
+      // Named after the branch, so two of them are told apart in a file manager without opening them.
+      problems.push(`the suggested worktree folder was ${JSON.stringify(suggested?.value ?? '')}`);
+    } else if ((suggested?.value ?? '').startsWith(repoPath + '/')) {
+      // Inside the repository is the one place it must not be: git allows it, and then the new tree
+      // is untracked files in the old one for as long as it exists.
+      problems.push(`the suggested worktree folder was inside the repository: ${suggested?.value}`);
+    }
+
+    if (trees() !== 2) {
+      problems.push(`making a worktree left ${trees()} working trees`);
+    }
+
+    /*
+     * And it holds the branch that was clicked. A worktree made at a detached HEAD looks identical
+     * in a folder listing and is not what anybody asked for.
+     */
+    const on = runGit(repoPath, 'worktree', 'list', '--porcelain')
+      .split('\n')
+      .filter((line) => line.startsWith('branch '))
+      .map((line) => line.slice('branch '.length).trim());
+
+    console.log('  branches out :', on.join(', ') || '(none - all detached)');
+
+    if (!on.includes(`refs/heads/${branch}`)) {
+      problems.push(`the new worktree was not on ${branch}: ${JSON.stringify(on)}`);
+    }
+
+    // The same branch again. git would refuse; the point is that this says where it already is and
+    // offers to go there, rather than handing back git's sentence about a path.
+    const offeredBefore = offers.length;
+
+    await commands.get('weft.addWorktree')(sideRow);
+
+    const said = offers.length > offeredBefore ? offers.at(-1) : null;
+
+    console.log('  asked again  :', said?.message ?? '(said nothing)');
+
+    if (offers.length === offeredBefore) {
+      problems.push('asking for a second worktree of the same branch said nothing at all');
+    } else if (
+      // By the folder's own name, not the whole path: this was handed git a short 8.3 temporary
+      // directory and git reports it spelled out in full. Both spellings are the same folder.
+      !(said?.message ?? '').includes(made.split('/').pop() ?? '') ||
+      !(said?.buttons ?? []).includes('Open That Folder')
+    ) {
+      problems.push(`a branch already checked out elsewhere was answered with ${JSON.stringify(said ?? null)}`);
+    }
+
+    if (trees() !== 2) {
+      problems.push('asking for a second worktree of a branch that has one made another anyway');
+    }
+
+    /*
+     * And the branch this window is on, which git refuses just as readily and which has no folder
+     * worth offering - pointing at the one the reader is already in would be no help. Said without
+     * a button, so it is the absence of an offer that is being checked here.
+     */
+    const headRow = localRows.find((node) => refsTree.targetOf(node)?.refName === `refs/heads/${onNow}`);
+
+    if (headRow !== undefined) {
+      const askedBefore = offers.length;
+      const inputsBefore2 = inputs.length;
+
+      await commands.get('weft.addWorktree')(headRow);
+
+      const aboutHead = offers.length > askedBefore ? offers.at(-1) : null;
+
+      console.log(
+        '  for HEAD     :',
+        inputs.length === inputsBefore2 ? 'refused' : 'asked where to put it',
+        '|',
+        (aboutHead?.buttons ?? []).join(', ') || '(no offer)',
+      );
+
+      if (inputs.length !== inputsBefore2) {
+        problems.push(`making a worktree for ${onNow}, which this window is on, asked where to put it`);
+      }
+
+      if (aboutHead === null || !aboutHead.message.includes('the branch this window is on')) {
+        problems.push('being on the branch was refused without saying that is why');
+      } else if (aboutHead.buttons.includes('Open That Folder')) {
+        // There is no other folder. Offering to open one would point at the window doing the asking.
+        problems.push('being on the branch offered to open the folder the reader is already in');
+      }
+
+      if (trees() !== 2) {
+        problems.push(`making a worktree for the branch this window is on left ${trees()} working trees`);
+      }
+    }
+
+    // Put back, so nothing after this is looking at a repository with a branch held elsewhere.
+    runGit(repoPath, 'worktree', 'remove', made);
+  }
+
+  runGit(repoPath, 'branch', '-D', spare);
+  await refsTree?.reload();
 }
 
 /*

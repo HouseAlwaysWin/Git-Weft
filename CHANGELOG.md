@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Add a Worktree for This Branch…, on any branch in Branches & Tags.** The gesture worktrees exist
+  for: a branch right-clicked, open in its own window a moment later, with no stash and no second
+  clone. The folder is suggested rather than demanded - beside the repository and named after both, so
+  `app` and `feature/login` propose `app-feature-login`, with the name selected ready to change. A
+  remote branch gets a local branch to be on, because checking out `origin/thing` directly would leave
+  the new tree on a detached HEAD. And a branch that is already checked out somewhere says where, and
+  offers to open that folder, instead of handing over git's refusal and the path in it.
+
 - **Worktrees…, in Branches & Tags and the command palette.** `git worktree add` gives one repository
   several folders checked out at once - a release branch open beside the one being worked on, without a
   stash and without a second clone - and nothing in an editor ever shows them. The list says what each
