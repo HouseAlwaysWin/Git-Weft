@@ -90,6 +90,29 @@ function pathsAfter(raw: string, headline: RegExp): string[] {
 }
 
 const RULES: Rule[] = [
+  /*
+   * A branch one of the repository's other working trees already has out.
+   *
+   * Two wordings, because git uses one for anything that would check the branch out - `checkout`,
+   * `switch`, `worktree add` - and another for deleting it. Both name the folder and neither says
+   * anything about it, which is the unhelpful half: the folder is a worktree, and the reader has
+   * very likely forgotten it exists. So the sentence says so - that the folder is another working
+   * tree of this repository, and that a branch can only be in one at a time.
+   *
+   * Ahead of the general rules because the phrase is specific and the consequence is not obvious;
+   * matched on git's own words, which `LC_ALL=C` keeps in English whatever the machine runs in.
+   */
+  {
+    match: /(?:is already checked out at|Cannot delete branch .* checked out at) '(.+?)'/,
+    message: (raw) => {
+      const branch = /(?:^|\W)'([^']+)' is already checked out|Cannot delete branch '([^']+)'/.exec(raw);
+      const named = branch?.[1] ?? branch?.[2] ?? 'That branch';
+      const where = /checked out at '(.+?)'/.exec(raw)?.[1] ?? '';
+
+      return `${named} is checked out in another working tree${where === '' ? '' : ` - ${where}`}. A branch can only be in one of them at a time.`;
+    },
+    remedies: [],
+  },
   {
     match: /Your local changes to the following files would be overwritten by (\w+)/,
     message: (raw) => {

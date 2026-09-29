@@ -15,6 +15,7 @@ import * as vscode from 'vscode';
 import type { Git } from './git/exec.ts';
 import type { RepoInfo } from './git/discovery.ts';
 import { describeAge } from './git/blame.ts';
+import { WORKTREE_PATHS_SINCE, parseRefLine, refListArgs, worktreeLabel } from './git/refList.ts';
 import type { BranchFolders, Folded } from './git/refFolders.ts';
 import { foldRefs, foldingFor } from './git/refFolders.ts';
 import type { RefSet, StoredTicks } from './refSets.ts';
@@ -42,6 +43,15 @@ interface Ref {
    * this branch lately", and rebasing a year-old commit onto today is a branch that moved today.
    */
   readonly updated: number;
+  /**
+   * The working tree that has this branch checked out, when one does and it is not this window's.
+   *
+   * Worth a row of its own because it is the one thing about a branch that nothing else shows and
+   * that stops a checkout dead. Null on a git too old for `%(worktreepath)`, which is the same
+   * thing this says about a branch nobody has out - and has to be, because that is all an older git
+   * can say about any of them.
+   */
+  readonly worktree: string | null;
   /** What it reads as inside a folder: the part of its name the folder has not already said. */
   readonly display?: string;
 }
@@ -319,21 +329,29 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     }
 
     try {
-      const out = await this.git.runRead(repo.root, [
-        'for-each-ref',
-        // One field more, and no second process: the age comes off the same walk of the refs.
-        '--format=%(refname)%00%(HEAD)%00%(committerdate:unix)',
-        'refs/heads',
-        'refs/remotes',
-        'refs/tags',
-      ]);
+      /*
+       * Two fields more than the refs themselves, and still no second process: the age and the
+       * worktree both come off the same walk. The worktree only where git has the field - an
+       * unknown one is `fatal: unknown field name` and no output, which would empty this view
+       * rather than leave a detail out of it.
+       */
+      const out = await this.git.runRead(
+        repo.root,
+        refListArgs(await this.git.atLeast(WORKTREE_PATHS_SINCE.major, WORKTREE_PATHS_SINCE.minor)),
+      );
+
+      const here = repo.root.replace(/\\/g, '/').toLowerCase().replace(/\/$/, '');
 
       this.refs = out
         .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
         .flatMap((line) => {
-          const [refName = '', head = '', updated = ''] = line.split('\x00');
+          const read = parseRefLine(line);
+
+          if (read === null) {
+            return [];
+          }
+
+          const { refName, head, updated } = read;
           const group = GROUPS.find((g) => refName.startsWith(g.prefix));
 
           if (group === undefined) {
@@ -353,9 +371,19 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
               group,
               refName,
               label,
-              isHead: head === '*',
+              isHead: head,
               // Empty for an annotated tag, whose date is the tagger's and lives in another field.
-              updated: Number(updated) > 0 ? Number(updated) * 1000 : 0,
+              updated,
+              /*
+               * Not this window's own tree. Every checked-out branch names a worktree, and saying
+               * so about the branch you are looking at from inside it would put a folder on nearly
+               * every row to no purpose - HEAD already says which one that is.
+               */
+              worktree:
+                read.worktree === null ||
+                read.worktree.toLowerCase().replace(/\/$/, '') === here
+                  ? null
+                  : read.worktree,
             } satisfies Ref,
           ];
         });
@@ -722,7 +750,18 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
      */
     const age = node.updated > 0 ? describeAge(node.updated) : '';
 
-    item.description = node.isHead ? `HEAD${age === '' ? '' : ` · ${age}`}` : age;
+    /*
+     * And which folder has it, when another one does.
+     *
+     * First, ahead of the age: a branch that will not check out here is a different kind of fact
+     * from a branch nobody has touched since March, and it is the one that is about to be in the
+     * way. By the folder's name rather than its path, because a row is one line in a narrow view -
+     * the path is on the tooltip, where there is room for it.
+     */
+    const held = node.worktree === null ? '' : `in ${worktreeLabel(node.worktree)}`;
+    const said = [node.isHead ? 'HEAD' : '', held, age].filter((part) => part !== '');
+
+    item.description = said.join(' · ');
     item.checkboxState = this.hidden.has(node.refName) ? Unchecked : Checked;
     /*
      * The kind is part of the context value because the menu has to tell them apart: a local branch
@@ -732,10 +771,19 @@ export class RefsProvider implements vscode.TreeDataProvider<Node> {
     item.contextValue = `weftRef${
       node.group.id === 'tags' ? 'Tag' : node.group.id === 'remotes' ? 'Remote' : 'Local'
     }`;
-    item.tooltip = `${node.refName}\nUntick to keep it out of the graph`;
+    item.tooltip =
+      node.worktree === null
+        ? `${node.refName}\nUntick to keep it out of the graph`
+        : `${node.refName}\nChecked out in ${node.worktree}\nA branch can only be in one working tree at a time\nUntick to keep it out of the graph`;
 
     item.iconPath = new vscode.ThemeIcon(
-      node.group.id === 'tags' ? 'tag' : node.group.id === 'remotes' ? 'cloud' : 'git-branch',
+      node.worktree !== null
+        ? 'root-folder'
+        : node.group.id === 'tags'
+          ? 'tag'
+          : node.group.id === 'remotes'
+            ? 'cloud'
+            : 'git-branch',
     );
 
     return item;

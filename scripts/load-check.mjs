@@ -5482,6 +5482,53 @@ if (disposeHandler !== null) {
       problems.push(`the new worktree was not on ${branch}: ${JSON.stringify(on)}`);
     }
 
+    /*
+     * And the branch's own row says which folder has it.
+     *
+     * Read off the row rather than the ref behind it: the description is what a reader sees before
+     * they try the checkout that will not work, and it is the whole point of carrying the field.
+     */
+    await refsTree?.reload();
+
+    const heldRow = (refsTree?.getChildren() ?? [])
+      .flatMap((group) => refsTree.getChildren(group))
+      .find((node) => refsTree.targetOf(node)?.refName === `refs/heads/${branch}`);
+    const held = heldRow === undefined ? null : refsTree.getTreeItem(heldRow);
+    const folder = made.split('/').pop() ?? '';
+
+    console.log('  its row      :', String(held?.description ?? '(no row)'), '|', held?.iconPath?.id ?? '');
+
+    if (held === undefined || held === null) {
+      problems.push(`no row for ${branch} once it had a worktree`);
+    } else {
+      if (!String(held.description ?? '').includes(folder)) {
+        problems.push(`the row for ${branch} did not say which folder has it: ${JSON.stringify(String(held.description ?? ''))}`);
+      }
+
+      // The whole path where there is room for it, which the row itself has not got.
+      if (!String(held.tooltip ?? '').includes('Checked out in')) {
+        problems.push(`the tooltip for ${branch} did not name the working tree`);
+      }
+
+      if (held.iconPath?.id !== 'root-folder') {
+        // The description is the first thing a narrow sidebar cuts off, and this is the row's news.
+        problems.push(`the row for ${branch} kept the icon ${JSON.stringify(held.iconPath?.id ?? null)}`);
+      }
+    }
+
+    // And the branch this window is on does not, though git names a worktree for it too: HEAD
+    // already says which folder that is, and repeating it on nearly every row says nothing.
+    const headRowNow = (refsTree?.getChildren() ?? [])
+      .flatMap((group) => refsTree.getChildren(group))
+      .find((node) => refsTree.targetOf(node)?.refName === `refs/heads/${onNow}`);
+    const headItem = headRowNow === undefined ? null : refsTree.getTreeItem(headRowNow);
+
+    console.log('  HEAD row     :', String(headItem?.description ?? '(no row)'));
+
+    if (String(headItem?.description ?? '').includes(' in ')) {
+      problems.push(`the row for ${onNow}, which this window is on, named a folder: ${String(headItem?.description ?? '')}`);
+    }
+
     // The same branch again. git would refuse; the point is that this says where it already is and
     // offers to go there, rather than handing back git's sentence about a path.
     const offeredBefore = offers.length;

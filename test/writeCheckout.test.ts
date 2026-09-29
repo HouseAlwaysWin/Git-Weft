@@ -16,7 +16,7 @@ import { Operation, parseStatus, readOperation, readRepoState, workAtRisk } from
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { branch, commit, fakeUi, git, makeRepo, open, sh } from './writeSupport.ts';
+import { branch, commit, fakeUi, git, made, makeRepo, open, sh } from './writeSupport.ts';
 
 test('checkout moves HEAD to the branch', async () => {
   const dir = makeRepo();
@@ -214,6 +214,65 @@ test('two working trees of one repository share a queue, and two repositories do
   await Promise.all([a, b]);
 
   assert.deepEqual(order.slice(3), ['repo/.git:tree-a out', 'repo/.git:tree-b in', 'repo/.git:tree-b out']);
+});
+
+test('a branch another working tree has out is explained, in git\u2019s own words and both of them', async () => {
+  const dir = makeRepo();
+  const side = `${dir}-side`;
+
+  made.push(side);
+  sh(dir, 'worktree', 'add', '-q', side, 'feature');
+
+  const repo = await open(dir);
+
+  /*
+   * Two wordings, because git uses one for anything that would check the branch out and another for
+   * deleting it, and both name a folder while saying nothing about what it is. Read out of git here
+   * rather than written down: the rule exists to survive git's phrasing, not a memory of it.
+   */
+  for (const args of [
+    ['checkout', 'feature'],
+    ['switch', 'feature'],
+    ['branch', '-D', 'feature'],
+  ]) {
+    try {
+      await git.runWrite(repo.root, args);
+      assert.fail(`git should have refused \`git ${args.join(' ')}\` while another worktree has the branch`);
+    } catch (err) {
+      const mapped = mapGitError(err);
+
+      assert.match(
+        mapped.message,
+        /another working tree/,
+        `${args[0]} was answered with: ${mapped.message}`,
+      );
+
+      assert.ok(mapped.message.includes('feature'), `${args[0]} did not name the branch`);
+
+      // The folder by its own name: git reports the path spelled its way, which on Windows is not
+      // always the spelling it was handed.
+      assert.ok(
+        mapped.message.includes(`${side.split('/').pop()}`),
+        `${args[0]} did not name the folder: ${mapped.message}`,
+      );
+
+      // Never the raw sentence. That is what the log is for, and it is kept.
+      assert.ok(!mapped.message.startsWith('fatal:'), 'git\u2019s own wording reached the dialog');
+      assert.match(mapped.raw, /checked out at/);
+    }
+  }
+});
+
+test('the branch this tree is on is not something another worktree has out', async () => {
+  const dir = makeRepo();
+
+  // Nothing linked at all, and HEAD on main: checking out the branch you are already on is fine,
+  // and must not be answered as though somebody else had it.
+  const repo = await open(dir);
+
+  await git.runWrite(repo.root, ['checkout', 'main']);
+
+  assert.equal(sh(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'main');
 });
 
 test('a ref that could not be locked says what state it left behind, and offers to retry', () => {

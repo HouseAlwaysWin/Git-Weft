@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A branch another folder has checked out says so, on its own row.** A branch open in one of the
+  repository's other working trees cannot be checked out, deleted or given a worktree here, and until
+  now the first anybody heard of it was git refusing with a path they no longer recognised. The row in
+  Branches & Tags names the folder ahead of the age, carries the whole path on its tooltip and takes a
+  folder icon - except for the branch this window is on, where HEAD already says which folder that is.
+  And when git does refuse - on `checkout`, `switch`, a branch delete or another worktree - the
+  message says what the folder is instead of quoting a path and stopping there.
+
 - **Add a Worktree for This Branch…, on any branch in Branches & Tags.** The gesture worktrees exist
   for: a branch right-clicked, open in its own window a moment later, with no stash and no second
   clone. The folder is suggested rather than demanded - beside the repository and named after both, so
