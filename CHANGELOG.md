@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.2
 
 - **Author Files has a button to open every folder and one to shut them all.** A commit's files fit on
   a screen and are drawn open; one person's are thousands across a few hundred folders, where both
