@@ -8,6 +8,31 @@
       "name": "Run Weft (on GimmeCapture)",
       "type": "extensionHost",
       "request": "launch",
+      // Diagnostic, 2026-09-30: the host starts with debugBrk and nothing resumes it. This makes
+      // js-debug write a log and print its path in the Debug Console. Delete this line once the
+      // debugger works again.
+      "trace": true,
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "D:\\ShittyProject\\dlp-develop"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/dist/**/*.js"
+      ],
+      "preLaunchTask": "build"
+    },
+    {
+      // The same, with no debugger attached.
+      //
+      // An extensionHost session always starts the host with --inspect-brk and relies on VS Code's
+      // own debugger to resume it. When that attach fails the host sits paused on its first line and
+      // the window says 'Extension host did not start in 10 seconds' - which reads like the
+      // extension is broken, and is nothing to do with it. This config skips the debugger entirely;
+      // Ctrl+F5 on either of the others does the same thing without editing anything.
+      "name": "Run Weft (no debugger)",
+      "type": "extensionHost",
+      "request": "launch",
+      "noDebug": true,
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "D:\\ShittyProject\\dlp-develop"
