@@ -41,7 +41,11 @@ test('checkout is offered for another branch and refused for the current one', a
   const current = buildMenu(branch('main'), state);
 
   assert.equal(other[0]?.disabledReason, null);
-  assert.equal(current[0]?.disabledReason, 'Already checked out');
+  /*
+   * Naming the branch is the point of the wording: the refusal is a statement about HEAD, and it is
+   * read at the moment something else on screen says HEAD is somewhere else.
+   */
+  assert.equal(current[0]?.disabledReason, 'You are already on main');
 });
 
 test('nothing is offered while another operation is in progress', async () => {

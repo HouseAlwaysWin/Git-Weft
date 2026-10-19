@@ -64,7 +64,8 @@ test('a remote branch is refused only when the branch it leads to is the one alr
 
   assert.equal(
     findAction('weft.checkoutRemoteBranch')?.unavailable(remoteRef('origin/main'), state),
-    'Already checked out',
+    'You are already on main',
+    'the local branch it would end on, which is not the one the label names',
   );
 });
 

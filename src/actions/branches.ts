@@ -63,8 +63,15 @@ const checkoutBranch: Action = {
       return blocked;
     }
 
+    /*
+     * Named rather than implied. "Already checked out" is a statement about HEAD, and the moment it
+     * is worth reading is the moment something else on screen disagrees about where HEAD is - VS
+     * Code's own status bar goes stale for exactly as long as it takes a half-failed checkout to be
+     * retried. A refusal that names the branch settles that; one that does not is a fourth voice
+     * saying something ambiguous.
+     */
     if (target.kind === 'ref' && state.branch === target.label) {
-      return 'Already checked out';
+      return `You are already on ${state.branch}`;
     }
 
     return null;
@@ -115,7 +122,8 @@ const checkoutRemoteBranch: Action = {
      * So the only refusal left is being on it already.
      */
     if (state.branch === localNameOf(target.label)) {
-      return 'Already checked out';
+      // The local branch it would end on, which is not what the label says - so it is worth naming.
+      return `You are already on ${state.branch}`;
     }
 
     return null;

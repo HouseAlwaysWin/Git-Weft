@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **A checkout that only worked the second time says so.** When git swaps every file and then cannot
+  move HEAD - a Windows file lock on the ref rename - Weft runs the checkout again by itself. That is
+  still what it does, but it used to do it in silence: several seconds of nothing, then a line that
+  read like an ordinary checkout. Anything reading HEAD for itself during those seconds - VS Code's own
+  status bar, the Source Control view - caches the branch on its way out and keeps it, so the window
+  ends up showing two different branches and the reader believes the wrong one. It now says it is
+  running it again while it does, and says the first attempt failed in the line afterwards.
+
+- **"Already checked out" names the branch.** It is a statement about HEAD, read at the moment
+  something else on screen claims HEAD is somewhere else, so it now says which branch it means. The
+  refusal line also stopped lower-casing the whole reason, which would have turned a branch name into
+  one that does not exist.
+
 - **A branch another folder has checked out says so, on its own row.** A branch open in one of the
   repository's other working trees cannot be checked out, deleted or given a worktree here, and until
   now the first anybody heard of it was git refusing with a path they no longer recognised. The row in

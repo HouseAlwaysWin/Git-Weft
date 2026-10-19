@@ -1427,8 +1427,14 @@ if (done === undefined) {
     problems.push(`checkout was unavailable on another branch: ${onSide?.items?.[0]?.disabledReason}`);
   }
 
-  if (onCurrent?.items?.[0]?.disabledReason !== 'Already checked out') {
-    problems.push('checkout was offered for the branch that is already checked out');
+  const onNowHere = String(runGit(repoPath, 'rev-parse', '--abbrev-ref', 'HEAD')).trim();
+
+  if (onCurrent?.items?.[0]?.disabledReason !== `You are already on ${onNowHere}`) {
+    // Named, not merely refused: this sentence is read while something else on screen is still
+    // showing the branch HEAD has just left, and naming it is what settles which is right.
+    problems.push(
+      `checkout on the current branch said ${JSON.stringify(onCurrent?.items?.[0]?.disabledReason ?? null)}`,
+    );
   }
 
   // The interactive rebase, which is offered onto another branch and refused onto the one you are on.
@@ -5302,6 +5308,51 @@ if (disposeHandler !== null) {
 
 
 /*
+ * A refusal says which branch it means, spelled the way the branch is spelled.
+ *
+ * "Already checked out" is a statement about HEAD, and the moment it is worth reading is the moment
+ * something else on screen disagrees about where HEAD is - which is exactly what a half-failed
+ * checkout produces while it is being retried. So it has to name the branch.
+ *
+ * On a branch with capitals in it, because the refusal is composed by lower-casing and every branch
+ * this fixture starts with is lower case already: `toLowerCase()` is the identity function on all of
+ * them, and a check that uses one proves nothing. The repository this came from names its branches
+ * `Fix_WOQ020DG`, and a reader sent looking for `fix_woq020dg` does not find it.
+ */
+{
+  const named = 'Fix_ABC123DG';
+  const was = String(runGit(repoPath, 'rev-parse', '--abbrev-ref', 'HEAD')).trim();
+
+  runGit(repoPath, 'checkout', '-q', '-b', named);
+  await quiet();
+
+  const errorsFrom = posted.filter((m) => m.type === 'error').length;
+
+  // Through the graph's own path rather than the sidebar's: that one announces as well, and a
+  // warning with no buttons is a failure here by definition.
+  await messageHandler({
+    type: 'runAction',
+    id: 'weft.checkoutBranch',
+    target: { kind: 'ref', refName: `refs/heads/${named}`, label: named, refKind: 'local' },
+  });
+
+  await until(() => posted.filter((m) => m.type === 'error').length > errorsFrom);
+
+  const said = posted.filter((m) => m.type === 'error').at(-1)?.message ?? '';
+
+  console.log('\nrefused      :', said || '(said nothing)');
+
+  if (said !== `Checkout ${named}: you are already on ${named}`) {
+    problems.push(`checking out the branch HEAD is on said ${JSON.stringify(said)}`);
+  }
+
+  // Put back, so nothing after this is on a branch the rest of the run has never heard of.
+  runGit(repoPath, 'checkout', '-q', was);
+  runGit(repoPath, 'branch', '-D', named);
+  await quiet();
+}
+
+/*
  * The repository's other working trees: listed, opened, and removed.
  *
  * The parse is unit-tested against every shape git prints. What cannot be unit-tested is that the
@@ -6528,6 +6579,26 @@ if (!(await until(blamedAgain))) {
       'src/panel.ts',
       /autoFetch\(\): Promise<void> \{[\s\S]{0,1200}?lock\.run\(/,
       'fetches - which prunes, and is a write - outside the queue',
+    ],
+
+    /*
+     * A run that only worked the second time has to say so, in both places.
+     *
+     * Silence here is not neutral. The retry takes several seconds, and anything that reads HEAD for
+     * itself during them - VS Code's own status bar, the Source Control view - caches the branch on
+     * its way out and keeps it. The reader is then looking at a stale bar and a status line that
+     * reads exactly like an ordinary checkout, and concludes the checkout did not happen. It did,
+     * twice.
+     */
+    [
+      'src/panel.ts',
+      /setStatusBarMessage\([^)]*running it again/i,
+      'retries a half-finished checkout without saying it is doing so',
+    ],
+    [
+      'src/panel.ts',
+      /const again = retrying \?[\s\S]{0,200}?setStatusBarMessage\(`Weft: \$\{result\.outcome\.message\}\$\{back\}\$\{again\}`/,
+      'reports a checkout that needed two goes as though it had needed one',
     ],
 
     /*

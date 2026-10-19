@@ -1282,7 +1282,13 @@ export class WeftPanel {
         const unavailable = action.unavailable(target, state);
 
         if (unavailable !== null) {
-          const refusal = `${action.label(target)}: ${unavailable.toLowerCase()}`;
+          /*
+           * The first letter only, as the later refusal already does. A whole-string lowercase
+           * reads fine for a reason written as a sentence and ruins one that names a ref:
+           * `Checkout Fix_WOQ020DG: you are already on fix_woq020dg` sends the reader looking for
+           * a branch that does not exist.
+           */
+          const refusal = `${action.label(target)}: ${unavailable.charAt(0).toLowerCase()}${unavailable.slice(1)}`;
           this.post({ type: 'error', message: refusal });
 
           if (announce) {
@@ -1379,7 +1385,22 @@ export class WeftPanel {
        */
       const back =
         result.before === null || result.after === result.before ? '' : `  (was ${result.before.slice(0, 8)})`;
-      void vscode.window.setStatusBarMessage(`Weft: ${result.outcome.message}${back}`, 5000);
+
+      /*
+       * And that it took two goes, when it did.
+       *
+       * A checkout that swaps every file and cannot move HEAD is retried without asking, which is
+       * right - the reader can do nothing about a file lock, and the same command a moment later
+       * almost always works. What was missing is any sign it happened. From the outside it is
+       * several seconds of nothing followed by a line indistinguishable from an ordinary checkout,
+       * and during those seconds anything that reads HEAD for itself - VS Code's own status bar,
+       * the Source Control view - caches the branch that is on its way out and keeps it. Somebody
+       * reading that stale bar concludes the checkout did not happen, which is what this says it
+       * did, twice.
+       */
+      const again = retrying ? '  (the first attempt could not move HEAD, so it ran again)' : '';
+
+      void vscode.window.setStatusBarMessage(`Weft: ${result.outcome.message}${back}${again}`, 8000);
       return result.outcome.ran;
     } catch (err) {
       // One retry, never two: an offer to stash and retry that fails the same way must not become
@@ -1445,6 +1466,9 @@ export class WeftPanel {
      * runs. Only a second failure is worth a dialog: by then it is not a passing lock.
      */
     if (mapped.retryBySelf === true && retry !== null) {
+      // Said here as well as in the status bar afterwards: this one is what explains the pause
+      // while it is still happening, and the status line is what explains it once it is over.
+      void vscode.window.setStatusBarMessage('Weft: that did not take - running it again…', 8000);
       output?.info(`${mapped.message}\nRunning it again.`);
       await retry();
       return;
